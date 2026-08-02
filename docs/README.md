@@ -1,6 +1,6 @@
 # pi-style documentation
 
-> Status: **Foundation implemented (Phase 1A); product surfaces planned**. Runtime, configuration, theme, rendering, and capability foundations are validated; UI features remain scheduled by phase.
+> Status: **Phase 5 accepted**. Foundation and the exact Pi 0.83.0 certified messages/tools subset are validated; Phase 6 persistence/composition and later release work remain planned.
 
 pi-style is a Pi UI package that combines two complementary ideas:
 
@@ -25,6 +25,7 @@ The target is a complete, maintainable UI plugin—not a one-screen footer and n
 | [ui/EDITOR.md](ui/EDITOR.md) | Droid-inspired editor styles, composition, metadata, alignment, and fallback behavior. |
 | [ui/STARTUP.md](ui/STARTUP.md) | Compact startup/header presentation and optional overlay behavior. |
 | [ui/MESSAGES-AND-TOOLS.md](ui/MESSAGES-AND-TOOLS.md) | Message prefixes, special blocks, tool badges, tool results, and compatibility constraints. |
+| [PHASE-5-EVIDENCE.md](PHASE-5-EVIDENCE.md) | Exact Pi 0.83.0 certification, fallback dispositions, lifecycle, and acceptance evidence. |
 | [ui/THEMING.md](ui/THEMING.md) | Semantic colors, glyphs, style presets, Nerd Font detection, backgrounds, and accessibility. |
 | [decisions/README.md](decisions/README.md) | Accepted architecture decision records. |
 | [../ROADMAP.md](../ROADMAP.md) | Phased implementation plan, dependencies, milestones, and exit criteria. |

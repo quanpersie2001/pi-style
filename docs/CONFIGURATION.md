@@ -1,6 +1,6 @@
 # Configuration
 
-> Status: **Foundation implemented (Phase 1A); full command/persistence surface planned**
+> Status: **Foundation implemented; Phase 5 session-only compatibility flags accepted; full command/persistence surface remains Phase 6**
 
 ## Goals
 
@@ -194,6 +194,20 @@ Overrides are maps of known semantic keys. Unknown keys are ignored with a diagn
 - **CFG-006:** Configuration parsing has no side effects.
 - **CFG-007:** Project configuration is ignored for untrusted projects.
 - **CFG-008:** Environment variables are narrow, documented, and never replace the full schema.
+
+## Phase 5 public session flags
+
+The extension registers these public boolean flags for the current session:
+
+| Flag | Authorization | Effect |
+|---|---|---|
+| `--pi-style-core-patches` | required core gate | permits Tier C consideration; does not authorize a surface alone |
+| `--pi-style-message-user` | core + this flag | authorizes the certified user-message prefix |
+| `--pi-style-message-assistant` | core + this flag | authorizes the certified assistant-message prefix |
+| `--pi-style-tools` | core + this flag | authorizes certified tool call/result selectors |
+| `--pi-style-ascii` | marker mode only | selects ASCII markers on already-authorized surfaces |
+
+Tier C is explicit default-deny: core alone, surface-only flags, and ordinary product defaults install nothing. These flags are session-only and are not persisted. Full commands, settings persistence, migrations, and durable per-surface configuration remain Phase 6 work.
 
 ## Commands
 

@@ -25,6 +25,8 @@ export interface FakePiHostOptions {
 	capabilities?: Partial<FakePiCapabilities>;
 	initialEditor?: NonNullable<ExtensionUIContext["setEditorComponent"]> extends (factory: infer F) => void ? F : never;
 	initialFooter?: Parameters<ExtensionUIContext["setFooter"]>[0];
+	systemPrompt?: string;
+	flags?: Record<string, boolean | string | undefined>;
 }
 
 type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
@@ -43,6 +45,12 @@ export class FakePiHost {
 	readonly capabilities: FakePiCapabilities;
 	readonly handlers = new Map<string, Handler[]>();
 	readonly commands = new Map<string, unknown>();
+	readonly registeredTools: unknown[] = [];
+	readonly registeredFlags = new Map<string, unknown>();
+	readonly registeredMessageRenderers = new Map<string, unknown>();
+	readonly registeredEntryRenderers = new Map<string, unknown>();
+	activeTools: string[] = [];
+	allTools: unknown[] = [];
 	readonly widgets = new Map<string, { content: unknown; placement: "aboveEditor" | "belowEditor" }>();
 	readonly componentFactories = new Map<
 		string,
@@ -55,6 +63,7 @@ export class FakePiHost {
 	readonly renderRequests: Array<"tui" | "rpc"> = [];
 	readonly overlays: Array<{ options?: unknown; handle: { hidden: boolean; disposed: boolean } }> = [];
 	readonly workingIndicatorChanges: Array<WorkingIndicatorOptions | undefined> = [];
+	terminalInputSubscriptions = 0;
 	private headerFactory: Parameters<NonNullable<ExtensionUIContext["setHeader"]>>[0] | undefined;
 	readonly ownership = {
 		header: { initial: false, current: false, restores: 0 },
@@ -71,10 +80,14 @@ export class FakePiHost {
 	private readonly api: ExtensionAPI;
 	private readonly context: ExtensionContext;
 	private readonly sessionReason: NonNullable<FakePiHostOptions["sessionReason"]>;
+	private readonly systemPrompt: string;
+	private readonly flagValues: Record<string, boolean | string | undefined>;
 
 	constructor(options: FakePiHostOptions = {}) {
 		this.mode = options.mode ?? "tui";
 		this.sessionReason = options.sessionReason ?? "startup";
+		this.systemPrompt = options.systemPrompt ?? "";
+		this.flagValues = { ...options.flags };
 		this.capabilities = { ...defaultCapabilities, ...options.capabilities };
 		this.ownership.editor.initial = options.initialEditor !== undefined;
 		this.ownership.editor.current = this.ownership.editor.initial;
@@ -91,6 +104,10 @@ export class FakePiHost {
 
 	get extensionContext(): ExtensionContext {
 		return this.context;
+	}
+
+	getSystemPrompt(): string {
+		return this.systemPrompt;
 	}
 
 	get sessionIsStarted(): boolean {
@@ -120,11 +137,19 @@ export class FakePiHost {
 				this.commands.set(name, options);
 			},
 			registerShortcut: () => {},
-			registerFlag: () => {},
-			getFlag: () => undefined,
-			registerTool: () => {},
-			registerMessageRenderer: () => {},
-			registerEntryRenderer: () => {},
+			registerFlag: (name, options) => {
+				this.registeredFlags.set(name, options);
+			},
+			getFlag: (name) => this.flagValues[name],
+			registerTool: (tool) => {
+				this.registeredTools.push(tool);
+			},
+			registerMessageRenderer: (customType, renderer) => {
+				this.registeredMessageRenderers.set(customType, renderer);
+			},
+			registerEntryRenderer: (customType, renderer) => {
+				this.registeredEntryRenderers.set(customType, renderer);
+			},
 			sendMessage: () => {},
 			sendUserMessage: () => {},
 			appendEntry: () => {},
@@ -141,8 +166,8 @@ export class FakePiHost {
 				cancelled: false,
 				truncated: false,
 			}),
-			getActiveTools: () => [],
-			getAllTools: () => [],
+			getActiveTools: () => [...this.activeTools],
+			getAllTools: () => [...this.allTools] as never,
 			setActiveTools: () => {},
 			getCommands: () => [],
 			setModel: async () => false,
@@ -166,7 +191,12 @@ export class FakePiHost {
 			notify: (message, type) => {
 				this.notifications.push({ message, type });
 			},
-			onTerminalInput: () => () => {},
+			onTerminalInput: () => {
+				this.terminalInputSubscriptions++;
+				return () => {
+					this.terminalInputSubscriptions--;
+				};
+			},
 			setStatus: () => {},
 			setWorkingMessage: () => {},
 			setWorkingVisible: () => {},
@@ -273,7 +303,7 @@ export class FakePiHost {
 			shutdown: () => {},
 			getContextUsage: () => undefined,
 			compact: () => {},
-			getSystemPrompt: () => "",
+			getSystemPrompt: () => this.systemPrompt,
 		};
 	}
 

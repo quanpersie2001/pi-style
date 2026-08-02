@@ -20,6 +20,10 @@ Classify integration techniques:
 
 A Tier C feature must be isolated, idempotent, reversible, identity-safe, tested against shape mismatch/conflict, and have a native fallback. It may not alter built-in execution semantics merely for styling.
 
+### Accepted Phase 5 decision
+
+Human-authorized Droid-style Tier C compatibility is accepted only for exact Pi `0.83.0` within `>=0.83.0 <0.84.0`. It is explicit default-deny: the core flag plus the relevant user/assistant/tools surface flag is required, and flags are session-only. Certified adapters cover user/assistant prefixes and tool call/result selectors with exact certified state markers. Compaction/branch/skill/custom blocks, unreliable generic cancelled/truncated distinction, and image-specific decoration remain approved native-preserved fallbacks. The boundary is renderer-only: no broad compositor, tool registration, execution, prompt, filesystem, or process mutation.
+
 ## Alternatives considered
 
 ### Never patch internals

@@ -1,6 +1,6 @@
 # Lifecycle and composition
 
-> Status: **Phase 3 editor composition implemented; later feature composition remains planned**
+> Status: **Phase 5 compatibility lifecycle accepted; full persistence/composition remains Phase 6**
 
 ## Goals
 
@@ -138,7 +138,7 @@ Startup data is collected before mounting. Render methods do not scan files or r
 
 ## Compatibility patch lifecycle
 
-Every compatibility patch uses a marker stored in a `WeakMap`, `Symbol`, or registry keyed by target identity. A patch record contains:
+Every compatibility patch uses a marker stored in a `WeakMap`, `Symbol`, or registry keyed by target identity. Phase 5 message/tool patches are session-only, exact-Pi-gated, renderer-only, and explicitly default-deny. A failed exact restoration retains the probe for retry before a new generation; a later owner is preserved. A patch record contains:
 
 ```ts
 interface PatchRecord {

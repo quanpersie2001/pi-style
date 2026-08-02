@@ -1,6 +1,6 @@
 # Messages and tool presentation
 
-> Status: **Planned**
+> Status: **Implemented/certified subset — exact Pi 0.83.0; capability-conditioned fallbacks remain native**
 
 ## Scope
 
@@ -56,9 +56,17 @@ Default treatment uses a restrained assistant prefix only when it improves role 
 
 Thinking text uses Pi's thinking token and does not visually compete with final assistant text.
 
+## Compatibility status
+
+The certified Tier C subset targets exact Pi `0.83.0` only, within policy range `>=0.83.0 <0.84.0`. Installation is session-only, explicit default-deny, and requires the core flag plus the relevant surface flag. No execution, tool registration, prompt, filesystem, or process behavior is changed.
+
+Certified presentation includes user/assistant prefixes, tool call/result selectors, and the exact markers `[tool]`, `[tool:result]`, `[tool:pending]`, `[tool:running]`, and `[tool:error]` when their certified contexts are exposed. ASCII mode uses configured ASCII markers on already-authorized surfaces.
+
+Approved capability-conditioned fallbacks are truthful and intentional: special compaction/branch/skill/custom presentation remains native on 0.83 because no certified adapter exists; generic cancelled/truncated tool distinction remains native/neutral when Pi does not expose reliable generic state; images remain native-preserved without an image-decoration claim.
+
 ## Special message blocks
 
-Planned blocks:
+Native fallback blocks:
 
 - compaction summaries;
 - skill invocation/status;
@@ -197,14 +205,14 @@ If another extension already owns a message/tool renderer:
 ## Requirements — tools
 
 - **TOOL-001:** styling never changes built-in execution semantics.
-- **TOOL-002:** pending/partial/success/error/cancelled/truncated states are distinct without color alone.
+- **TOOL-002:** certified pending/partial/success/error states are distinct without color alone; cancelled/truncated distinction is native/neutral when reliable host state is unavailable.
 - **TOOL-003:** built-in expansion and truncation behavior is preserved.
 - **TOOL-004:** tool-specific headers remain concise and sanitize incomplete arguments.
 - **TOOL-005:** renderer conflict/failure falls back to the existing/native renderer.
 - **TOOL-006:** patches/overrides are idempotent, reversible, and identity-safe.
 - **TOOL-007:** renderers perform no filesystem/process work.
 
-## Planned tests
+## Certified and fallback tests
 
 - user/assistant multiline prefixes and wide/narrow widths;
 - assistant partial/final transitions;

@@ -1,6 +1,6 @@
 # Compatibility policy
 
-> Status: **Phase 3 public editor compatibility implemented; later conflict/patch matrix planned**
+> Status: **Phase 5 Tier C certified subset accepted for exact Pi 0.83.0; broader persistence/composition remains Phase 6**
 
 ## Principles
 
@@ -49,7 +49,15 @@ Tier B code must check method existence, validate returned shapes, and keep a pu
 
 ## Tier C surfaces
 
-Planned Tier C candidates:
+The accepted Tier C certification is exact Pi `0.83.0`, governed by policy range `>=0.83.0 <0.84.0`. The immutable certification table records expected native targets, fingerprints, method shapes, adapter identities, and certified status. Installation requires own-descriptor shape and writable/configurable ownership gates; cleanup restores the exact captured descriptor only while pi-style still owns the installed identity. Unknown or mismatched versions fail closed to native behavior.
+
+Certified surfaces are the user-message render, assistant-message render, tool call renderer, and tool result renderer. User/assistant message surfaces require the core flag plus the corresponding per-surface flag; tool selectors require core plus tools. The public session flags are default-deny and non-persistent. ASCII changes markers only on an authorized surface.
+
+Lifecycle installs occur at interactive `session_start`, retain incomplete probes when exact restoration is rejected, retry before a new generation, preserve later owners, and expose frozen runtime/final diagnostics. Recertification is required for any Pi build outside exact `0.83.0` evidence.
+
+Approved fallbacks remain native: special message blocks without a certified adapter, generic cancelled/truncated tool distinction without reliable host state, images without decoration claim, malformed/unsafe shapes, disabled surfaces, and unknown/mismatched versions.
+
+Certified Tier C surfaces:
 
 - assistant/user message render patches;
 - compaction, skill, branch-summary, or custom message component patches;
@@ -79,8 +87,8 @@ A compatibility matrix should record:
 | editor getter/composition | To be recorded in Phase 7 | method existence | prefer existing/native editor |
 | footer data branch/status | To be recorded in Phase 7 | provider methods | hide affected segments |
 | header API | To be recorded in Phase 7 | method existence | startup widget or off |
-| message component shape | To be recorded in Phase 7 | version + prototype shape | native messages |
-| built-in renderer integration | To be recorded in Phase 7 | API/shape check | native tools |
+| message component shape | 0.83.0 | exact version + prototype shape/fingerprint | native messages |
+| built-in renderer integration | 0.83.0 | exact version + selector shape/fingerprint | native tools |
 
 Version numbers are filled in from actual implementation tests, not copied blindly from the references.
 

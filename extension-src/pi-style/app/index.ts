@@ -31,9 +31,9 @@ export interface PiStyleApp {
 	reload(input?: unknown): void;
 }
 
-export function createPiStyleApp(): PiStyleApp {
+export function createPiStyleApp(initialConfig?: unknown): PiStyleApp {
 	const runtime = new PiStyleRuntimeController();
-	let config = DEFAULT_CONFIG;
+	let config = initialConfig === undefined ? DEFAULT_CONFIG : normalizeConfig(initialConfig);
 	let resources: StartupResourceDiscovery | undefined;
 	return {
 		runtime,

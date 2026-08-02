@@ -1,6 +1,6 @@
 # pi-style roadmap
 
-> Status: **In progress — Phase 0 and Phase 1A completed; product phases remain planned**
+> Status: **Phase 5 accepted; Phase 6 blocked/not started; later release hardening remains planned**
 
 This roadmap defines the sequence for implementing the complete pi-style product. The phases are **sequencing boundaries, not an MVP scope reduction**. The intended v1 consists of every phase through Phase 7. Completing only the status line or editor is not completion of pi-style.
 
@@ -32,7 +32,7 @@ The product contract lives in [`docs/PRODUCT.md`](docs/PRODUCT.md). Detailed beh
 | 2 | Complete status-line subsystem | **Completed** |
 | 3 | Complete styled editor subsystem | Planned |
 | 4 | Startup presentation | Planned |
-| 5 | Messages and tool presentation | Planned |
+| 5 | Messages and tool presentation | **Completed — Peer accepted** |
 | 6 | Full configurability and extension composition | Planned |
 | 7 | Hardening, platform validation, and v1 release | Planned |
 
@@ -364,6 +364,8 @@ Phase 1 runtime/theme/lifecycle; may consume Phase 2 snapshot values.
 
 Extend the Droid-inspired visual system into the conversation feed while respecting Pi version risk, native rich content, built-in tool semantics, and other extensions.
 
+**Acceptance disposition:** Phase 5 is complete and Peer accepted for the certified exact Pi `0.83.0` subset within `>=0.83.0 <0.84.0`. Certified surfaces are user/assistant message prefixes and tool call/result selectors with exact pending/running/error markers. Approved fallbacks remain native for special message blocks, unreliable generic cancelled/truncated distinction, and image-specific decoration. The checkpoint contains 69 passing tests across 8 files. This does not authorize Phase 6 or claim full release/platform completion.
+
 ### Deliverables
 
 #### Shared render primitives
@@ -373,14 +375,14 @@ Extend the Droid-inspired visual system into the conversation feed while respect
 
 #### Messages
 
-- Optional user and assistant prefixes.
+- Optional user and assistant prefixes. **Accepted certified subset:** exact Pi 0.83.0, explicit core+surface flags, native fallback otherwise.
 - Streaming, thinking-only, tool-only, and mixed assistant states.
 - Compaction, skill, branch-summary, and custom message blocks.
 - Expanded/collapsed behavior where host support exists.
 
 #### Tools
 
-- Compact state-aware headers for read/write/edit/find/list/grep/bash.
+- Compact state-aware headers for read/write/edit/find/list/grep/bash. **Accepted certified subset:** tool call/result selectors and pending/running/error markers; cancelled/truncated remains native/neutral when unavailable.
 - Native syntax highlight/diff/truncation/expansion preservation.
 - Partial, success, error, cancellation, empty, and truncated result states.
 - Elapsed/result metrics when reliable.

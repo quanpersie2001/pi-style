@@ -1,6 +1,6 @@
 # Testing and validation
 
-> Status: **Phase 3 editor validation implemented; later phase validation remains planned**
+> Status: **Phase 5 executable compatibility matrix accepted; release/platform checks remain later gates**
 
 ## Goals
 
@@ -129,6 +129,19 @@ It should support capability toggles so tests can simulate older/missing APIs wi
 - previous footer preserved and dependent segments hidden;
 - namespaced widgets coexist;
 - another extension replaces a target after pi-style; cleanup does not overwrite it.
+
+## Phase 5 executable compatibility matrix
+
+The accepted Phase 5 checkpoint contains **69 passing tests across 8 test files**. It covers exact Pi `0.83.0` certification and policy-range rejection, explicit core-plus-surface default-deny flags, real installed user/assistant message output, OSC and width safety, real read/edit/bash call/result selectors, certified pending/running/error markers, malformed/getter inputs, descriptor ownership, later-owner preservation, overlap isolation, catch-after-write rollback retention and retry, real lifecycle cleanup rejection/retry, frozen reports/evidence/archives, ten-cycle lifecycle restoration, headless fallback, build/package smoke, and no execution mutation.
+
+Named final presentation proofs include:
+
+- `asserts installed message prefixes, OSC envelopes, width, and ASCII markers`
+- `asserts installed tool call/result and certified state markers`
+- `retains real rejected prototype cleanup and retries before a new generation`
+- `rejects mutation of frozen report evidence and still restores exactly`
+
+The 69-test checkpoint is an acceptance checkpoint, not a claim that later release checks are complete. Terminal/platform matrix validation, release packaging from a clean checkout, and Phase 6 persistence/composition checks remain later gates.
 
 ## Compatibility and patch tests
 

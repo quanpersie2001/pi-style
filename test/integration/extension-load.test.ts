@@ -1,4 +1,9 @@
+import { UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	__setCompatibilityRegistryTestHooks,
+	currentGeneration,
+} from "../../extension-src/pi-style/pi/compatibility-registry.js";
 import piStyleExtension from "../../extension-src/pi-style/pi/index.js";
 import { FakePiHost } from "../helpers/fake-pi-host.js";
 import { expectNoTerminalUi } from "../helpers/render-assertions.js";
@@ -13,6 +18,9 @@ describe("pi-style extension lifecycle foundation", () => {
 		expect(host.handlers.has("session_start")).toBe(true);
 		expect(host.handlers.has("session_shutdown")).toBe(true);
 		expect(host.commands.size).toBe(0);
+		expect(host.registeredTools).toHaveLength(0);
+		expect(host.registeredMessageRenderers.size).toBe(0);
+		expect(host.registeredEntryRenderers.size).toBe(0);
 		expect(host.widgets.size).toBe(0);
 		expect(vi.getTimerCount()).toBe(0);
 	});
@@ -42,6 +50,47 @@ describe("pi-style extension lifecycle foundation", () => {
 		expect(host.widgets.size).toBe(0);
 		expect(host.renderRequests).toHaveLength(0);
 		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("retains real rejected prototype cleanup and retries before a new generation", async () => {
+		const native = Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render");
+		let blocked = true;
+		let restoreAttempts = 0;
+		const resetRegistry = __setCompatibilityRegistryTestHooks({
+			defineProperty: (target, key, descriptor) => {
+				if (target === UserMessageComponent.prototype && key === "render" && descriptor.value === native?.value) {
+					restoreAttempts++;
+					if (blocked) return false;
+				}
+				return Reflect.defineProperty(target, key, descriptor);
+			},
+		});
+		try {
+			const host = new FakePiHost({ flags: { "pi-style-core-patches": true, "pi-style-message-user": true } });
+			piStyleExtension(host.extensionApi);
+			await host.sessionStart();
+			const installed = Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render");
+			const generation = currentGeneration();
+			expect(installed?.value).not.toBe(native?.value);
+			await host.sessionShutdown();
+			expect(restoreAttempts).toBe(1);
+			expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(installed?.value);
+			await host.sessionStart();
+			expect(currentGeneration()).toBe(generation);
+			expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(installed?.value);
+			await host.sessionShutdown();
+			expect(restoreAttempts).toBe(3);
+			blocked = false;
+			await host.sessionStart();
+			expect(currentGeneration()).toBe(generation);
+			expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(native?.value);
+			await host.sessionShutdown();
+			await host.sessionStart();
+			expect(currentGeneration()).toBe(generation + 1);
+			await host.sessionShutdown();
+		} finally {
+			resetRegistry();
+		}
 	});
 
 	it("records host capability variants without changing the production load path", () => {

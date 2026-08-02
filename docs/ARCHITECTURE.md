@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: **Phase 3 styled editor subsystem implemented; later product surfaces remain planned**
+> Status: **Phase 5 messages/tools compatibility boundary implemented and accepted; later product surfaces remain planned**
 
 ## Architecture goals
 
@@ -314,7 +314,7 @@ Startup is an isolated feature under `features/startup`. It consumes a runtime-p
 
 ## Phase 2 implementation notes
 
-The status-line subsystem uses app-owned immutable status snapshots, pure domain rendering, injected provider contracts, async cached Git refresh/invalidation, and namespaced public-widget component factories. The editor feature consumes the same immutable snapshots and is isolated from status-line implementation details; startup, messages, and tools remain planned.
+The status-line subsystem uses app-owned immutable status snapshots, pure domain rendering, injected provider contracts, async cached Git refresh/invalidation, and namespaced public-widget component factories. The editor feature consumes the same immutable snapshots and is isolated from status-line implementation details. The accepted Phase 5 boundary adds isolated `features/messages` and `features/tools` compatibility adapters behind `pi/` version, shape, ownership, and session-flag gates; these adapters are renderer-only and do not mutate execution or registration semantics.
 
 ## Architecture acceptance criteria
 
