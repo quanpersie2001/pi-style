@@ -1,6 +1,6 @@
 # pi-style roadmap
 
-> Status: **In progress — Phase 0 completed; Phase 1 remains planned**
+> Status: **In progress — Phase 0 and Phase 1A completed; product phases remain planned**
 
 This roadmap defines the sequence for implementing the complete pi-style product. The phases are **sequencing boundaries, not an MVP scope reduction**. The intended v1 consists of every phase through Phase 7. Completing only the status line or editor is not completion of pi-style.
 
@@ -28,7 +28,7 @@ The product contract lives in [`docs/PRODUCT.md`](docs/PRODUCT.md). Detailed beh
 | Phase | Name | Status |
 | --- | --- | --- |
 | 0 | Contract and repository foundation | **Completed** |
-| 1 | Runtime, configuration, and theme foundation | **Planned** |
+| 1 | Runtime, configuration, and theme foundation | **Completed (Phase 1A)** |
 | 2 | Complete status-line subsystem | Planned |
 | 3 | Complete styled editor subsystem | Planned |
 | 4 | Startup presentation | Planned |
@@ -111,6 +111,8 @@ None.
 ---
 
 ## Phase 1 — Runtime, configuration, and theme foundation
+
+> Phase 1A exit criteria passed: configuration, generation-safe runtime/disposal, scheduler, snapshots, semantic themes/glyphs, ANSI-safe helpers, capability diagnostics, headless preservation, lifecycle tests, package/build smoke, and required static diagnostics.
 
 ### Objective
 

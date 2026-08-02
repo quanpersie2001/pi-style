@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: **Foundation implemented (Phase 0); product architecture planned for later phases**
+> Status: **Foundation implemented (Phase 1A); product architecture planned for later phases**
 
 ## Architecture goals
 
@@ -322,6 +322,7 @@ Phase 0 proves the package boundary, thin adapter, strict dependency gate, and i
 ## Roadmap coverage
 
 - Introduced: Phase 0.
+- Runtime/configuration/theme foundation: Phase 1A.
 - Foundation implemented: Phase 1.
 - Completed by: Phase 7.
 - Requirement IDs: `ARCH-001` through `ARCH-015`.

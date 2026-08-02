@@ -1,6 +1,6 @@
 # Lifecycle and composition
 
-> Status: **Planned**
+> Status: **Foundation implemented (Phase 1A); feature composition planned**
 
 ## Goals
 
@@ -223,7 +223,8 @@ In `print` and `json` modes, UI methods are not used. The extension may load con
 
 ## Roadmap coverage
 
-- Foundation: Phase 1.
+- Runtime, generation, disposal, snapshot, and scheduler foundation: Phase 1A (implemented).
+- Status/editor/startup integrations: Phases 2–4.
 - Status/editor/startup integrations: Phases 2–4.
 - Patch lifecycle: Phase 5.
 - Full reload/persistence/conflict behavior: Phase 6.

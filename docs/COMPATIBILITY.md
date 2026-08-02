@@ -1,6 +1,6 @@
 # Compatibility policy
 
-> Status: **Planned**
+> Status: **Foundation implemented (Phase 1A); full conflict/patch matrix planned**
 
 ## Principles
 
@@ -203,7 +203,8 @@ Fixed-zone compositing, terminal scroll-region management, custom fixed-zone sel
 
 ## Roadmap coverage
 
-- Capability foundation: Phase 1.
+- Capability detection and diagnostic foundation: Phase 1A (implemented).
+- Singleton/editor/footer behavior: Phases 2–3.
 - Singleton/editor/footer behavior: Phases 2–3.
 - Tier C surfaces: Phase 5.
 - Full conflict/doctor behavior: Phase 6.

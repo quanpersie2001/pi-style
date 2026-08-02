@@ -1,6 +1,6 @@
 # Theming and visual system
 
-> Status: **Planned**
+> Status: **Foundation implemented (Phase 1A); feature consumption planned**
 
 ## Goals
 
@@ -181,6 +181,7 @@ These are optional complete Pi themes for users wanting the intended visual pale
 
 ## Roadmap coverage
 
-- Resolver/glyph/ANSI foundation: Phase 1.
+- Resolver/glyph/ANSI foundation: Phase 1A (implemented).
+- Feature consumption: Phases 2–5.
 - Consumed by UI features: Phases 2–5.
 - Full overrides/themes/accessibility/platform proof: Phases 6–7.

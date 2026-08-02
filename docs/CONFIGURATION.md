@@ -1,6 +1,6 @@
 # Configuration
 
-> Status: **Planned**
+> Status: **Foundation implemented (Phase 1A); full command/persistence surface planned**
 
 ## Goals
 
@@ -196,6 +196,8 @@ Overrides are maps of known semantic keys. Unknown keys are ignored with a diagn
 - **CFG-008:** Environment variables are narrow, documented, and never replace the full schema.
 
 ## Commands
+
+The Phase 1A runtime exposes configuration contracts and reload/doctor foundations internally. The complete user command surface remains planned for Phase 6.
 
 Planned commands:
 

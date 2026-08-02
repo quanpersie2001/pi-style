@@ -1,6 +1,6 @@
 # pi-style documentation
 
-> Status: **Foundation implemented (Phase 0); product surfaces planned**. The repository contains a validated package scaffold and lifecycle harness; UI features remain scheduled by phase.
+> Status: **Foundation implemented (Phase 1A); product surfaces planned**. Runtime, configuration, theme, rendering, and capability foundations are validated; UI features remain scheduled by phase.
 
 pi-style is a Pi UI package that combines two complementary ideas:
 
