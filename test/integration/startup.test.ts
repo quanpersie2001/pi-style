@@ -1,22 +1,62 @@
 import { describe, expect, it } from "vitest";
+import { normalizeConfig } from "../../extension-src/pi-style/domain/config-normalization.js";
+import { installStartup } from "../../extension-src/pi-style/features/startup/index.js";
 import piStyleExtension from "../../extension-src/pi-style/pi/index.js";
 import { FakePiHost } from "../helpers/fake-pi-host.js";
 
-function renderHeader(host: FakePiHost, width: number): string[] {
-	const factory = host.currentHeaderFactory;
-	if (!factory) return [];
-	const component = factory({ requestRender: () => host.requestRender() } as never, host.theme);
-	return component.render(width);
-}
-
 describe("startup lifecycle integration", () => {
+	const snapshot = { reason: "startup" as const, model: "test", thinkingLevel: "high" as const };
+	it("acquires an empty observable header and restores it exactly", () => {
+		let owner: unknown;
+		const host = {
+			mode: "tui",
+			hasUI: true,
+			setHeader: (value: unknown) => (owner = value),
+			getHeaderFactory: () => owner,
+		};
+		const installation = installStartup({ host, config: normalizeConfig({}), snapshot, generation: 1 });
+		expect(owner).toBeTypeOf("function");
+		installation?.dispose();
+		expect(owner).toBeUndefined();
+	});
+	it("preserves a pre-existing or later header owner", () => {
+		const existing = () => [];
+		let owner: unknown = existing;
+		const host = {
+			mode: "tui",
+			hasUI: true,
+			setHeader: (value: unknown) => (owner = value),
+			getHeaderFactory: () => owner,
+		};
+		expect(installStartup({ host, config: normalizeConfig({}), snapshot, generation: 1 })).toBeUndefined();
+		owner = undefined;
+		const installation = installStartup({ host, config: normalizeConfig({}), snapshot, generation: 2 });
+		const later = () => [];
+		owner = later;
+		installation?.dispose();
+		expect(owner).toBe(later);
+	});
+	it("uses widget fallback or no surface without a safe header getter", () => {
+		let widget: unknown;
+		const widgetHost = {
+			mode: "tui",
+			hasUI: true,
+			setHeader: () => {},
+			setWidget: (_key: string, value: unknown) => (widget = value),
+		};
+		const installation = installStartup({ host: widgetHost, config: normalizeConfig({}), snapshot, generation: 1 });
+		expect(widget).toBeTypeOf("function");
+		installation?.dispose();
+		const noSurface = { mode: "tui", hasUI: true, setHeader: () => {} };
+		expect(installStartup({ host: noSurface, config: normalizeConfig({}), snapshot, generation: 1 })).toBeUndefined();
+	});
 	it("installs the default compact header without replacing status widgets", async () => {
 		const host = new FakePiHost();
 		piStyleExtension(host.extensionApi);
 		await host.sessionStart();
-		expect(host.currentHeaderFactory).toBeDefined();
-		expect(host.widgets.has("pi-style.status.primary")).toBe(true);
-		expect(renderHeader(host, 80).join("\n")).toContain("pi-style");
+		expect(host.currentHeaderFactory).toBeUndefined();
+		expect(host.widgets.has("pi-style.startup")).toBe(true);
+		expect(host.componentFactories.has("pi-style.startup")).toBe(true);
 		await host.sessionShutdown();
 		expect(host.currentHeaderFactory).toBeUndefined();
 	});
@@ -32,7 +72,7 @@ describe("startup lifecycle integration", () => {
 		piStyleExtension(overlayHost.extensionApi);
 		// The production default is compact; the public fake still verifies the host overlay contract directly.
 		await overlayHost.sessionStart();
-		expect(overlayHost.currentHeaderFactory).toBeDefined();
+		expect(overlayHost.widgets.has("pi-style.startup")).toBe(true);
 	});
 
 	it("does not install startup UI in headless modes", async () => {
@@ -50,7 +90,7 @@ describe("startup lifecycle integration", () => {
 		const host = new FakePiHost({ sessionReason: "resume" });
 		piStyleExtension(host.extensionApi);
 		await host.sessionStart();
-		expect(host.currentHeaderFactory).toBeDefined();
+		expect(host.widgets.has("pi-style.startup")).toBe(true);
 		expect(host.overlays).toHaveLength(0);
 		await host.sessionShutdown();
 	});
@@ -59,7 +99,7 @@ describe("startup lifecycle integration", () => {
 		const host = new FakePiHost();
 		piStyleExtension(host.extensionApi);
 		await host.sessionStart();
-		expect(host.currentHeaderFactory).toBeDefined();
+		expect(host.widgets.has("pi-style.startup")).toBe(true);
 		await host.emit("agent_start", { type: "agent_start" });
 		expect(host.widgets.has("pi-style.status.primary")).toBe(true);
 		await host.sessionShutdown();

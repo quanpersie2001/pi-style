@@ -74,6 +74,8 @@ export interface NormalizedPiStyleConfig {
 		preferExistingEditor: boolean;
 		preferExistingFooter: boolean;
 	};
+	/** Internal provenance marker; never serialized or accepted as a command field. */
+	readonly productCorePatchesExplicit?: boolean;
 	readonly debug: boolean;
 }
 

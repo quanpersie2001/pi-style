@@ -1,6 +1,6 @@
 # Phase 5 evidence and disposition
 
-Status: **Accepted by independent Peer review** for the exact Pi `0.83.0` certified subset within `>=0.83.0 <0.84.0`. Final checkpoint: **69 tests passed across 8 files**. This acceptance covers runtime/proof for the certified messages/tools subset only; Phase 6 remains blocked/not started and later release/platform checks remain outstanding.
+Status: **Accepted by independent Peer review** for the exact Pi `0.83.0` certified subset within `>=0.83.0 <0.84.0`. Final checkpoint: **69 tests passed across 8 files**. This acceptance covers runtime/proof for the certified messages/tools subset only. Phase 6 is separately accepted after fresh independent frozen-scope Peer acceptance and Root validation; its current repository total supersedes the historical Phase 5 test count. Later release/platform checks remain outstanding and Phase 7 is blocked/not started pending Supervisor/program acceptance.
 
 Human-authorized capability fallbacks: on exact Pi 0.83, generic cancelled/truncated tool distinction remains native/neutral because state is not reliably exposed; special message blocks and image-specific styling remain native preservation where no certified hook/adapter applies. These are accepted fallbacks, not implemented styling claims.
 

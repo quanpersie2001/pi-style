@@ -1,6 +1,6 @@
 # pi-style documentation
 
-> Status: **Phase 5 accepted**. Foundation and the exact Pi 0.83.0 certified messages/tools subset are validated; Phase 6 persistence/composition and later release work remain planned.
+> Status: **Phase 5 and Phase 6 accepted** after independent Peer acceptance and Root validation. Phase 7 remains blocked/not started pending Supervisor/program acceptance.
 
 pi-style is a Pi UI package that combines two complementary ideas:
 

@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: **Phase 5 messages/tools compatibility boundary implemented and accepted; later product surfaces remain planned**
+> Status: **Phase 6 accepted after independent Peer acceptance and Root validation; Phase 7 remains blocked/not started pending Supervisor/program acceptance**
 
 ## Architecture goals
 

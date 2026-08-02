@@ -1,3 +1,5 @@
+import { boundedDiagnostics, type ConfigDiagnostic } from "./config-diagnostics.js";
+import { presetConfig } from "./config-presets.js";
 import {
 	type ConfigSources,
 	type NormalizedPiStyleConfig,
@@ -75,7 +77,7 @@ export function normalizeConfig(
 	input: unknown,
 	defaults: NormalizedPiStyleConfig = DEFAULT_CONFIG,
 ): NormalizedPiStyleConfig {
-	const value = merge(defaults as unknown as Record<string, unknown>, input);
+	const value = merge(defaults as unknown as Record<string, unknown>, acceptedInput(input));
 	const inputRecord = isRecord(input) ? input : {};
 	const inputStatus = isRecord(inputRecord.statusLine) ? inputRecord.statusLine : {};
 	const inputLayout = isRecord(inputStatus.layout) ? inputStatus.layout : undefined;
@@ -168,18 +170,372 @@ export function normalizeConfig(
 }
 
 export function resolveConfig(sources: ConfigSources): NormalizedPiStyleConfig {
-	let merged: unknown = sources.defaults ?? DEFAULT_CONFIG;
-	for (const source of [sources.global, sources.projectTrusted === false ? undefined : sources.project])
-		merged = merge(isRecord(merged) ? merged : {}, source);
+	return resolveConfigDetailed(sources).config;
+}
+
+const PRESET_NAMES = ["default", "minimal", "compact", "full", "ascii", "native"] as const;
+const ENUMS: Readonly<Record<string, readonly string[]>> = {
+	preset: PRESET_NAMES,
+	placement: ["above", "below"],
+	"startup.mode": ["off", "compact", "overlay"],
+	"editor.style": ["compact", "boxed", "dock", "native"],
+	"editor.frame": ["auto", "halfblock", "line", "solid", "outline", "native"],
+	"theme.nerdFonts": ["auto", "on", "off"],
+	"theme.terminalBackgroundSync": ["auto", "on", "off"],
+};
+const BOOL_PATHS = new Set([
+	"enabled",
+	"startup.showResources",
+	"startup.showModel",
+	"statusLine.enabled",
+	"editor.enabled",
+	"editor.showMetadata",
+	"messages.enabled",
+	"messages.userPrefix",
+	"messages.assistantPrefix",
+	"messages.specialBlocks",
+	"tools.enabled",
+	"tools.showElapsed",
+	"compatibility.allowSafePatches",
+	"compatibility.allowCorePatches",
+	"compatibility.preferExistingEditor",
+	"compatibility.preferExistingFooter",
+	"debug",
+]);
+const STRING_ARRAY_PATHS = new Set([
+	"statusLine.layout.left",
+	"statusLine.layout.right",
+	"statusLine.layout.secondary",
+	"statusLine.disabledSegments",
+]);
+const MAP_PATHS = new Set(["theme.colors", "theme.glyphs"]);
+const CONTAINER_PATHS = new Set([
+	"startup",
+	"statusLine",
+	"statusLine.layout",
+	"editor",
+	"messages",
+	"tools",
+	"theme",
+	"compatibility",
+]);
+function validCustomItem(item: unknown): boolean {
+	if (!isRecord(item) || typeof item.id !== "string" || typeof item.statusKey !== "string") return false;
+	if (Object.keys(item).some((key) => !["id", "statusKey", "label", "priority", "placement"].includes(key)))
+		return false;
+	if (item.label !== undefined && typeof item.label !== "string") return false;
+	if (item.priority !== undefined && (typeof item.priority !== "number" || !Number.isFinite(item.priority)))
+		return false;
+	return (
+		item.placement === undefined ||
+		item.placement === "left" ||
+		item.placement === "right" ||
+		item.placement === "secondary"
+	);
+}
+function validLeaf(path: string, value: unknown): boolean {
+	if (BOOL_PATHS.has(path)) return typeof value === "boolean";
+	if (ENUMS[path]) return typeof value === "string" && ENUMS[path].includes(value);
+	if (path === "statusLine.separator" || path === "tools.style") return typeof value === "string";
+	if (path === "tools.maxCollapsedLines") return typeof value === "number" && Number.isFinite(value) && value >= 0;
+	if (STRING_ARRAY_PATHS.has(path)) return Array.isArray(value) && value.every((item) => typeof item === "string");
+	if (MAP_PATHS.has(path)) return isRecord(value) && Object.values(value).every((item) => typeof item === "string");
+	if (path === "statusLine.customItems") return Array.isArray(value) && value.every(validCustomItem);
+	return false;
+}
+export interface ConfigLayerResult {
+	readonly accepted: unknown;
+	readonly diagnostics: readonly ConfigDiagnostic[];
+	readonly paths: ReadonlySet<string>;
+}
+function cloneLeaf(value: unknown): unknown {
+	return Array.isArray(value)
+		? value.map((item) => (isRecord(item) ? { ...item } : item))
+		: isRecord(value)
+			? { ...value }
+			: value;
+}
+export function validateConfigLayer(input: unknown): ConfigLayerResult {
+	const diagnostics: ConfigDiagnostic[] = [];
+	const paths = new Set<string>();
+	const walk = (value: unknown, prefix: string): unknown => {
+		if (!isRecord(value)) return value;
+		const result: Record<string, unknown> = {};
+		for (const [key, nestedValue] of Object.entries(value)) {
+			const path = prefix ? `${prefix}.${key}` : key;
+			if (path === "schemaVersion") {
+				if (nestedValue === undefined || nestedValue === PI_STYLE_SCHEMA_VERSION) result[key] = nestedValue;
+				else
+					diagnostics.push({
+						code: "CFG-SCHEMA",
+						level: "warning",
+						path,
+						message: "unsupported schema version ignored",
+					});
+				continue;
+			}
+			if (path === "statusLine.customItems" && Array.isArray(nestedValue)) {
+				const acceptedItems: Record<string, unknown>[] = [];
+				for (const [index, item] of nestedValue.entries()) {
+					if (!isRecord(item)) {
+						diagnostics.push({
+							code: "CFG-VALUE",
+							level: "warning",
+							path: `${path}[${index}]`,
+							message: "custom item must be an object",
+						});
+						continue;
+					}
+					const allowed = ["id", "statusKey", "label", "priority", "placement"];
+					let valid = typeof item.id === "string" && typeof item.statusKey === "string";
+					if (typeof item.id !== "string")
+						diagnostics.push({
+							code: "CFG-VALUE",
+							level: "warning",
+							path: `${path}[${index}].id`,
+							message: "required custom item field is invalid or missing",
+						});
+					if (typeof item.statusKey !== "string")
+						diagnostics.push({
+							code: "CFG-VALUE",
+							level: "warning",
+							path: `${path}[${index}].statusKey`,
+							message: "required custom item field is invalid or missing",
+						});
+					for (const field of Object.keys(item)) {
+						if (!allowed.includes(field)) {
+							diagnostics.push({
+								code: "CFG-VALUE",
+								level: "warning",
+								path: `${path}[${index}].${field}`,
+								message: "unknown custom item field ignored",
+							});
+							valid = false;
+						}
+					}
+					if (item.label !== undefined && typeof item.label !== "string") {
+						diagnostics.push({
+							code: "CFG-VALUE",
+							level: "warning",
+							path: `${path}[${index}].label`,
+							message: "invalid custom item field ignored",
+						});
+						valid = false;
+					}
+					if (item.priority !== undefined && (typeof item.priority !== "number" || !Number.isFinite(item.priority))) {
+						diagnostics.push({
+							code: "CFG-VALUE",
+							level: "warning",
+							path: `${path}[${index}].priority`,
+							message: "invalid custom item field ignored",
+						});
+						valid = false;
+					}
+					if (item.placement !== undefined && !["left", "right", "secondary"].includes(item.placement as string)) {
+						diagnostics.push({
+							code: "CFG-VALUE",
+							level: "warning",
+							path: `${path}[${index}].placement`,
+							message: "invalid custom item field ignored",
+						});
+						valid = false;
+					}
+					if (valid) {
+						acceptedItems.push({ ...item });
+						paths.add(`${path}[${index}].id`);
+						paths.add(`${path}[${index}].statusKey`);
+					}
+				}
+				result[key] = acceptedItems;
+				paths.add(path);
+				continue;
+			}
+			if (validLeaf(path, nestedValue)) {
+				result[key] = cloneLeaf(nestedValue);
+				paths.add(path);
+				continue;
+			}
+			if (
+				isRecord(nestedValue) &&
+				CONTAINER_PATHS.has(path) &&
+				!MAP_PATHS.has(path) &&
+				path !== "statusLine.customItems"
+			) {
+				const child = walk(nestedValue, path);
+				if (isRecord(child) && Object.keys(child).length > 0) result[key] = child;
+				continue;
+			}
+			if (path !== "statusLine.customItems" || !Array.isArray(nestedValue))
+				diagnostics.push({ code: "CFG-VALUE", level: "warning", path, message: "invalid or unknown field ignored" });
+			if (path === "statusLine.customItems" && Array.isArray(nestedValue))
+				for (const [index, item] of nestedValue.entries()) {
+					if (!isRecord(item)) continue;
+					for (const field of ["id", "statusKey", "label", "priority", "placement"]) {
+						if (Object.hasOwn(item, field)) {
+							const fieldValue = item[field];
+							const valid =
+								field === "id" || field === "statusKey" || field === "label"
+									? typeof fieldValue === "string"
+									: field === "priority"
+										? typeof fieldValue === "number" && Number.isFinite(fieldValue)
+										: fieldValue === "left" || fieldValue === "right" || fieldValue === "secondary";
+							if (!valid)
+								diagnostics.push({
+									code: "CFG-VALUE",
+									level: "warning",
+									path: `${path}[${index}].${field}`,
+									message: "invalid custom item field ignored",
+								});
+						}
+					}
+					for (const field of Object.keys(item))
+						if (!["id", "statusKey", "label", "priority", "placement"].includes(field))
+							diagnostics.push({
+								code: "CFG-VALUE",
+								level: "warning",
+								path: `${path}[${index}].${field}`,
+								message: "unknown custom item field ignored",
+							});
+				}
+		}
+		return result;
+	};
+	return { accepted: walk(input, ""), diagnostics: boundedDiagnostics(diagnostics), paths };
+}
+function acceptedInput(input: unknown): unknown {
+	return validateConfigLayer(input).accepted;
+}
+
+export function resolveConfigDetailed(sources: ConfigSources): {
+	readonly config: NormalizedPiStyleConfig;
+	readonly diagnostics: readonly ConfigDiagnostic[];
+	readonly sources: Readonly<Record<string, string>>;
+} {
+	const diagnostics: ConfigDiagnostic[] = [];
+	const layerResults = new Map<string, ConfigLayerResult>();
+	const layers: readonly [string, unknown][] = [
+		["global", sources.global],
+		["project", sources.projectTrusted === false ? undefined : sources.project],
+		["session", sources.session],
+	];
+	for (const [name, value] of layers) {
+		const result = validateConfigLayer(value);
+		layerResults.set(name, result);
+		diagnostics.push(...result.diagnostics);
+	}
+	const defaults = sources.defaults ?? DEFAULT_CONFIG;
+	let merged: unknown = defaults;
+	const presetCandidates = [
+		["session", sources.session],
+		["project", sources.projectTrusted === false ? undefined : sources.project],
+		["global", sources.global],
+		["default", defaults],
+	] as const;
+	let selectedPreset: unknown;
+	for (const [, source] of presetCandidates) {
+		const candidate = isRecord(source) ? source.preset : undefined;
+		if (candidate === undefined) continue;
+		if (typeof candidate === "string" && (PRESET_NAMES as readonly string[]).includes(candidate)) {
+			selectedPreset = candidate;
+			break;
+		}
+		diagnostics.push({
+			code: "CFG-ENUM",
+			level: "warning",
+			path: "preset",
+			message: "unsupported value; lower-precedence preset used",
+		});
+	}
+	merged = merge(isRecord(merged) ? merged : {}, presetConfig(selectedPreset));
+	for (const name of ["global", "project"] as const)
+		merged = merge(isRecord(merged) ? merged : {}, layerResults.get(name)?.accepted);
 	const env = sources.environment ?? {};
 	const envPatch: PiStyleConfig = {};
 	if (env.PI_STYLE_DISABLED === "1") envPatch.enabled = false;
 	if (env.PI_STYLE_NERD_FONTS === "1" || env.PI_STYLE_NERD_FONTS === "0")
 		envPatch.theme = { nerdFonts: env.PI_STYLE_NERD_FONTS === "1" ? "on" : "off" };
+	if (env.PI_STYLE_EDITOR && ["native", "compact", "boxed", "dock"].includes(env.PI_STYLE_EDITOR))
+		envPatch.editor = { style: env.PI_STYLE_EDITOR };
+	if (env.PI_STYLE_OSC11 === "1" || env.PI_STYLE_OSC11 === "0")
+		envPatch.theme = { ...(envPatch.theme ?? {}), terminalBackgroundSync: env.PI_STYLE_OSC11 === "1" ? "on" : "off" };
 	if (env.PI_STYLE_DEBUG === "1") envPatch.debug = true;
 	if (env.PI_STYLE_STATUS === "above" || env.PI_STYLE_STATUS === "below") envPatch.placement = env.PI_STYLE_STATUS;
-	if (env.PI_STYLE_STATUS === "off") envPatch.enabled = false;
+	if (env.PI_STYLE_STATUS === "off") envPatch.statusLine = { enabled: false };
+	if (env.PI_STYLE_DISABLED !== undefined && env.PI_STYLE_DISABLED !== "1")
+		diagnostics.push({
+			code: "CFG-ENV",
+			level: "warning",
+			path: "PI_STYLE_DISABLED",
+			message: "expected 1; override ignored",
+		});
+	if (env.PI_STYLE_NERD_FONTS !== undefined && !["0", "1"].includes(env.PI_STYLE_NERD_FONTS))
+		diagnostics.push({
+			code: "CFG-ENV",
+			level: "warning",
+			path: "PI_STYLE_NERD_FONTS",
+			message: "expected 0 or 1; override ignored",
+		});
+	if (env.PI_STYLE_STATUS !== undefined && !["above", "below", "off"].includes(env.PI_STYLE_STATUS))
+		diagnostics.push({
+			code: "CFG-ENV",
+			level: "warning",
+			path: "PI_STYLE_STATUS",
+			message: "expected above, below, or off; override ignored",
+		});
+	if (env.PI_STYLE_EDITOR !== undefined && !["native", "compact", "boxed", "dock"].includes(env.PI_STYLE_EDITOR))
+		diagnostics.push({
+			code: "CFG-ENV",
+			level: "warning",
+			path: "PI_STYLE_EDITOR",
+			message: "unknown editor style; override ignored",
+		});
+	for (const [key, value] of Object.entries(env))
+		if (
+			value !== undefined &&
+			key.startsWith("PI_STYLE_") &&
+			![
+				"PI_STYLE_DISABLED",
+				"PI_STYLE_NERD_FONTS",
+				"PI_STYLE_EDITOR",
+				"PI_STYLE_OSC11",
+				"PI_STYLE_DEBUG",
+				"PI_STYLE_STATUS",
+			].includes(key)
+		)
+			diagnostics.push({
+				code: "CFG-ENV",
+				level: "warning",
+				path: key,
+				message: "unsupported environment override ignored",
+			});
 	merged = merge(isRecord(merged) ? merged : {}, envPatch);
-	merged = merge(isRecord(merged) ? merged : {}, sources.session);
-	return normalizeConfig(merged);
+	merged = merge(isRecord(merged) ? merged : {}, layerResults.get("session")?.accepted);
+	const sourceMap: Record<string, string> = {};
+	const sourcePath = (value: unknown, prefix: string, sourceName: string) => {
+		if (!isRecord(value)) return;
+		for (const [key, nested] of Object.entries(value)) {
+			const path = prefix ? `${prefix}.${key}` : key;
+			if (validLeaf(path, nested)) {
+				sourceMap[path] = sourceName;
+				if (path === "statusLine.customItems" && Array.isArray(nested))
+					for (const [index, item] of nested.entries())
+						if (isRecord(item))
+							for (const field of ["id", "statusKey", "label", "priority", "placement"])
+								if (Object.hasOwn(item, field)) sourceMap[`${path}[${index}].${field}`] = sourceName;
+				continue;
+			}
+			if (isRecord(nested)) sourcePath(nested, path, sourceName);
+		}
+	};
+	sourcePath(defaults, "", "default");
+	sourcePath(
+		presetConfig(selectedPreset),
+		"",
+		`preset:${typeof selectedPreset === "string" ? selectedPreset : "default"}`,
+	);
+	sourcePath(layerResults.get("global")?.accepted, "", "global");
+	if (sources.projectTrusted !== false) sourcePath(layerResults.get("project")?.accepted, "", "project");
+	sourcePath(envPatch, "", "environment");
+	sourcePath(layerResults.get("session")?.accepted, "", "session");
+	return { config: normalizeConfig(merged), diagnostics: boundedDiagnostics(diagnostics), sources: sourceMap };
 }

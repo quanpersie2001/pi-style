@@ -10,7 +10,7 @@ The startup surface introduces the pi-style visual identity and summarizes the a
 
 ### `compact` (default)
 
-A small header/resource summary rendered through `ctx.ui.setHeader()`. The feature owns no editor/footer layout and renders only from an immutable startup snapshot.
+A small startup summary is rendered through a namespaced widget by default. The header path is used only when an injected safe `getHeaderFactory` ownership adapter is available and the observable header is unowned. Without a widget or safe observable header ownership, no startup surface is installed.
 
 ### `overlay`
 
@@ -48,7 +48,7 @@ Startup resolves semantic colors from the active Pi theme supplied by the public
 - Missing custom/overlay API or overlay failure → compact header/widget fallback.
 - Headless `print`/`json`/RPC contexts → no terminal startup installation; status/editor behavior remains independent.
 - Startup installation failure → only the startup surface is disabled.
-- A later header owner is preserved during cleanup.
+- Without an observable header-owner adapter, startup never claims the header when a widget is available; the namespaced widget is used instead. With the adapter, a later header owner is preserved during cleanup.
 
 ## Requirements
 
@@ -69,7 +69,7 @@ Real Pi smoke proof: `pi --mode json --no-session -e ./dist/extensions/pi-style.
 
 ## Roadmap coverage
 
-- Implemented in: Phase 4 (in progress; full lifecycle/manual proof still pending).
+- Implemented in: Phase 4 (complete for automated lifecycle proof; manual terminal proof remains pending).
 - Full command/config control: Phase 6.
 - Terminal/manual proof: Phase 7.
 - Requirement IDs: `START-001` through `START-008`.

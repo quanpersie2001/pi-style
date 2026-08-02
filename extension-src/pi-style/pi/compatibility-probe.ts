@@ -193,6 +193,7 @@ export interface CompatibilityProbeReport {
 	}[];
 	getRuntimeDiagnostics: () => ReadonlyMap<string, number>;
 	getFinalDiagnostics: () => Readonly<import("../features/tools/index.js").ToolDiagnosticArchive> | undefined;
+	getActiveToolRecordCount: () => number;
 	disposeOwner: () => void;
 }
 
@@ -531,7 +532,10 @@ export function probePiCompatibility(
 	const generation = nextGeneration();
 	const toolSpecs = targetSpecs.filter((spec) => spec.feature === "tools");
 	let toolOwner: ReturnType<typeof createToolDecorationOwner> | undefined;
-	if (toolSpecs.some((spec) => trustedNativeIdentity(spec, piVersion) !== undefined)) {
+	if (
+		toolSpecs.some((spec) => trustedNativeIdentity(spec, piVersion) !== undefined) &&
+		(options instanceof Set || options.config?.tools.enabled !== false)
+	) {
 		toolOwner = createToolDecorationOwner(options instanceof Set ? {} : options.toolSnapshot);
 	}
 	const evidence = Object.freeze(
@@ -611,6 +615,7 @@ export function probePiCompatibility(
 		),
 		getRuntimeDiagnostics: () => toolOwner?.getDiagnostics() ?? new Map(),
 		getFinalDiagnostics: () => toolOwner?.getFinalArchive(),
+		getActiveToolRecordCount: () => toolOwner?.getActiveRecordCount() ?? 0,
 		disposeOwner: () => {
 			toolOwner?.dispose();
 		},
@@ -634,9 +639,15 @@ export function disposePiCompatibilityProbe(report: CompatibilityProbeReport): C
 	report.disposeOwner();
 	const retryablePrototypeRecords = state.records.filter((record) => !record.disposed).length;
 	const finalDiagnostics = report.getFinalDiagnostics();
-	const retryableToolRecords = finalDiagnostics ? 0 : 1;
+	const retryableToolRecords = report.getActiveToolRecordCount();
+	const toolOwnerWasCreated = report.recordSnapshots.some(
+		(record) => record.feature === "tools" && record.shape === "installed",
+	);
 	return {
-		complete: retryablePrototypeRecords === 0 && retryableToolRecords === 0,
+		complete:
+			retryablePrototypeRecords === 0 &&
+			retryableToolRecords === 0 &&
+			(!toolOwnerWasCreated || finalDiagnostics !== undefined),
 		retryablePrototypeRecords,
 		retryableToolRecords,
 		...(finalDiagnostics ? { finalDiagnostics } : {}),

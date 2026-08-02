@@ -1,6 +1,6 @@
 # Compatibility policy
 
-> Status: **Phase 5 Tier C certified subset accepted for exact Pi 0.83.0; broader persistence/composition remains Phase 6**
+> Status: **Phase 6 accepted after independent Peer acceptance and Root validation; Phase 7 remains blocked/not started pending Supervisor/program acceptance**
 
 ## Principles
 
@@ -85,7 +85,7 @@ A compatibility matrix should record:
 | --- | --- | --- | --- |
 | widgets with placement | To be recorded in Phase 7 | public method/options | disable/move row |
 | editor getter/composition | To be recorded in Phase 7 | method existence | prefer existing/native editor |
-| footer data branch/status | To be recorded in Phase 7 | provider methods | hide affected segments |
+| footer data branch/status | Phase 6 safe injected provider boundary | injected capability-safe provider only | hide affected segments and report unavailable/recovery without footer takeover |
 | header API | To be recorded in Phase 7 | method existence | startup widget or off |
 | message component shape | 0.83.0 | exact version + prototype shape/fingerprint | native messages |
 | built-in renderer integration | 0.83.0 | exact version + selector shape/fingerprint | native tools |
@@ -223,5 +223,5 @@ Fixed-zone compositing, terminal scroll-region management, custom fixed-zone sel
 - Singleton/editor/footer behavior: Phases 2–3.
 - Singleton/editor/footer behavior: Phases 2–3.
 - Tier C surfaces: Phase 5.
-- Full conflict/doctor behavior: Phase 6.
+- Full conflict/doctor behavior: Phase 6 accepted after independent Peer acceptance and Root validation.
 - Terminal and version proof: Phase 7.

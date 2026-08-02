@@ -68,6 +68,15 @@ const DEFAULT_SNAPSHOT: ToolDecorationSnapshot = Object.freeze({
 });
 let ownerGeneration = 0;
 const piStyleWrappers = new WeakSet<RenderFunction>();
+let toolTestHooks: { defineProperty?: typeof Reflect.defineProperty; deleteProperty?: typeof Reflect.deleteProperty } =
+	{};
+export function __setToolDecorationTestHooks(hooks: typeof toolTestHooks): () => void {
+	const previous = toolTestHooks;
+	toolTestHooks = hooks;
+	return () => {
+		toolTestHooks = previous;
+	};
+}
 
 function note(state: DecorationState, reason: string, transaction: TransactionState = "never-written"): void {
 	state.diagnostics.set(reason, (state.diagnostics.get(reason) ?? 0) + 1);
@@ -242,8 +251,12 @@ function installDecoration(state: DecorationState, record: DecorationRecord): vo
 	if (!descriptorEqual(current, record.attemptedDescriptor)) {
 		if (current?.value === record.wrappedRender) {
 			const restored = record.originalOwnDescriptor
-				? Reflect.defineProperty(record.component, "render", record.originalOwnDescriptor)
-				: Reflect.deleteProperty(record.component, "render");
+				? (toolTestHooks.defineProperty ?? Reflect.defineProperty)(
+						record.component,
+						"render",
+						record.originalOwnDescriptor,
+					)
+				: (toolTestHooks.deleteProperty ?? Reflect.deleteProperty)(record.component, "render");
 			const after = Object.getOwnPropertyDescriptor(record.component, "render");
 			if (
 				restored &&
@@ -276,8 +289,8 @@ function restoreDecoration(state: DecorationState, record: DecorationRecord): Cl
 		return "later-owner";
 	}
 	const restored = record.originalOwnDescriptor
-		? Reflect.defineProperty(record.component, "render", record.originalOwnDescriptor)
-		: Reflect.deleteProperty(record.component, "render");
+		? (toolTestHooks.defineProperty ?? Reflect.defineProperty)(record.component, "render", record.originalOwnDescriptor)
+		: (toolTestHooks.deleteProperty ?? Reflect.deleteProperty)(record.component, "render");
 	const after = Object.getOwnPropertyDescriptor(record.component, "render");
 	const ok = record.originalOwnDescriptor ? descriptorEqual(after, record.originalOwnDescriptor) : after === undefined;
 	if (!restored || !ok) {
@@ -378,6 +391,7 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 		},
 		getDiagnostics: () => new Map(state.diagnostics),
 		getFinalArchive: () => state.archive,
+		getActiveRecordCount: () => state.active.size,
 		dispose,
 	});
 }

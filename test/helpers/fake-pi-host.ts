@@ -27,6 +27,7 @@ export interface FakePiHostOptions {
 	initialFooter?: Parameters<ExtensionUIContext["setFooter"]>[0];
 	systemPrompt?: string;
 	flags?: Record<string, boolean | string | undefined>;
+	projectTrusted?: boolean;
 }
 
 type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
@@ -82,12 +83,14 @@ export class FakePiHost {
 	private readonly sessionReason: NonNullable<FakePiHostOptions["sessionReason"]>;
 	private readonly systemPrompt: string;
 	private readonly flagValues: Record<string, boolean | string | undefined>;
+	private readonly projectTrusted: boolean;
 
 	constructor(options: FakePiHostOptions = {}) {
 		this.mode = options.mode ?? "tui";
 		this.sessionReason = options.sessionReason ?? "startup";
 		this.systemPrompt = options.systemPrompt ?? "";
 		this.flagValues = { ...options.flags };
+		this.projectTrusted = options.projectTrusted ?? true;
 		this.capabilities = { ...defaultCapabilities, ...options.capabilities };
 		this.ownership.editor.initial = options.initialEditor !== undefined;
 		this.ownership.editor.current = this.ownership.editor.initial;
@@ -296,7 +299,7 @@ export class FakePiHost {
 			scopedModels: [],
 			thinkingLevel: "off" as never,
 			isIdle: () => true,
-			isProjectTrusted: () => true,
+			isProjectTrusted: () => this.projectTrusted,
 			signal: undefined,
 			abort: () => {},
 			hasPendingMessages: () => false,

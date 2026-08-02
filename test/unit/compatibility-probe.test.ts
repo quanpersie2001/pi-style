@@ -16,7 +16,10 @@ import {
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it } from "vitest";
 import { decorateMessageRender } from "../../extension-src/pi-style/features/messages/index.js";
-import { createToolDecorationOwner } from "../../extension-src/pi-style/features/tools/index.js";
+import {
+	__setToolDecorationTestHooks,
+	createToolDecorationOwner,
+} from "../../extension-src/pi-style/features/tools/index.js";
 import {
 	type CompatibilityRecordSnapshot,
 	detectPiVersion,
@@ -817,6 +820,59 @@ describe("Pi 0.83 compatibility probe", () => {
 		expect(asciiOutput).not.toContain("❯");
 		expect(asciiOutput).not.toContain("│");
 		disposePiCompatibilityProbe(asciiReport);
+	});
+
+	it("retains active tool restoration records until exact retry and final archive", () => {
+		initTheme("dark", false);
+		const report = probePiCompatibility("0.83.0", {
+			config: {
+				tools: { enabled: true },
+				messages: { enabled: false, userPrefix: false, assistantPrefix: false },
+				preset: "default",
+			},
+		});
+		const tool = new ToolExecutionComponent(
+			"read",
+			"cleanup-call",
+			{ path: "README.md" },
+			{},
+			createReadToolDefinition("/fake"),
+			{ requestRender: () => {} } as never,
+			"/fake",
+		);
+		const selector = Reflect.apply(
+			Reflect.get(ToolExecutionComponent.prototype, "getCallRenderer") as () => unknown,
+			tool,
+			[],
+		) as (...args: unknown[]) => unknown;
+		const component = selector({}, createFakeTheme(), rendererContext(undefined)) as {
+			render: (width: number) => string[];
+		};
+		expect(component).toBeDefined();
+		expect(report.getActiveToolRecordCount()).toBeGreaterThan(0);
+		let blocked = true;
+		const reset = __setToolDecorationTestHooks({
+			defineProperty: (_target, _key, _descriptor) => {
+				if (blocked) return false;
+				return Reflect.defineProperty(_target, _key, _descriptor);
+			},
+			deleteProperty: (target, key) => (blocked ? false : Reflect.deleteProperty(target, key)),
+		});
+		try {
+			const first = disposePiCompatibilityProbe(report);
+			expect(first.complete).toBe(false);
+			expect(first.retryableToolRecords).toBeGreaterThan(0);
+			expect(report.getFinalDiagnostics()).toBeUndefined();
+			const second = disposePiCompatibilityProbe(report);
+			expect(second.complete).toBe(false);
+			blocked = false;
+			const final = disposePiCompatibilityProbe(report);
+			expect(final.complete).toBe(true);
+			expect(final.retryableToolRecords).toBe(0);
+			expect(report.getFinalDiagnostics()).toBeDefined();
+		} finally {
+			reset();
+		}
 	});
 
 	it("decorates tools only within width and leaves unsafe shapes native with diagnostics", () => {

@@ -1,6 +1,6 @@
 # Configuration
 
-> Status: **Foundation implemented; Phase 5 session-only compatibility flags accepted; full command/persistence surface remains Phase 6**
+> Status: **Phase 6 accepted after independent Peer acceptance and Root validation; Phase 7 remains blocked/not started pending Supervisor/program acceptance**
 
 ## Goals
 
@@ -18,7 +18,7 @@ built-in defaults
   < current-session command overrides
 ```
 
-Project settings are honored only for trusted projects. The implementation should use Pi's exported configuration directory constant when constructing project paths rather than hardcoding `.pi` where the API supports rebranding.
+Project settings are honored only for trusted projects. The implementation uses Pi's exported `getAgentDir()` and `CONFIG_DIR_NAME` when constructing global/project paths. Project configuration is read and written only for trusted projects; malformed or future-schema documents are preserved without rewrite.
 
 Session command overrides are temporary unless the command explicitly persists to global or project scope.
 
@@ -200,20 +200,20 @@ Overrides are maps of known semantic keys. Unknown keys are ignored with a diagn
 The extension registers these public boolean flags for the current session:
 
 | Flag | Authorization | Effect |
-|---|---|---|
-| `--pi-style-core-patches` | required core gate | permits Tier C consideration; does not authorize a surface alone |
-| `--pi-style-message-user` | core + this flag | authorizes the certified user-message prefix |
-| `--pi-style-message-assistant` | core + this flag | authorizes the certified assistant-message prefix |
-| `--pi-style-tools` | core + this flag | authorizes certified tool call/result selectors |
-| `--pi-style-ascii` | marker mode only | selects ASCII markers on already-authorized surfaces |
+| --- | --- | --- |
+| `--pi-style-core-patches` | immutable session authorization | permits Tier C consideration; never becomes product configuration or persistence data |
+| `--pi-style-message-user` | immutable core + surface authorization | authorizes the certified user-message prefix; not a product-config override |
+| `--pi-style-message-assistant` | immutable core + surface authorization | authorizes the certified assistant-message prefix; not a product-config override |
+| `--pi-style-tools` | immutable core + surface authorization | authorizes certified tool call/result selectors; not a product-config override |
+| `--pi-style-ascii` | immutable marker authorization | selects ASCII Tier C markers only; public product preset remains separately configurable |
 
-Tier C is explicit default-deny: core alone, surface-only flags, and ordinary product defaults install nothing. These flags are session-only and are not persisted. Full commands, settings persistence, migrations, and durable per-surface configuration remain Phase 6 work.
+Tier C is explicit default-deny: core alone, surface-only flags, and ordinary product defaults install nothing. These flags are session-only and are not persisted. Product `compatibility.allowCorePatches` is deny-only: an explicit literal `false` in any accepted global, trusted-project, or raw-session layer blocks Tier C; literal `true` never grants authorization. Invalid leaves are diagnosed and ignored. Phase 6 control-plane behavior is accepted after independent Peer acceptance and Root validation.
 
 ## Commands
 
-The Phase 1A runtime exposes configuration contracts and reload/doctor foundations internally. The complete user command surface remains planned for Phase 6.
+The session command adapter supports `/pi-style`, `on|off`, `preset`, `placement`, `editor <style> [frame]`, `startup <off|compact|overlay>`, `surface <name> on|off`, `set <allowlisted.path> <JSON-value>`, `reload`, and `doctor`. Ordinary mutations are session-only; persistence requires explicit `persist global|project` scope and trusted projects. `set` is a finite recursive allowlist, not an executable DSL; unknown paths and malformed values are rejected. Writes recursively merge the validated `piStyle` namespace and preserve unrelated settings. Phase 6 persistence and command behavior is accepted after independent Peer acceptance and Root validation.
 
-Planned commands:
+Command forms still requiring additional acceptance coverage:
 
 | Command | Behavior |
 | --- | --- |
@@ -224,6 +224,8 @@ Planned commands:
 | `/pi-style editor <style>` | Select compact, boxed, dock, or native editor. |
 | `/pi-style surface <name> on\|off` | Toggle startup/status/editor/messages/tools. |
 | `/pi-style reload` | Re-read configuration and reinstall affected surfaces. |
+| `/pi-style set <path> <JSON>` | Set one documented leaf, array, map, or custom-item value after validation; for example `set statusLine.layout.left ["model","git"]` or `set theme.glyphs {"branch":""}`. |
+| `/pi-style persist global|project set <path> <JSON>` | Persist the same validated mutation only to the selected durable scope. |
 | `/pi-style doctor` | Show capability/conflict/fallback diagnostics. |
 
 Commands without a required argument should use Pi selection/settings components where appropriate. Persistence scope must be explicit (`session`, `global`, or `project`) before writing settings.
@@ -246,8 +248,8 @@ Planned narrow overrides:
 - Config writes must preserve unrelated Pi settings.
 - Project writes require trust and explicit user intent.
 - Schema migrations are pure transformations with versioned tests.
-- Removed fields should produce an actionable migration warning for at least one minor release.
-- Preset or token renames require aliases during the documented migration window.
+- Missing `schemaVersion` is accepted as bounded-warning v1-shaped input; v1 is identity. Future versions fail closed/read-only and are never downgraded or overwritten.
+- No historical v0 aliases are invented.
 
 ## Example configurations
 
@@ -308,5 +310,5 @@ The editor accepts the code-defined styles `compact`, `boxed`, `dock`, and `nati
 - Schema foundation: Phase 1.
 - Status/editor/startup fields: Phases 2–4.
 - Message/tool fields: Phase 5.
-- Persistence, migrations, and full command surface: Phase 6.
+- Persistence, migrations, explicit-scope commands, and bounded diagnostics: Phase 6 (accepted after independent Peer acceptance and Root validation).
 - Requirement IDs: `CFG-001` through `CFG-008`.

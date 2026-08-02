@@ -1,6 +1,6 @@
 # Lifecycle and composition
 
-> Status: **Phase 5 compatibility lifecycle accepted; full persistence/composition remains Phase 6**
+> Status: **Phase 6 accepted after independent Peer acceptance and Root validation; Phase 7 remains blocked/not started pending Supervisor/program acceptance**
 
 ## Goals
 
@@ -132,7 +132,7 @@ Because Pi footer ownership is singleton, this bridge is a capability-dependent 
 
 ## Header and startup composition
 
-Compact startup should use `setHeader` where available. Overlay startup uses `ctx.ui.custom(..., { overlay: true })` and keeps a dismiss handle. It must be dismissed on input, agent start, session replacement, or configured timeout.
+Compact startup uses the namespaced widget by default. It may use `setHeader` only when a safe owner-observation adapter (`getHeaderFactory`) is injected; otherwise an unobservable header is never claimed. Overlay startup uses `ctx.ui.custom(..., { overlay: true })` and keeps a dismiss handle. It must be dismissed on input, agent start, session replacement, or configured timeout.
 
 Startup data is collected before mounting. Render methods do not scan files or resources.
 
@@ -235,5 +235,5 @@ The status-line feature installs `pi-style.status.primary` and `pi-style.status.
 - Status/editor/startup integrations: Phases 2–4.
 - Status/editor/startup integrations: Phases 2–4.
 - Patch lifecycle: Phase 5.
-- Full reload/persistence/conflict behavior: Phase 6.
+- Reload, persistence, conflict reconciliation, and bounded doctor integration: Phase 6 accepted after independent Peer acceptance and Root validation.
 - Leak and platform proof: Phase 7.

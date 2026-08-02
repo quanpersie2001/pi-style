@@ -1,6 +1,6 @@
 # Testing and validation
 
-> Status: **Phase 5 executable compatibility matrix accepted; release/platform checks remain later gates**
+> Status: **Phase 6 accepted after independent Peer acceptance and Root validation; Phase 7 remains blocked/not started pending Supervisor/program acceptance**
 
 ## Goals
 
@@ -141,7 +141,7 @@ Named final presentation proofs include:
 - `retains real rejected prototype cleanup and retries before a new generation`
 - `rejects mutation of frozen report evidence and still restores exactly`
 
-The 69-test checkpoint is an acceptance checkpoint, not a claim that later release checks are complete. Terminal/platform matrix validation, release packaging from a clean checkout, and Phase 6 persistence/composition checks remain later gates.
+The 69-test checkpoint is the historical Phase 5 acceptance checkpoint. Phase 6 is separately accepted after fresh independent frozen-scope Peer acceptance and Root validation. Root observed 135 tests across 9 files in the full suite, 112 focused Phase 6/startup/compatibility tests, 26 changed-file primary LSP checks clean, clean typecheck/lint/depcruise/build/package smoke/check/pack dry-run/diff gates, no full-Lens errors, and real Pi JSON/print headless smokes exiting 0. Phase 7 remains blocked/not started pending Supervisor/program acceptance; these results do not claim release, platform, performance, or terminal-matrix completion.
 
 ## Compatibility and patch tests
 

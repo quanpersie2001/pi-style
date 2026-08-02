@@ -2,7 +2,7 @@
 
 A native-layout, cohesive visual style package for [Pi](https://pi.dev/).
 
-> Phase 0 is complete: the package scaffold, lifecycle harness, architecture gate, build, and package smoke validation are in place. UI features remain planned according to [`ROADMAP.md`](ROADMAP.md).
+> Phase 5's exact certified messages/tools subset and Phase 6 full configurability/control-plane scope are accepted after independent Peer acceptance and Root validation. Phase 7 hardening, platform validation, and v1 release work remains blocked/not started pending Supervisor/program acceptance. See [`ROADMAP.md`](ROADMAP.md) and [`docs/PHASE-5-EVIDENCE.md`](docs/PHASE-5-EVIDENCE.md).
 
 ## Development
 

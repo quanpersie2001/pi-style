@@ -268,18 +268,28 @@ export function installStartup(options: StartupInstallOptions): StartupInstallat
 		if (host.setWidget) safeCall(() => host.setWidget?.(STARTUP_WIDGET_KEY, undefined));
 		map.delete(STARTUP_WIDGET_KEY);
 	};
-	const mountCompact = () => {
+	const mountCompact = (): boolean => {
 		const factory = (tui: unknown, theme: unknown) => component(theme, false, tui as { requestRender?: () => void });
-		if (host.setHeader && safeCall(() => host.setHeader?.(factory))) {
+		// A production host without an owner getter cannot safely prove header ownership.
+		// Prefer the namespaced widget in that case; injected adapters may opt into headers.
+		let currentHeader: unknown = Symbol("unreadable");
+		const observable =
+			host.getHeaderFactory &&
+			safeCall(() => {
+				currentHeader = host.getHeaderFactory?.();
+			});
+		if (host.setHeader && observable && currentHeader === undefined && safeCall(() => host.setHeader?.(factory))) {
 			installedHeaderFactory = factory;
 			headerInstalled = true;
 			map.set("header", token);
-			return;
+			return true;
 		}
 		if (host.setWidget && safeCall(() => host.setWidget?.(STARTUP_WIDGET_KEY, factory, { placement: "aboveEditor" }))) {
 			widgetInstalled = true;
 			map.set(STARTUP_WIDGET_KEY, token);
+			return true;
 		}
+		return false;
 	};
 	const mountOverlay = () => {
 		if (!host.custom || !overlayAllowed(snapshot.reason)) {
@@ -341,7 +351,10 @@ export function installStartup(options: StartupInstallOptions): StartupInstallat
 	};
 	map.set("installation", token);
 	removeInput = host.onTerminalInput?.(() => dismiss());
-	if (config.startup.mode === "compact") mountCompact();
+	if (config.startup.mode === "compact" && !mountCompact()) {
+		installation.dispose();
+		return undefined;
+	}
 	if (config.startup.mode === "overlay") mountOverlay();
 	if (config.startup.mode === "overlay" && timeoutMs !== undefined && timeoutMs >= 0) {
 		timeout = setTimeout(() => dismiss(), timeoutMs);

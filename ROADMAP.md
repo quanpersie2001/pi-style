@@ -1,6 +1,6 @@
 # pi-style roadmap
 
-> Status: **Phase 5 accepted; Phase 6 blocked/not started; later release hardening remains planned**
+> Status: **Phase 6 accepted after fresh independent frozen-scope Peer acceptance and Root validation; Phase 7 hardening remains blocked/not started pending Supervisor/program acceptance**
 
 This roadmap defines the sequence for implementing the complete pi-style product. The phases are **sequencing boundaries, not an MVP scope reduction**. The intended v1 consists of every phase through Phase 7. Completing only the status line or editor is not completion of pi-style.
 
@@ -30,11 +30,11 @@ The product contract lives in [`docs/PRODUCT.md`](docs/PRODUCT.md). Detailed beh
 | 0 | Contract and repository foundation | **Completed** |
 | 1 | Runtime, configuration, and theme foundation | **Completed (Phase 1A)** |
 | 2 | Complete status-line subsystem | **Completed** |
-| 3 | Complete styled editor subsystem | Planned |
-| 4 | Startup presentation | Planned |
+| 3 | Complete styled editor subsystem | **Completed — executable implementation** |
+| 4 | Startup presentation | **Completed — executable implementation** |
 | 5 | Messages and tool presentation | **Completed — Peer accepted** |
-| 6 | Full configurability and extension composition | Planned |
-| 7 | Hardening, platform validation, and v1 release | Planned |
+| 6 | Full configurability and extension composition | **Completed — independently Peer accepted and Root validated** |
+| 7 | Hardening, platform validation, and v1 release | **Blocked/not started — pending Supervisor/program acceptance** |
 
 ---
 
@@ -421,7 +421,9 @@ Phase 1 theme/lifecycle/capabilities; Phase 0 ADR 0004; compatibility fake-host 
 
 ### Objective
 
-Complete the user-facing control plane, persistence, migrations, cross-extension behavior, diagnostics, and reusable package contracts.
+Complete the user-facing control plane, persistence, migrations, cross-extension behavior, and diagnostics. Public package reuse remains intentionally unclaimed because no external reuse is demonstrated.
+
+**Acceptance disposition:** Phase 6 is accepted after fresh independent frozen-scope Peer acceptance and Root validation. The observed evidence includes 135 tests across 9 files in the full suite, 112 focused Phase 6/startup/compatibility tests, 26 changed-file primary LSP checks clean, clean typecheck/lint/depcruise/build/package smoke/check/pack dry-run/diff gates, no full-Lens errors, and real Pi JSON/print headless smokes exiting 0. Phase 5 remains separately accepted for its exact certified subset. Phase 7 remains blocked/not started pending Supervisor/program acceptance; this disposition does not claim release, platform, performance, or terminal-matrix completion.
 
 ### Deliverables
 
@@ -452,7 +454,7 @@ Complete the user-facing control plane, persistence, migrations, cross-extension
 #### Doctor and public contracts
 
 - Complete `/pi-style doctor` output.
-- Export pure types/preset/status/theme contracts as a library entry only if external reuse is demonstrated.
+- Pure configuration presets, migration validation, storage adapters, and bounded doctor foundations are implemented without adding a public package entry. Full cross-extension composition remains bounded by existing Pi capabilities.
 - Document compatibility and migration support policy.
 
 ### Dependencies
