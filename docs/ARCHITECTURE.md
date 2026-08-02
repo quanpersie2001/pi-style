@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: **Phase 2 status-line foundation in progress; later product surfaces remain planned**
+> Status: **Phase 2 status-line subsystem implemented; later product surfaces remain planned**
 
 ## Architecture goals
 
@@ -310,7 +310,7 @@ A feature failure must not tear down unrelated surfaces:
 
 ## Phase 2 implementation notes
 
-The status-line foundation now uses app-owned immutable status snapshots, pure domain rendering, injected provider contracts, and a namespaced public-widget feature. The feature remains isolated from editor, startup, messages, and tools, which remain planned.
+The status-line subsystem uses app-owned immutable status snapshots, pure domain rendering, injected provider contracts, async cached Git refresh/invalidation, and namespaced public-widget component factories. The feature remains isolated from editor, startup, messages, and tools, which remain planned.
 
 ## Architecture acceptance criteria
 

@@ -127,6 +127,7 @@ export function parseGitStatus(output: string): GitSnapshot {
 export class InMemoryUsageProvider implements UsageProvider {
 	private readonly values = new Map<string, UsageSnapshot>();
 	private readonly events = new Map<string, Set<string>>();
+	private readonly finalized = new Map<string, Set<string>>();
 	get(sessionId: string): UsageSnapshot {
 		return this.values.get(sessionId) ?? EMPTY_USAGE;
 	}
@@ -137,9 +138,14 @@ export class InMemoryUsageProvider implements UsageProvider {
 	): void {
 		if (options.eventId) {
 			const ids = this.events.get(sessionId) ?? new Set<string>();
-			if (ids.has(options.eventId)) return;
+			const finalized = this.finalized.get(sessionId) ?? new Set<string>();
+			if (finalized.has(options.eventId) || (ids.has(options.eventId) && !options.finalized)) return;
 			ids.add(options.eventId);
 			this.events.set(sessionId, ids);
+			if (options.finalized) {
+				finalized.add(options.eventId);
+				this.finalized.set(sessionId, finalized);
+			}
 		}
 		const current = this.get(sessionId);
 		const next = {
@@ -153,10 +159,12 @@ export class InMemoryUsageProvider implements UsageProvider {
 		if (sessionId === undefined) {
 			this.values.clear();
 			this.events.clear();
+			this.finalized.clear();
 			return;
 		}
 		this.values.delete(sessionId);
 		this.events.delete(sessionId);
+		this.finalized.delete(sessionId);
 	}
 }
 

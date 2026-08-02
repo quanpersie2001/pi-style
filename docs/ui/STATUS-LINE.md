@@ -1,6 +1,6 @@
 # Status line
 
-> Status: **In progress — Phase 2 foundation implemented**
+> Status: **Implemented — Phase 2 complete**
 
 ## Purpose
 
@@ -318,7 +318,7 @@ Refresh triggers:
 
 Implemented and tested foundations include immutable status snapshots with generation/revision tracking, preset-aware layout normalization with explicit empty groups and duplicate removal, cached Git/usage/context provider contracts, and a pure ANSI-aware responsive renderer. Built-in segment registration covers the documented segment identifiers and hides unavailable data. Public event adapters schedule immediate model/thinking updates and coalesced/deferred status refreshes.
 
-The full status-line exit criteria, including broad provider invalidation coverage and all host capability combinations, remain in progress.
+The Phase 2 status-line subsystem is implemented with native Pi component widgets, effective runtime configuration, async cached Git refresh/invalidation, live context updates, typed custom extension-status items, responsive width-safe rendering, and lifecycle cleanup. Automated proof covers the documented responsive widths, thinking labels, provider deduplication/finalization, malformed/disabled segments, component factories, and headless behavior.
 
 ## Requirements
 
@@ -335,7 +335,7 @@ The full status-line exit criteria, including broad provider invalidation covera
 - **STAT-011:** usage aggregation avoids double counting.
 - **STAT-012:** logical trailing layout does not make an unsupported alignment promise.
 
-## Planned tests
+## Validation coverage
 
 - every preset at widths 40/60/80/120/160;
 - all thinking levels, including model changes that clamp a level;

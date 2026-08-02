@@ -29,7 +29,7 @@ The product contract lives in [`docs/PRODUCT.md`](docs/PRODUCT.md). Detailed beh
 | --- | --- | --- |
 | 0 | Contract and repository foundation | **Completed** |
 | 1 | Runtime, configuration, and theme foundation | **Completed (Phase 1A)** |
-| 2 | Complete status-line subsystem | Planned |
+| 2 | Complete status-line subsystem | **Completed** |
 | 3 | Complete styled editor subsystem | Planned |
 | 4 | Startup presentation | Planned |
 | 5 | Messages and tool presentation | Planned |

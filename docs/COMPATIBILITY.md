@@ -1,6 +1,6 @@
 # Compatibility policy
 
-> Status: **Phase 2 public-widget compatibility foundation in progress; full conflict/patch matrix planned**
+> Status: **Phase 2 public-widget compatibility implemented; full conflict/patch matrix planned**
 
 ## Principles
 
@@ -188,7 +188,7 @@ It must not print secrets, full settings files, API keys, or arbitrary extension
 
 ## Phase 2 implementation notes
 
-Status widgets use Tier A public APIs, namespaced IDs, guarded placement, and identity-safe removal. Missing widget behavior is contained to the status feature; footer ownership is preserved by default. Tier C patches and broader editor/message/tool conflict behavior remain planned.
+Status widgets use Tier A public APIs, namespaced IDs, component factories, guarded placement, and identity-safe removal. Missing widget behavior is contained to the status feature; footer ownership is preserved by default, and print/json modes perform no terminal widget work. Tier C patches and broader editor/message/tool conflict behavior remain planned.
 
 ## Compatibility requirements
 

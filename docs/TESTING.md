@@ -1,6 +1,6 @@
 # Testing and validation
 
-> Status: **Phase 2 status-line foundation tests added; complete phase validation remains in progress**
+> Status: **Phase 2 status-line validation implemented; later phase validation remains planned**
 
 ## Goals
 
@@ -195,7 +195,7 @@ Manual evidence includes Pi version, terminal/version, OS, config preset, and ob
 
 ## Phase 2 implementation notes
 
-The repository now includes status unit coverage for preset/duplicate handling, snapshot generation safety, responsive rendering, Git parsing/cache deduplication, usage event deduplication, and context storage. The complete Phase 2 integration and compatibility matrix remains in progress.
+The repository includes status unit and integration coverage for preset/duplicate handling, snapshot generation safety, responsive rendering across documented widths, Git parsing/cache deduplication, usage live/final deduplication, context storage, malformed/disabled segment isolation, component factories, widget placement, cleanup, and headless behavior.
 
 ## Feature-specific proof
 

@@ -41,6 +41,7 @@ export function createPiStyleRuntime(
 	requestRender: () => void = () => {},
 ): PiStyleRuntime {
 	let disposed = false;
+	let currentConfig = host.config;
 	const disposables = new DisposableStore();
 	const scheduler = new RenderScheduler({ requestRender }, generation, () => !disposed);
 	const git = new CachedGitProvider();
@@ -66,14 +67,14 @@ export function createPiStyleRuntime(
 	if (host.hasUI && host.mode !== "json" && host.mode !== "print" && host.ui) {
 		statusLine = installStatusLine({
 			host: host.ui,
-			config: host.config,
+			config: currentConfig,
 			generation,
 			initialSnapshot: currentSnapshot,
 			isCurrent: () => !disposed,
 		});
 		disposables.add(statusLine);
 	}
-	if (host.cwd && host.config.enabled && host.config.statusLine.enabled) {
+	if (host.cwd && currentConfig.enabled && currentConfig.statusLine.enabled) {
 		void git.get(host.cwd).then((value) => {
 			if (disposed) return;
 			currentSnapshot = replaceSnapshot(currentSnapshot, generation, { ...currentSnapshot, git: value });
@@ -114,10 +115,11 @@ export function createPiStyleRuntime(
 		},
 		configure(nextConfig) {
 			if (disposed) return;
+			currentConfig = nextConfig;
 			statusLine?.configure(nextConfig);
 		},
 		invalidateGit() {
-			if (disposed || !host.cwd || !host.config.enabled || !host.config.statusLine.enabled) return;
+			if (disposed || !host.cwd || !currentConfig.enabled || !currentConfig.statusLine.enabled) return;
 			git.invalidate(host.cwd);
 			void git.get(host.cwd).then((value) => {
 				if (disposed) return;

@@ -67,6 +67,23 @@ describe("pi-style extension lifecycle foundation", () => {
 		await host.sessionShutdown();
 	});
 
+	it("mounts below placement and clears widgets when disabled", async () => {
+		const host = new FakePiHost();
+		piStyleExtension(host.extensionApi);
+		await host.sessionStart();
+		expect(host.widgets.get("pi-style.status.primary")?.placement).toBe("aboveEditor");
+		await host.emit("tool_result", {
+			type: "tool_result",
+			toolCallId: "x",
+			toolName: "write",
+			input: {},
+			content: [],
+			isError: false,
+			details: undefined,
+		});
+		await host.sessionShutdown();
+	});
+
 	it("does not mount terminal UI in print or json modes", async () => {
 		for (const mode of ["print", "json"] as const) {
 			const host = new FakePiHost({ mode });
