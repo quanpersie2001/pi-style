@@ -5,6 +5,14 @@ export type NerdFontsMode = "auto" | "on" | "off";
 export type ToggleMode = "auto" | "on" | "off";
 export type PresetName = "default" | "minimal" | "compact" | "full" | "ascii" | "native";
 
+export interface StatusCustomItemConfig {
+	id: string;
+	statusKey: string;
+	label?: string;
+	priority?: number;
+	placement?: "left" | "right" | "secondary";
+}
+
 export interface PiStyleConfig {
 	enabled?: boolean;
 	preset?: string;
@@ -15,7 +23,7 @@ export interface PiStyleConfig {
 		separator?: string;
 		layout?: { left?: string[]; right?: string[]; secondary?: string[] };
 		disabledSegments?: string[];
-		customItems?: unknown[];
+		customItems?: StatusCustomItemConfig[];
 	};
 	editor?: { enabled?: boolean; style?: string; frame?: string; showMetadata?: boolean };
 	messages?: { enabled?: boolean; userPrefix?: boolean; assistantPrefix?: boolean; specialBlocks?: boolean };
@@ -47,7 +55,7 @@ export interface NormalizedPiStyleConfig {
 		separator: string;
 		layout: { left: readonly string[]; right: readonly string[]; secondary: readonly string[] };
 		disabledSegments: readonly string[];
-		customItems: readonly unknown[];
+		customItems: readonly StatusCustomItemConfig[];
 	};
 	readonly editor: { enabled: boolean; style: string; frame: string; showMetadata: boolean };
 	readonly messages: { enabled: boolean; userPrefix: boolean; assistantPrefix: boolean; specialBlocks: boolean };

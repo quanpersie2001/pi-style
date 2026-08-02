@@ -77,7 +77,12 @@ export function renderStatus(
 	}
 	const primary = [...normalized.left, ...normalized.right]
 		.map((id) => candidates.get(id))
-		.filter((candidate): candidate is Candidate => candidate !== undefined);
+		.filter((candidate): candidate is Candidate => candidate !== undefined)
+		.sort(
+			(a, b) =>
+				(b.segment.essential ? 1 : 0) - (a.segment.essential ? 1 : 0) ||
+				b.segment.defaultPriority - a.segment.defaultPriority,
+		);
 	const secondary = normalized.secondary
 		.map((id) => candidates.get(id))
 		.filter((candidate): candidate is Candidate => candidate !== undefined);
@@ -97,12 +102,12 @@ export function renderStatus(
 			overflow.push(candidate);
 		}
 	}
-	for (const candidate of [...overflow].sort((a, b) => a.segment.defaultPriority - b.segment.defaultPriority))
+	for (const candidate of [...overflow].sort((a, b) => b.segment.defaultPriority - a.segment.defaultPriority))
 		secondary.push(candidate);
 	let primaryText = renderGroup(visible, separator, padding);
 	if (visibleWidth(primaryText) > width) primaryText = truncateAnsi(primaryText, width);
 	const secondaryVisible: Candidate[] = [];
-	for (const candidate of secondary) {
+	for (const candidate of [...secondary].sort((a, b) => b.segment.defaultPriority - a.segment.defaultPriority)) {
 		secondaryVisible.push(candidate);
 		if (widthOf(secondaryVisible, separator, padding) > width) secondaryVisible.pop();
 	}

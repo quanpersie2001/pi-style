@@ -81,6 +81,14 @@ export interface StatusSegmentOptions {
 	readonly [key: string]: unknown;
 }
 
+export interface StatusCustomItem {
+	readonly id: string;
+	readonly statusKey: string;
+	readonly label?: string;
+	readonly priority?: number;
+	readonly placement?: "left" | "right" | "secondary";
+}
+
 export interface SegmentContext {
 	readonly snapshot: StatusSnapshot;
 	readonly theme: ResolvedTheme;
@@ -140,6 +148,7 @@ export function createBuiltinSegments(): ReadonlyMap<StatusSegmentId, StatusSegm
 				visible: Boolean(snapshot.model),
 				content: snapshot.model ?? "",
 				compactContent: snapshot.model ?? "",
+				truncatable: true,
 			}),
 			true,
 		),
@@ -148,8 +157,8 @@ export function createBuiltinSegments(): ReadonlyMap<StatusSegmentId, StatusSegm
 			95,
 			({ snapshot }) => ({
 				visible: Boolean(snapshot.thinkingLevel),
-				content: snapshot.thinkingLevel ? `think:${snapshot.thinkingLevel}` : "",
-				compactContent: snapshot.thinkingLevel ? `t:${snapshot.thinkingLevel}` : "",
+				content: snapshot.thinkingLevel ? `think:${thinkingLabel(snapshot.thinkingLevel)}` : "",
+				compactContent: snapshot.thinkingLevel ? `t:${thinkingLabel(snapshot.thinkingLevel)}` : "",
 			}),
 			true,
 		),
@@ -157,6 +166,7 @@ export function createBuiltinSegments(): ReadonlyMap<StatusSegmentId, StatusSegm
 			visible: Boolean(snapshot.cwd),
 			content: snapshot.cwd ?? "",
 			compactContent: snapshot.cwd?.split(/[\\/]/).filter(Boolean).at(-1) ?? "",
+			truncatable: true,
 		})),
 		segment("git", 75, ({ snapshot, theme }) => {
 			const git = snapshot.git;
@@ -247,6 +257,10 @@ export function createBuiltinSegments(): ReadonlyMap<StatusSegmentId, StatusSegm
 function formatElapsed(ms: number): string {
 	const seconds = Math.max(0, Math.floor(ms / 1000));
 	return `${Math.floor(seconds / 3600)}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function thinkingLabel(level: ThinkingLevel): string {
+	return level === "minimal" ? "min" : level === "medium" ? "med" : level;
 }
 
 export function contextState(percent: number | undefined): ContextState | undefined {

@@ -53,6 +53,20 @@ describe("pi-style extension lifecycle foundation", () => {
 		expect(host.capabilities.customFooter).toBe(false);
 	});
 
+	it("mounts component factories and renders within the requested width", async () => {
+		const host = new FakePiHost();
+		piStyleExtension(host.extensionApi);
+		await host.sessionStart();
+		const primary = host.componentFactories.get("pi-style.status.primary");
+		expect(primary).toBeDefined();
+		const component = primary?.({ requestRender: () => host.requestRender() }, host.theme);
+		const lines = component?.render(40) ?? [];
+		expect(lines.every((line) => line.length <= 40)).toBe(true);
+		component?.invalidate();
+		expect(host.renderRequests).toContain("tui");
+		await host.sessionShutdown();
+	});
+
 	it("does not mount terminal UI in print or json modes", async () => {
 		for (const mode of ["print", "json"] as const) {
 			const host = new FakePiHost({ mode });

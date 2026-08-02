@@ -42,6 +42,13 @@ export class FakePiHost {
 	readonly handlers = new Map<string, Handler[]>();
 	readonly commands = new Map<string, unknown>();
 	readonly widgets = new Map<string, { content: unknown; placement: "aboveEditor" | "belowEditor" }>();
+	readonly componentFactories = new Map<
+		string,
+		(
+			tui: { requestRender: () => void },
+			theme: typeof this.theme,
+		) => { render(width: number): string[]; invalidate(): void; dispose?(): void }
+	>();
 	readonly notifications: Array<{ message: string; type?: "info" | "warning" | "error" }> = [];
 	readonly renderRequests: Array<"tui" | "rpc"> = [];
 	readonly workingIndicatorChanges: Array<WorkingIndicatorOptions | undefined> = [];
@@ -156,8 +163,13 @@ export class FakePiHost {
 			setHiddenThinkingLabel: () => {},
 			setWidget: this.capabilities.widgets
 				? (key, content, options) => {
-						if (content === undefined) this.widgets.delete(key);
-						else this.widgets.set(key, { content, placement: options?.placement ?? "aboveEditor" });
+						if (content === undefined) {
+							this.widgets.delete(key);
+							this.componentFactories.delete(key);
+						} else {
+							this.widgets.set(key, { content, placement: options?.placement ?? "aboveEditor" });
+							if (typeof content === "function") this.componentFactories.set(key, content as never);
+						}
 					}
 				: () => {},
 			setFooter: this.capabilities.customFooter

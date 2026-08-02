@@ -17,7 +17,7 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		app.update({ thinkingLevel: event.level }, "immediate");
 	});
 	pi.on("session_info_changed", (event) => {
-		app.update(event.name === undefined ? {} : { sessionName: event.name }, "coalesced");
+		app.update({ sessionName: event.name }, "coalesced");
 	});
 	pi.on("message_update", (_event) => app.update({}, "coalesced"));
 	pi.on("message_end", (_event) => app.update({}, "coalesced"));
@@ -26,7 +26,14 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	pi.on("session_tree", (_event) => app.update({}, "deferred"));
 	pi.on("session_compact", (_event) => app.update({}, "deferred"));
 	pi.on("tool_result", (event) => {
-		if (["write", "edit", "bash"].includes(event.toolName)) app.update({}, "delayed-retry");
+		if (["write", "edit", "bash"].includes(event.toolName)) {
+			app.runtime.current?.invalidateGit();
+			app.update({}, "delayed-retry");
+		}
+	});
+	pi.on("user_bash", () => {
+		app.runtime.current?.invalidateGit();
+		app.update({}, "delayed-retry");
 	});
 	pi.on("session_shutdown", () => {
 		app.sessionShutdown();

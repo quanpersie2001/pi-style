@@ -63,6 +63,13 @@ function stringMap(value: unknown): Readonly<Record<string, string>> {
 			)
 		: {};
 }
+function customItems(value: unknown): readonly import("./config-types.js").StatusCustomItemConfig[] {
+	if (!Array.isArray(value)) return [];
+	return value.filter((item): item is import("./config-types.js").StatusCustomItemConfig => {
+		if (!isRecord(item) || typeof item.id !== "string" || typeof item.statusKey !== "string") return false;
+		return item.placement === undefined || ["left", "right", "secondary"].includes(item.placement as string);
+	});
+}
 
 export function normalizeConfig(
 	input: unknown,
@@ -116,7 +123,7 @@ export function normalizeConfig(
 					: undefined,
 			),
 			disabledSegments: strings(status.disabledSegments, defaults.statusLine.disabledSegments),
-			customItems: Array.isArray(status.customItems) ? [...status.customItems] : defaults.statusLine.customItems,
+			customItems: customItems(status.customItems),
 		}),
 		editor: Object.freeze({
 			enabled: bool(editor.enabled, defaults.editor.enabled),

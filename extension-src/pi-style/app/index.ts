@@ -31,6 +31,7 @@ export function createPiStyleApp(): PiStyleApp {
 				cwd: ctx.cwd,
 				model: ctx.model,
 				thinkingLevel: ctx.thinkingLevel,
+				config,
 				getContextUsage: () => ctx.getContextUsage(),
 			});
 		},
@@ -45,6 +46,7 @@ export function createPiStyleApp(): PiStyleApp {
 		},
 		reload(input) {
 			config = normalizeConfig(input);
+			runtime.current?.configure(config);
 		},
 	};
 }
