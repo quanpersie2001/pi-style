@@ -3,6 +3,7 @@ import type {
 	ExtensionContext,
 	ExtensionEvent,
 	ExtensionUIContext,
+	Theme,
 	WorkingIndicatorOptions,
 } from "@earendil-works/pi-coding-agent";
 import { createFakeTheme } from "./fake-theme.js";
@@ -20,6 +21,7 @@ export interface FakePiCapabilities {
 
 export interface FakePiHostOptions {
 	mode?: FakePiMode;
+	sessionReason?: "startup" | "reload" | "new" | "resume" | "fork";
 	capabilities?: Partial<FakePiCapabilities>;
 	initialEditor?: NonNullable<ExtensionUIContext["setEditorComponent"]> extends (factory: infer F) => void ? F : never;
 	initialFooter?: Parameters<ExtensionUIContext["setFooter"]>[0];
@@ -46,12 +48,14 @@ export class FakePiHost {
 		string,
 		(
 			tui: { requestRender: () => void },
-			theme: typeof this.theme,
+			theme: Theme,
 		) => { render(width: number): string[]; invalidate(): void; dispose?(): void }
 	>();
 	readonly notifications: Array<{ message: string; type?: "info" | "warning" | "error" }> = [];
 	readonly renderRequests: Array<"tui" | "rpc"> = [];
+	readonly overlays: Array<{ options?: unknown; handle: { hidden: boolean; disposed: boolean } }> = [];
 	readonly workingIndicatorChanges: Array<WorkingIndicatorOptions | undefined> = [];
+	private headerFactory: Parameters<NonNullable<ExtensionUIContext["setHeader"]>>[0] | undefined;
 	readonly ownership = {
 		header: { initial: false, current: false, restores: 0 },
 		editor: { initial: false, current: false, restores: 0 },
@@ -66,9 +70,11 @@ export class FakePiHost {
 	private sessionStarted = false;
 	private readonly api: ExtensionAPI;
 	private readonly context: ExtensionContext;
+	private readonly sessionReason: NonNullable<FakePiHostOptions["sessionReason"]>;
 
 	constructor(options: FakePiHostOptions = {}) {
 		this.mode = options.mode ?? "tui";
+		this.sessionReason = options.sessionReason ?? "startup";
 		this.capabilities = { ...defaultCapabilities, ...options.capabilities };
 		this.ownership.editor.initial = options.initialEditor !== undefined;
 		this.ownership.editor.current = this.ownership.editor.initial;
@@ -89,6 +95,10 @@ export class FakePiHost {
 
 	get sessionIsStarted(): boolean {
 		return this.sessionStarted;
+	}
+
+	get currentHeaderFactory(): typeof this.headerFactory {
+		return this.headerFactory;
 	}
 
 	requestRender(): void {
@@ -148,6 +158,7 @@ export class FakePiHost {
 	}
 
 	private createContext(): ExtensionContext {
+		const host = this;
 		const ui: ExtensionUIContext = {
 			select: async () => undefined,
 			confirm: async () => false,
@@ -184,13 +195,42 @@ export class FakePiHost {
 				: () => {},
 			setHeader: this.capabilities.header
 				? (factory) => {
+						this.headerFactory = factory;
 						this.ownership.header.current = factory !== undefined;
 						if (factory === undefined) this.ownership.header.restores++;
 					}
 				: () => {},
 			setTitle: () => {},
-			custom: async () => {
+			custom: async (factory, options) => {
 				this.requestRender();
+				if (!options?.overlay) return undefined as never;
+				const handle = {
+					hidden: false,
+					disposed: false,
+					hide: () => {
+						handle.hidden = true;
+						handle.disposed = true;
+					},
+					setHidden: (hidden: boolean) => {
+						handle.hidden = hidden;
+					},
+					isHidden: () => handle.hidden,
+					focus: () => {},
+					unfocus: () => {},
+					isFocused: () => !handle.hidden,
+				};
+				this.overlays.push({ options: options.overlayOptions, handle });
+				options.onHandle?.(handle as never);
+				const component = await factory(
+					{ requestRender: () => this.requestRender() } as never,
+					this.theme,
+					{} as never,
+					() => {
+						handle.hidden = true;
+						handle.disposed = true;
+					},
+				);
+				this.componentFactories.set("pi-style.startup.overlay", (() => component) as never);
 				return undefined as never;
 			},
 			pasteToEditor: () => {},
@@ -207,7 +247,7 @@ export class FakePiHost {
 				: () => {},
 			getEditorComponent: () => this.editorFactory,
 			get theme() {
-				return this.theme;
+				return host.theme;
 			},
 			getAllThemes: () => [],
 			getTheme: () => undefined,
@@ -239,7 +279,7 @@ export class FakePiHost {
 
 	async sessionStart(): Promise<void> {
 		this.sessionStarted = true;
-		await this.emit("session_start", { type: "session_start", reason: "startup" });
+		await this.emit("session_start", { type: "session_start", reason: this.sessionReason });
 	}
 	async sessionShutdown(): Promise<void> {
 		await this.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });

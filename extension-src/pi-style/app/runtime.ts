@@ -3,6 +3,13 @@ import type { NormalizedPiStyleConfig } from "../domain/config-types.js";
 import type { StatusSnapshot } from "../domain/status.js";
 import { normalizeThinkingLevel } from "../domain/status.js";
 import { installEditor } from "../features/editor/index.js";
+import {
+	installStartup,
+	type StartupHost,
+	type StartupReason,
+	type StartupResources,
+	type StartupSnapshot,
+} from "../features/startup/index.js";
 import { installStatusLine } from "../features/status-line/index.js";
 import { DisposableStore } from "../shared/disposable-store.js";
 import { CachedGitProvider, InMemoryContextProvider, InMemoryUsageProvider } from "./providers.js";
@@ -18,6 +25,8 @@ export interface PiStyleRuntime {
 	disposables: DisposableStore;
 	scheduler: RenderScheduler;
 	update(values: StatusSnapshot): void;
+	updateStartupResources(resources: StartupResources): void;
+	dismissStartup(): void;
 	invalidateGit(): void;
 	configure(config: NormalizedPiStyleConfig): void;
 	dispose(): void;
@@ -31,6 +40,10 @@ export interface RuntimeHost {
 	readonly model?: { id?: string; name?: string } | undefined;
 	readonly thinkingLevel?: string | undefined;
 	readonly config: NormalizedPiStyleConfig;
+	readonly startupReason?: StartupReason;
+	readonly provider?: string;
+	readonly requestRender?: () => void;
+	readonly resources?: StartupResources;
 	getContextUsage?:
 		| (() => { tokens: number | null; contextWindow: number; percent: number | null } | undefined)
 		| undefined;
@@ -66,6 +79,7 @@ export function createPiStyleRuntime(
 	let currentSnapshot = createSnapshot(generation, 0, initialValues);
 	let statusLine: ReturnType<typeof installStatusLine> | undefined;
 	let editor: ReturnType<typeof installEditor> | undefined;
+	let startup: ReturnType<typeof installStartup> | undefined;
 	if (host.hasUI && host.mode === "tui" && host.ui) {
 		statusLine = installStatusLine({
 			host: host.ui,
@@ -75,6 +89,30 @@ export function createPiStyleRuntime(
 			isCurrent: () => !disposed,
 		});
 		disposables.add(statusLine);
+		const startupSnapshot: StartupSnapshot = {
+			...currentSnapshot,
+			reason: host.startupReason ?? "startup",
+			...(host.provider ? { provider: host.provider } : {}),
+			...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
+			preset: currentConfig.preset,
+			...(host.resources ? { resources: host.resources } : {}),
+		};
+		if (currentConfig.enabled) {
+			startup = installStartup({
+				host: {
+					...(host.ui as unknown as StartupHost),
+					mode: host.mode,
+					hasUI: host.hasUI,
+				},
+				config: currentConfig,
+				snapshot: startupSnapshot,
+				generation,
+				requestRender,
+				timeoutMs: 3000,
+				isCurrent: () => !disposed,
+			});
+			if (startup) disposables.add(startup);
+		}
 		if (currentConfig.enabled && currentConfig.editor.enabled) {
 			editor = installEditor({
 				host: host.ui,
@@ -92,6 +130,14 @@ export function createPiStyleRuntime(
 			currentSnapshot = replaceSnapshot(currentSnapshot, generation, { ...currentSnapshot, git: value });
 			statusLine?.update(currentSnapshot);
 			editor?.update(currentSnapshot);
+			startup?.update({
+				...currentSnapshot,
+				reason: host.startupReason ?? "startup",
+				...(host.provider ? { provider: host.provider } : {}),
+				...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
+				preset: currentConfig.preset,
+				...(host.resources ? { resources: host.resources } : {}),
+			});
 			requestRender();
 		});
 	}
@@ -109,6 +155,21 @@ export function createPiStyleRuntime(
 		snapshot: currentSnapshot,
 		disposables,
 		scheduler,
+		updateStartupResources(resources) {
+			if (disposed) return;
+			startup?.update({
+				...currentSnapshot,
+				reason: host.startupReason ?? "startup",
+				...(host.provider ? { provider: host.provider } : {}),
+				...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
+				preset: currentConfig.preset,
+				resources,
+			});
+			requestRender();
+		},
+		dismissStartup() {
+			startup?.dismiss();
+		},
 		update(values) {
 			if (disposed) return;
 			const liveUsage = host.getContextUsage?.();
@@ -126,12 +187,21 @@ export function createPiStyleRuntime(
 			});
 			statusLine?.update(currentSnapshot);
 			editor?.update(currentSnapshot);
+			startup?.update({
+				...currentSnapshot,
+				reason: host.startupReason ?? "startup",
+				...(host.provider ? { provider: host.provider } : {}),
+				...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
+				preset: currentConfig.preset,
+				...(host.resources ? { resources: host.resources } : {}),
+			});
 		},
 		configure(nextConfig) {
 			if (disposed) return;
 			currentConfig = nextConfig;
 			statusLine?.configure(nextConfig);
 			editor?.configure(nextConfig);
+			startup?.configure(nextConfig);
 		},
 		invalidateGit() {
 			if (disposed || !host.cwd || !currentConfig.enabled || !currentConfig.statusLine.enabled) return;
@@ -141,6 +211,13 @@ export function createPiStyleRuntime(
 				currentSnapshot = replaceSnapshot(currentSnapshot, generation, { ...currentSnapshot, git: value });
 				statusLine?.update(currentSnapshot);
 				editor?.update(currentSnapshot);
+				startup?.update({
+					...currentSnapshot,
+					reason: host.startupReason ?? "startup",
+					...(host.provider ? { provider: host.provider } : {}),
+					...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
+					preset: currentConfig.preset,
+				});
 				requestRender();
 			});
 		},

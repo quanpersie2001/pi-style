@@ -307,7 +307,11 @@ Phase 1 foundation and Phase 2 shared status snapshot/metadata contracts.
 
 ---
 
-## Phase 4 — Startup presentation
+## Phase 4 — Startup presentation ✅ Implemented
+
+### Status
+
+Implemented with public API integration, snapshot-only rendering, reason-aware compact/overlay behavior, dismissal/timeout lifecycle proof, headless fallback, resource snapshot capture, and generation-safe cleanup. Full terminal matrix proof remains part of Phase 7.
 
 ### Objective
 

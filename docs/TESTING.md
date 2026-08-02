@@ -193,6 +193,10 @@ Before v1, record smoke results for:
 
 Manual evidence includes Pi version, terminal/version, OS, config preset, and observed limitations.
 
+## Phase 4 implementation notes
+
+Startup render tests cover compact/overlay/off behavior, snapshot-only data, missing metadata, width extremes, and semantic no-color/ASCII fallbacks. Lifecycle coverage includes TUI-only installation, repeated cleanup, generation-aware runtime disposal, and headless no-install behavior. Real Pi/terminal matrix proof remains a Phase 7 release activity.
+
 ## Phase 3 implementation notes
 
 The editor integration is covered by the public factory path, interactive-only mounting, fake-host factory ownership, snapshot updates, native `CustomEditor` delegation, and lifecycle cleanup. Pure editor render coverage includes code-defined style/frame normalization, prompt fallback, narrow-width degradation, metadata omission, and ANSI-width-safe output. Manual IME/terminal matrix proof remains a Phase 7 release activity.

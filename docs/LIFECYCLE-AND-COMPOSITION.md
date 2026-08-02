@@ -212,6 +212,10 @@ In `print` and `json` modes, UI methods are not used. The extension may load con
 - Stale-context errors are treated as lifecycle cancellation, not logged as repeated user-facing errors.
 - Debug logs are written through a bounded logger or file, never raw interleaved stdout during TUI rendering.
 
+## Phase 4 implementation notes
+
+Startup is mounted after the runtime snapshot is created. Compact mode uses the public header API and a namespaced widget fallback; overlay mode uses public `ctx.ui.custom` with responsive visibility and an explicit dismiss handle. Input, agent, tool, replacement, and shutdown paths are generation-safe and idempotent. Cleanup restores only pi-style-owned header/widget surfaces and leaves status/editor installations independent.
+
 ## Phase 2 implementation notes
 
 The status-line feature installs `pi-style.status.primary` and `pi-style.status.secondary` through public component widgets, respects primary placement, leaves footer ownership untouched, performs identity-safe cleanup, and skips terminal widgets in print/json modes. The editor feature installs only in interactive TUI mode through the public editor factory, preserves a prior editor by default when composition is unsupported, and restores conditionally by factory identity. Model, thinking, context, and Git invalidation events are adapted in `pi/` and routed through the runtime snapshot flow.

@@ -308,6 +308,10 @@ A feature failure must not tear down unrelated surfaces:
 | Nerd glyph uncertainty | Use Unicode/ASCII set. |
 | Stale session callback | Ignore through generation check. |
 
+## Phase 4 startup implementation notes
+
+Startup is an isolated feature under `features/startup`. It consumes a runtime-provided snapshot, uses public Pi header/overlay APIs, falls back to the namespaced `pi-style.startup` widget, and never performs discovery during render. The runtime owns generation, snapshot updates, dismissal events, and disposal; startup failure does not affect status or editor installations.
+
 ## Phase 2 implementation notes
 
 The status-line subsystem uses app-owned immutable status snapshots, pure domain rendering, injected provider contracts, async cached Git refresh/invalidation, and namespaced public-widget component factories. The editor feature consumes the same immutable snapshots and is isolated from status-line implementation details; startup, messages, and tools remain planned.

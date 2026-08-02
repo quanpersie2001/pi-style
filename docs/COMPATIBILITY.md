@@ -186,6 +186,10 @@ OSC policy:
 
 It must not print secrets, full settings files, API keys, or arbitrary extension data.
 
+## Phase 4 implementation notes
+
+Startup remains Tier A: it uses public `setHeader`, `setWidget`, `custom`, overlay options, and terminal-input APIs. Missing capabilities disable or simplify only startup. Header cleanup is identity-safe when a public owner adapter is available; no private Pi internals are used.
+
 ## Phase 2 implementation notes
 
 Status widgets use Tier A public APIs, namespaced IDs, component factories, guarded placement, and identity-safe removal. The editor uses the Tier A public factory and `CustomEditor`; an existing editor is preserved by default when safe composition is unavailable, while explicit replacement remains identity-safe. Missing editor behavior is contained to the editor feature, and print/json modes perform no editor installation. Tier C patches and broader message/tool conflict behavior remain planned.

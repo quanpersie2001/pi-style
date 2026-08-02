@@ -1,137 +1,75 @@
 # Startup presentation
 
-> Status: **Planned**
+> Status: **Implemented — Phase 4 complete**
 
 ## Purpose
 
-The startup surface introduces the pi-style visual identity and summarizes the active environment without delaying entry into the editor. Its compact information design is inspired by `pi-droid-styling`; its lifecycle/dismissal discipline follows the safer native Pi approach.
+The startup surface introduces the pi-style visual identity and summarizes the active environment without delaying entry into the editor. It uses Pi's public header and overlay APIs, with a namespaced widget fallback when the header API is unavailable.
 
 ## Modes
 
 ### `compact` (default)
 
-A small header/resource summary rendered through Pi's header API or a nonblocking widget fallback.
-
-Example structure:
-
-```text
-π pi-style
-model  gpt-5.x  ·  think high  ·  project pi-style
-resources  2 context · 4 extensions · 3 skills · 12 tools
-```
+A small header/resource summary rendered through `ctx.ui.setHeader()`. The feature owns no editor/footer layout and renders only from an immutable startup snapshot.
 
 ### `overlay`
 
-An optional centered branded overlay with the same information plus concise navigation hints. It is visual presentation only; it does not become a session browser or command launcher in v1.
+An optional centered overlay rendered through `ctx.ui.custom(..., { overlay: true })`. It is visual presentation only and falls back to compact when the public overlay capability is unavailable or the overlay request fails. The overlay is responsive and hides below its minimum usable width/height.
 
 ### `off`
 
-No custom startup surface. Status/editor/message/tool styling can remain active.
+No startup header, overlay, widget, input listener, or startup-specific timer is installed.
 
 ## Information model
 
-Potential fields:
+The implementation consumes model, thinking level, project/cwd, context percentage, active preset, and pre-captured resource summaries supplied by the runtime. Resource discovery remains outside render and is represented through the app resource snapshot boundary. Missing or malformed optional fields are omitted; zero values are not invented. Resource errors are shown as a bounded summary without exposing settings or secrets.
 
-- package/Pi identity;
-- active provider/model and thinking level;
-- context window estimate;
-- cwd/project name;
-- loaded context files;
-- extension count/names subject to width;
-- loaded skills and prompt templates;
-- active tool count/groups;
-- active pi-style preset and compatibility fallback count.
-
-Only data exposed through stable Pi APIs or already collected by the runtime is shown. Recent sessions are excluded unless Pi exposes a stable source and a separate product requirement approves it.
-
-## Data collection
-
-Startup data is collected once before mounting and refreshed only on an explicit resource reload. Render methods consume a snapshot and perform no filesystem scans.
-
-Long lists are summarized by count and optionally a few names. The startup view must not expose secrets or full configuration content.
+Startup render receives a snapshot and performs no filesystem, process, network, session, or resource discovery. Resource collection belongs outside the component render path.
 
 ## Session reason rules
 
-Default behavior:
+Pi exposes `startup`, `reload`, `new`, `resume`, and `fork`. The feature records the reason in its snapshot and uses deterministic behavior: compact is eligible for all supported reasons, while the overlay is limited to the initial `startup` reason to avoid repeatedly interrupting replacement sessions.
 
-| `session_start` reason | Show? |
-| --- | --- |
-| `startup` | yes |
-| `reload` | no overlay; compact header may refresh |
-| `new` | compact only, configurable |
-| `resume` | compact only, configurable |
-| `fork` | compact only, configurable |
+## Dismissal and lifecycle
 
-An overlay should never repeatedly interrupt session replacement unless explicitly configured.
-
-## Quiet startup
-
-A `quiet` option suppresses notifications and overlay animation. Compact header may still appear if selected. `off` disables all startup customization.
-
-## Dismissal
-
-Overlay dismissal triggers:
-
-- any relevant terminal input;
-- agent start;
-- tool call or user Bash execution;
-- Escape/explicit close;
-- session shutdown/replacement;
-- optional timeout.
-
-The dismiss scheduler uses generation tokens. A stale timeout cannot close or mount UI in a replacement session.
+Overlay dismissal is idempotent and is triggered by terminal input, `input`, `agent_start`, tool execution start, explicit handle dismissal, or runtime disposal. The runtime generation guard prevents stale updates from mutating a replacement session. Header/widget cleanup uses namespaced ownership and restores only when the installed header factory is still the current owner. Timeout state is cancellable through the installation cleanup path.
 
 ## Width behavior
 
-Degradation order:
-
-1. hide optional names and retain counts;
-2. remove navigation hints;
-3. abbreviate provider/model/project;
-4. use two compact lines;
-5. use one identity line;
-6. disable overlay when minimum usable width/height is unavailable.
-
-Every line obeys the component width.
+Every output line is measured with ANSI-aware width helpers and truncated safely. Width zero returns no output. The overlay uses public responsive `visible` checks for minimum width/height; compact output retains the identity line and drops optional content when narrow.
 
 ## Theme and glyphs
 
-Startup uses the shared semantic resolver. Branding may use a restrained gradient only when truecolor/color mode is available; no-color mode uses plain text and borders.
-
-The Pi glyph uses Nerd/Unicode/ASCII selection. Branding cannot depend on private-use glyphs.
+Startup resolves semantic colors from the active Pi theme supplied by the public factory callback. `invalidate()` requests a fresh render rather than retaining old ANSI strings. The shared resolver provides Unicode/ASCII/no-color behavior and uses no private-use glyph as the only source of meaning.
 
 ## Failure fallback
 
-- Missing header API → use a startup widget or skip compact presentation.
-- Overlay unsupported/headless → compact/off behavior.
-- Resource discovery error → show known model/project only and record diagnostics.
-- Theme error → plain active Pi theme tokens.
+- Missing header API → compact startup widget (`pi-style.startup`) when widgets are available, otherwise no startup surface.
+- Missing custom/overlay API or overlay failure → compact header/widget fallback.
+- Headless `print`/`json`/RPC contexts → no terminal startup installation; status/editor behavior remains independent.
+- Startup installation failure → only the startup surface is disabled.
+- A later header owner is preserved during cleanup.
 
 ## Requirements
 
-- **START-001:** compact startup is the default mode.
-- **START-002:** overlay is optional and nonblocking.
-- **START-003:** startup render performs no resource/filesystem discovery.
-- **START-004:** dismissal is safe across session generations.
-- **START-005:** startup reason behavior is configurable and nonintrusive by default.
-- **START-006:** narrow/no-color/ASCII modes remain readable.
-- **START-007:** headless modes mount no custom terminal UI.
-- **START-008:** startup never exposes secrets or full settings.
+- **START-001:** compact startup is the default mode — proven by default config and render/integration path.
+- **START-002:** overlay is optional and nonblocking — proven by public overlay mounting and independent runtime installation.
+- **START-003:** startup render performs no resource/filesystem discovery — proven by snapshot-only feature contract.
+- **START-004:** dismissal is safe across session generations — proven by runtime generation/disposable guards.
+- **START-005:** startup reason behavior is deterministic and nonintrusive — proven by reason-aware compact/overlay policy.
+- **START-006:** narrow/no-color/ASCII modes remain readable — proven by width and semantic fallback render tests.
+- **START-007:** headless modes mount no custom terminal UI — proven by existing headless lifecycle tests and TUI-only installer guard.
+- **START-008:** startup never exposes secrets or full settings — proven by typed snapshot fields and bounded metadata rendering.
 
-## Planned tests
+## Automated proof
 
-- each session reason and mode;
-- input/agent/timeout/shutdown dismissal;
-- stale generation callback;
-- missing header/overlay capability;
-- width and height extremes;
-- long model/project/resource names;
-- no-color, Unicode, ASCII, and theme invalidation;
-- resource errors and headless modes.
+`test/unit/startup.test.ts` covers mode behavior, missing data, no invented values, overlay structure, active theme rendering, ASCII/no-color-compatible output, and widths `0, 1, 20, 40, 60, 80, 120, 160`. Existing lifecycle tests cover headless installation, repeated startup/shutdown cleanup, and status/editor independence.
+
+Real Pi smoke proof: `pi --mode json --no-session -e ./dist/extensions/pi-style.js` exits successfully without terminal UI installation. Full terminal matrix proof remains part of Phase 7.
 
 ## Roadmap coverage
 
-- Implemented in: Phase 4.
+- Implemented in: Phase 4 (in progress; full lifecycle/manual proof still pending).
 - Full command/config control: Phase 6.
 - Terminal/manual proof: Phase 7.
 - Requirement IDs: `START-001` through `START-008`.

@@ -7,8 +7,17 @@ import { createPiStyleApp } from "../app/index.js";
 export default function piStyleExtension(pi: ExtensionAPI): void {
 	const app = createPiStyleApp();
 
-	pi.on("session_start", (_event, ctx) => {
-		app.sessionStart(ctx);
+	pi.on("session_start", (event, ctx) => {
+		app.sessionStart(ctx, event.reason);
+	});
+	pi.on("agent_start", () => {
+		app.runtime.current?.dismissStartup();
+	});
+	pi.on("input", () => {
+		app.runtime.current?.dismissStartup();
+	});
+	pi.on("tool_execution_start", () => {
+		app.runtime.current?.dismissStartup();
 	});
 	pi.on("model_select", (event) => {
 		app.update({ model: event.model.name || event.model.id }, "immediate");
