@@ -127,8 +127,12 @@ export function normalizeConfig(
 		}),
 		editor: Object.freeze({
 			enabled: bool(editor.enabled, defaults.editor.enabled),
-			style: typeof editor.style === "string" ? editor.style : defaults.editor.style,
-			frame: typeof editor.frame === "string" ? editor.frame : defaults.editor.frame,
+			style: stringEnum(editor.style, ["compact", "boxed", "dock", "native"], defaults.editor.style),
+			frame: stringEnum(
+				editor.frame,
+				["auto", "halfblock", "line", "solid", "outline", "native"],
+				defaults.editor.frame,
+			),
 			showMetadata: bool(editor.showMetadata, defaults.editor.showMetadata),
 		}),
 		messages: Object.freeze({

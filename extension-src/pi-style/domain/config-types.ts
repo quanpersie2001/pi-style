@@ -4,6 +4,8 @@ export type Placement = "above" | "below";
 export type NerdFontsMode = "auto" | "on" | "off";
 export type ToggleMode = "auto" | "on" | "off";
 export type PresetName = "default" | "minimal" | "compact" | "full" | "ascii" | "native";
+export type EditorStyle = "compact" | "boxed" | "dock" | "native";
+export type EditorFrame = "auto" | "halfblock" | "line" | "solid" | "outline" | "native";
 
 export interface StatusCustomItemConfig {
 	id: string;
@@ -57,7 +59,7 @@ export interface NormalizedPiStyleConfig {
 		disabledSegments: readonly string[];
 		customItems: readonly StatusCustomItemConfig[];
 	};
-	readonly editor: { enabled: boolean; style: string; frame: string; showMetadata: boolean };
+	readonly editor: { enabled: boolean; style: EditorStyle; frame: EditorFrame; showMetadata: boolean };
 	readonly messages: { enabled: boolean; userPrefix: boolean; assistantPrefix: boolean; specialBlocks: boolean };
 	readonly tools: { enabled: boolean; style: string; maxCollapsedLines: number; showElapsed: boolean };
 	readonly theme: {

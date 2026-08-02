@@ -277,6 +277,10 @@ Planned narrow overrides:
 }
 ```
 
+## Editor configuration
+
+The editor accepts the code-defined styles `compact`, `boxed`, `dock`, and `native`, and frame modes `auto`, `halfblock`, `line`, `solid`, `outline`, and `native`. Unknown values normalize to the safe defaults (`compact` and `auto`). `native` and narrow-width fallback preserve Pi's native editor semantics before applying decoration. The editor does not execute configuration values.
+
 ## Acceptance criteria
 
 - Defaults/global/project/env/session precedence is proven in tests.

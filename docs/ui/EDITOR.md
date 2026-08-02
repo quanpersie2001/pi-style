@@ -1,6 +1,6 @@
 # Editor and input zone
 
-> Status: **Planned**
+> Status: **Implemented — Phase 3 complete**
 
 ## Purpose
 
@@ -190,6 +190,12 @@ Any constructor/render capability mismatch falls back to the previous/native edi
 - **EDIT-009:** no unrelated shell/history/navigation workflow is introduced.
 - **EDIT-010:** theme invalidation rebuilds themed content.
 - **EDIT-011:** no private autocomplete state dependency is required for v1.
+
+## Executable proof
+
+The Phase 3 editor is installed through the public `setEditorComponent` factory in interactive TUI mode only. `StyledEditor` extends Pi's public `CustomEditor`; render decoration delegates text wrapping, cursor placement, paste, IME, autocomplete, history, submit, abort, and keybindings to `super`. It never writes editor text during render. The feature captures the previous factory, preserves it by default when composition is not safe, and restores it only when the pi-style factory still owns the slot. Missing APIs or constructor installation failures leave the status line intact and fall back to native behavior.
+
+Styles and frames are code-defined and normalized; unknown values fall back safely. Narrow widths reduce decoration, ANSI-aware visible widths are used for prompt and output, and optional metadata is omitted rather than reserving blank rows. Thinking/model snapshots invalidate the component immediately; theme callbacks are supplied by Pi's factory.
 
 ## Planned tests
 

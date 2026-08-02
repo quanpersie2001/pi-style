@@ -2,6 +2,7 @@ import type { ExtensionContext, ExtensionUIContext } from "@earendil-works/pi-co
 import type { NormalizedPiStyleConfig } from "../domain/config-types.js";
 import type { StatusSnapshot } from "../domain/status.js";
 import { normalizeThinkingLevel } from "../domain/status.js";
+import { installEditor } from "../features/editor/index.js";
 import { installStatusLine } from "../features/status-line/index.js";
 import { DisposableStore } from "../shared/disposable-store.js";
 import { CachedGitProvider, InMemoryContextProvider, InMemoryUsageProvider } from "./providers.js";
@@ -64,7 +65,8 @@ export function createPiStyleRuntime(
 	};
 	let currentSnapshot = createSnapshot(generation, 0, initialValues);
 	let statusLine: ReturnType<typeof installStatusLine> | undefined;
-	if (host.hasUI && host.mode !== "json" && host.mode !== "print" && host.ui) {
+	let editor: ReturnType<typeof installEditor> | undefined;
+	if (host.hasUI && host.mode === "tui" && host.ui) {
 		statusLine = installStatusLine({
 			host: host.ui,
 			config: currentConfig,
@@ -73,12 +75,23 @@ export function createPiStyleRuntime(
 			isCurrent: () => !disposed,
 		});
 		disposables.add(statusLine);
+		if (currentConfig.enabled && currentConfig.editor.enabled) {
+			editor = installEditor({
+				host: host.ui,
+				config: currentConfig,
+				generation,
+				initialSnapshot: currentSnapshot,
+				isCurrent: () => !disposed,
+			});
+			if (editor) disposables.add(editor);
+		}
 	}
 	if (host.cwd && currentConfig.enabled && currentConfig.statusLine.enabled) {
 		void git.get(host.cwd).then((value) => {
 			if (disposed) return;
 			currentSnapshot = replaceSnapshot(currentSnapshot, generation, { ...currentSnapshot, git: value });
 			statusLine?.update(currentSnapshot);
+			editor?.update(currentSnapshot);
 			requestRender();
 		});
 	}
@@ -112,11 +125,13 @@ export function createPiStyleRuntime(
 				...(context ? { context } : {}),
 			});
 			statusLine?.update(currentSnapshot);
+			editor?.update(currentSnapshot);
 		},
 		configure(nextConfig) {
 			if (disposed) return;
 			currentConfig = nextConfig;
 			statusLine?.configure(nextConfig);
+			editor?.configure(nextConfig);
 		},
 		invalidateGit() {
 			if (disposed || !host.cwd || !currentConfig.enabled || !currentConfig.statusLine.enabled) return;
@@ -125,6 +140,7 @@ export function createPiStyleRuntime(
 				if (disposed) return;
 				currentSnapshot = replaceSnapshot(currentSnapshot, generation, { ...currentSnapshot, git: value });
 				statusLine?.update(currentSnapshot);
+				editor?.update(currentSnapshot);
 				requestRender();
 			});
 		},

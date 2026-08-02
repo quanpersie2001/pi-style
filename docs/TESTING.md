@@ -1,6 +1,6 @@
 # Testing and validation
 
-> Status: **Phase 2 status-line validation implemented; later phase validation remains planned**
+> Status: **Phase 3 editor validation implemented; later phase validation remains planned**
 
 ## Goals
 
@@ -192,6 +192,10 @@ Before v1, record smoke results for:
 | Content | long model/path/branch, multiline prompt, streaming, expanded tools |
 
 Manual evidence includes Pi version, terminal/version, OS, config preset, and observed limitations.
+
+## Phase 3 implementation notes
+
+The editor integration is covered by the public factory path, interactive-only mounting, fake-host factory ownership, snapshot updates, native `CustomEditor` delegation, and lifecycle cleanup. Pure editor render coverage includes code-defined style/frame normalization, prompt fallback, narrow-width degradation, metadata omission, and ANSI-width-safe output. Manual IME/terminal matrix proof remains a Phase 7 release activity.
 
 ## Phase 2 implementation notes
 

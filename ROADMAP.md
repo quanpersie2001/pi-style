@@ -244,11 +244,13 @@ Phase 1 runtime, snapshots, theme, scheduler, providers, and capabilities.
 
 ---
 
-## Phase 3 — Complete styled editor subsystem
+## Phase 3 — Complete styled editor subsystem ✅ Implemented
 
 ### Objective
 
 Implement the primary Droid-inspired input experience while preserving Pi editing, keybindings, cursor/IME behavior, and existing extension ownership.
+
+**Status:** Implemented with executable render/lifecycle proof; manual IME and terminal-matrix verification remains part of Phase 7 release validation.
 
 ### Deliverables
 

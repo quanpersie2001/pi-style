@@ -57,6 +57,9 @@ export class FakePiHost {
 		editor: { initial: false, current: false, restores: 0 },
 		footer: { initial: false, current: false, restores: 0 },
 	};
+	private editorFactory: NonNullable<ExtensionUIContext["setEditorComponent"]> extends (factory: infer F) => void
+		? F | undefined
+		: undefined;
 	readonly theme = createFakeTheme();
 	model: unknown;
 	thinkingLevel = "off";
@@ -71,6 +74,7 @@ export class FakePiHost {
 		this.ownership.editor.current = this.ownership.editor.initial;
 		this.ownership.footer.initial = options.initialFooter !== undefined;
 		this.ownership.footer.current = this.ownership.footer.initial;
+		this.editorFactory = options.initialEditor;
 		this.api = this.createApi();
 		this.context = this.createContext();
 	}
@@ -196,11 +200,12 @@ export class FakePiHost {
 			addAutocompleteProvider: () => {},
 			setEditorComponent: this.capabilities.customEditor
 				? (factory) => {
+						this.editorFactory = factory;
 						this.ownership.editor.current = factory !== undefined;
 						if (factory === undefined) this.ownership.editor.restores++;
 					}
 				: () => {},
-			getEditorComponent: () => undefined,
+			getEditorComponent: () => this.editorFactory,
 			get theme() {
 				return this.theme;
 			},

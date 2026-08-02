@@ -1,6 +1,6 @@
 # Lifecycle and composition
 
-> Status: **Phase 2 status-line composition implemented; other feature composition remains planned**
+> Status: **Phase 3 editor composition implemented; later feature composition remains planned**
 
 ## Goals
 
@@ -214,7 +214,7 @@ In `print` and `json` modes, UI methods are not used. The extension may load con
 
 ## Phase 2 implementation notes
 
-The status-line feature installs `pi-style.status.primary` and `pi-style.status.secondary` through public component widgets, respects primary placement, leaves footer ownership untouched, performs identity-safe cleanup, and skips terminal widgets in print/json modes. Model, thinking, context, and Git invalidation events are adapted in `pi/` and routed through the runtime scheduler/provider flow.
+The status-line feature installs `pi-style.status.primary` and `pi-style.status.secondary` through public component widgets, respects primary placement, leaves footer ownership untouched, performs identity-safe cleanup, and skips terminal widgets in print/json modes. The editor feature installs only in interactive TUI mode through the public editor factory, preserves a prior editor by default when composition is unsupported, and restores conditionally by factory identity. Model, thinking, context, and Git invalidation events are adapted in `pi/` and routed through the runtime snapshot flow.
 
 ## Lifecycle acceptance criteria
 
