@@ -1,6 +1,6 @@
 # Testing and validation
 
-> Status: **Foundation implemented (Phase 0); full validation expands in later phases**
+> Status: **Phase 2 status-line foundation tests added; complete phase validation remains in progress**
 
 ## Goals
 
@@ -192,6 +192,10 @@ Before v1, record smoke results for:
 | Content | long model/path/branch, multiline prompt, streaming, expanded tools |
 
 Manual evidence includes Pi version, terminal/version, OS, config preset, and observed limitations.
+
+## Phase 2 implementation notes
+
+The repository now includes status unit coverage for preset/duplicate handling, snapshot generation safety, responsive rendering, Git parsing/cache deduplication, usage event deduplication, and context storage. The complete Phase 2 integration and compatibility matrix remains in progress.
 
 ## Feature-specific proof
 

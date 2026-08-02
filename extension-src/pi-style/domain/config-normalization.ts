@@ -4,6 +4,7 @@ import {
 	PI_STYLE_SCHEMA_VERSION,
 	type PiStyleConfig,
 } from "./config-types.js";
+import { normalizeStatusLayout } from "./status-presets.js";
 
 export const DEFAULT_CONFIG: NormalizedPiStyleConfig = Object.freeze({
 	schemaVersion: PI_STYLE_SCHEMA_VERSION,
@@ -68,9 +69,11 @@ export function normalizeConfig(
 	defaults: NormalizedPiStyleConfig = DEFAULT_CONFIG,
 ): NormalizedPiStyleConfig {
 	const value = merge(defaults as unknown as Record<string, unknown>, input);
+	const inputRecord = isRecord(input) ? input : {};
+	const inputStatus = isRecord(inputRecord.statusLine) ? inputRecord.statusLine : {};
+	const inputLayout = isRecord(inputStatus.layout) ? inputStatus.layout : undefined;
 	const startup = isRecord(value.startup) ? value.startup : {};
 	const status = isRecord(value.statusLine) ? value.statusLine : {};
-	const layout = isRecord(status.layout) ? status.layout : {};
 	const editor = isRecord(value.editor) ? value.editor : {};
 	const messages = isRecord(value.messages) ? value.messages : {};
 	const tools = isRecord(value.tools) ? value.tools : {};
@@ -95,11 +98,23 @@ export function normalizeConfig(
 		statusLine: Object.freeze({
 			enabled: bool(status.enabled, defaults.statusLine.enabled),
 			separator: typeof status.separator === "string" ? status.separator : defaults.statusLine.separator,
-			layout: Object.freeze({
-				left: strings(layout.left, defaults.statusLine.layout.left),
-				right: strings(layout.right, defaults.statusLine.layout.right),
-				secondary: strings(layout.secondary, defaults.statusLine.layout.secondary),
-			}),
+			layout: normalizeStatusLayout(
+				stringEnum(value.preset, ["default", "minimal", "compact", "full", "ascii", "native"], defaults.preset),
+				inputLayout
+					? {
+							left:
+								inputLayout.left === undefined ? undefined : strings(inputLayout.left, defaults.statusLine.layout.left),
+							right:
+								inputLayout.right === undefined
+									? undefined
+									: strings(inputLayout.right, defaults.statusLine.layout.right),
+							secondary:
+								inputLayout.secondary === undefined
+									? undefined
+									: strings(inputLayout.secondary, defaults.statusLine.layout.secondary),
+						}
+					: undefined,
+			),
 			disabledSegments: strings(status.disabledSegments, defaults.statusLine.disabledSegments),
 			customItems: Array.isArray(status.customItems) ? [...status.customItems] : defaults.statusLine.customItems,
 		}),

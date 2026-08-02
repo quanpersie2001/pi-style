@@ -6,8 +6,12 @@ import { PiStyleRuntimeController } from "./runtime.js";
 export interface PiStyleApp {
 	readonly runtime: PiStyleRuntimeController;
 	readonly config: NormalizedPiStyleConfig;
-	sessionStart(ctx: Pick<ExtensionContext, "mode" | "hasUI">): void;
+	sessionStart(ctx: ExtensionContext): void;
 	sessionShutdown(): void;
+	update(
+		values: import("../domain/status.js").StatusSnapshot,
+		kind?: import("./render-scheduler.js").UpdateClass,
+	): void;
 	reload(input?: unknown): void;
 }
 
@@ -20,10 +24,24 @@ export function createPiStyleApp(): PiStyleApp {
 			return config;
 		},
 		sessionStart(ctx) {
-			runtime.start(ctx);
+			runtime.start({
+				mode: ctx.mode,
+				hasUI: ctx.hasUI,
+				ui: ctx.ui,
+				cwd: ctx.cwd,
+				model: ctx.model,
+				thinkingLevel: ctx.thinkingLevel,
+				getContextUsage: () => ctx.getContextUsage(),
+			});
 		},
 		sessionShutdown() {
 			runtime.stop();
+		},
+		update(values, kind = "coalesced") {
+			const active = runtime.current;
+			if (!active) return;
+			active.update(values);
+			active.scheduler.schedule(kind);
 		},
 		reload(input) {
 			config = normalizeConfig(input);

@@ -1,6 +1,6 @@
 # Compatibility policy
 
-> Status: **Foundation implemented (Phase 1A); full conflict/patch matrix planned**
+> Status: **Phase 2 public-widget compatibility foundation in progress; full conflict/patch matrix planned**
 
 ## Principles
 
@@ -185,6 +185,10 @@ OSC policy:
 - actionable recovery commands.
 
 It must not print secrets, full settings files, API keys, or arbitrary extension data.
+
+## Phase 2 implementation notes
+
+Status widgets use Tier A public APIs, namespaced IDs, guarded placement, and identity-safe removal. Missing widget behavior is contained to the status feature; footer ownership is preserved by default. Tier C patches and broader editor/message/tool conflict behavior remain planned.
 
 ## Compatibility requirements
 

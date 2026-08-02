@@ -1,0 +1,117 @@
+import type {
+	SegmentContext,
+	SegmentRenderResult,
+	StatusLayout,
+	StatusRenderResult,
+	StatusSegment,
+	StatusSegmentId,
+	StatusSnapshot,
+} from "../domain/status.js";
+import type { ResolvedTheme } from "../domain/theme.js";
+import { truncateAnsi, visibleWidth } from "../shared/ansi.js";
+
+export interface StatusRendererOptions {
+	readonly separator?: string;
+	readonly padding?: string;
+	readonly segments: ReadonlyMap<StatusSegmentId, StatusSegment>;
+	readonly theme: ResolvedTheme;
+	readonly options?: Readonly<
+		Record<string, { readonly disabled?: boolean; readonly [key: string]: unknown } | undefined>
+	>;
+}
+
+interface Candidate {
+	readonly id: StatusSegmentId;
+	readonly segment: StatusSegment;
+	readonly result: SegmentRenderResult;
+	content: string;
+	compact: boolean;
+	moved: boolean;
+}
+
+function uniqueLayout(layout: StatusLayout): StatusLayout {
+	const seen = new Set<StatusSegmentId>();
+	const dedupe = (items: readonly StatusSegmentId[]) =>
+		items.filter((id) => {
+			if (seen.has(id)) return false;
+			seen.add(id);
+			return true;
+		});
+	return { left: dedupe(layout.left), right: dedupe(layout.right), secondary: dedupe(layout.secondary) };
+}
+
+function renderGroup(items: readonly Candidate[], separator: string, padding: string): string {
+	return items
+		.map((item) => item.content)
+		.filter(Boolean)
+		.join(`${padding}${separator}${padding}`);
+}
+
+function widthOf(items: readonly Candidate[], separator: string, padding: string): number {
+	return visibleWidth(renderGroup(items, separator, padding));
+}
+
+export function renderStatus(
+	layout: StatusLayout,
+	snapshot: StatusSnapshot,
+	width: number,
+	options: StatusRendererOptions,
+): StatusRenderResult {
+	if (width <= 0) return { primary: "", lines: [], visibleSegments: [] };
+	const separator = options.separator ?? "│";
+	const padding = options.padding ?? " ";
+	const normalized = uniqueLayout(layout);
+	const context: SegmentContext = { snapshot, theme: options.theme, options: options.options ?? {}, width };
+	const candidates = new Map<StatusSegmentId, Candidate>();
+	for (const id of [...normalized.left, ...normalized.right, ...normalized.secondary]) {
+		if (candidates.has(id)) continue;
+		const segment = options.segments.get(id);
+		if (!segment || options.options?.[id]?.disabled) continue;
+		try {
+			const result = segment.render(context);
+			if (!result.visible || !result.content) continue;
+			candidates.set(id, { id, segment, result, content: result.content, compact: false, moved: false });
+		} catch {
+			// A broken optional segment must not break the status row.
+		}
+	}
+	const primary = [...normalized.left, ...normalized.right]
+		.map((id) => candidates.get(id))
+		.filter((candidate): candidate is Candidate => candidate !== undefined);
+	const secondary = normalized.secondary
+		.map((id) => candidates.get(id))
+		.filter((candidate): candidate is Candidate => candidate !== undefined);
+	const visible: Candidate[] = [];
+	const overflow: Candidate[] = [];
+	for (const candidate of primary) {
+		visible.push(candidate);
+		if (widthOf(visible, separator, padding) <= width) continue;
+		if (candidate.result.compactContent && !candidate.compact) {
+			candidate.content = candidate.result.compactContent;
+			candidate.compact = true;
+			if (widthOf(visible, separator, padding) <= width) continue;
+		}
+		visible.pop();
+		if (candidate.segment.overflow !== "drop" && candidate.segment.overflow !== "primary") {
+			candidate.moved = true;
+			overflow.push(candidate);
+		}
+	}
+	for (const candidate of [...overflow].sort((a, b) => a.segment.defaultPriority - b.segment.defaultPriority))
+		secondary.push(candidate);
+	let primaryText = renderGroup(visible, separator, padding);
+	if (visibleWidth(primaryText) > width) primaryText = truncateAnsi(primaryText, width);
+	const secondaryVisible: Candidate[] = [];
+	for (const candidate of secondary) {
+		secondaryVisible.push(candidate);
+		if (widthOf(secondaryVisible, separator, padding) > width) secondaryVisible.pop();
+	}
+	const secondaryText = renderGroup(secondaryVisible, separator, padding);
+	const lines = secondaryText ? [primaryText, secondaryText] : primaryText ? [primaryText] : [];
+	return {
+		primary: primaryText,
+		...(secondaryText ? { secondary: secondaryText } : {}),
+		lines,
+		visibleSegments: [...visible, ...secondaryVisible].map((candidate) => candidate.id),
+	};
+}

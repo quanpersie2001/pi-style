@@ -1,6 +1,6 @@
 # Lifecycle and composition
 
-> Status: **Foundation implemented (Phase 1A); feature composition planned**
+> Status: **Phase 2 status-line composition in progress; other feature composition remains planned**
 
 ## Goals
 
@@ -211,6 +211,10 @@ In `print` and `json` modes, UI methods are not used. The extension may load con
 - A failed core runtime/config installation falls back to an inert extension rather than partially mutating the terminal.
 - Stale-context errors are treated as lifecycle cancellation, not logged as repeated user-facing errors.
 - Debug logs are written through a bounded logger or file, never raw interleaved stdout during TUI rendering.
+
+## Phase 2 implementation notes
+
+The status-line feature installs only `pi-style.status.primary` and `pi-style.status.secondary` through public widgets, respects primary placement, leaves footer ownership untouched, and performs identity-safe cleanup. Model and thinking events are adapted in `pi/` and scheduled through the shared scheduler.
 
 ## Lifecycle acceptance criteria
 

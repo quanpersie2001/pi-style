@@ -1,6 +1,6 @@
 # Status line
 
-> Status: **Planned**
+> Status: **In progress — Phase 2 foundation implemented**
 
 ## Purpose
 
@@ -16,6 +16,8 @@ It must answer, at a glance:
 - which other extensions expose relevant state.
 
 ## Native surface layout
+
+The current Phase 2 foundation installs the primary and secondary namespaced widgets through the public widget API, preserves footer ownership, and removes only widgets still owned by pi-style. The primary row follows configured above/below placement; the secondary row is emitted only when rendered content exists.
 
 Planned widget IDs and placement:
 
@@ -311,6 +313,12 @@ Refresh triggers:
 - Unknown separators fall back to a safe Unicode/ASCII separator.
 - Extremely narrow widths may render only `model think:<level>` or one truncated essential segment.
 - Width zero or negative returns no lines.
+
+## Phase 2 implementation notes
+
+Implemented and tested foundations include immutable status snapshots with generation/revision tracking, preset-aware layout normalization with explicit empty groups and duplicate removal, cached Git/usage/context provider contracts, and a pure ANSI-aware responsive renderer. Built-in segment registration covers the documented segment identifiers and hides unavailable data. Public event adapters schedule immediate model/thinking updates and coalesced/deferred status refreshes.
+
+The full status-line exit criteria, including broad provider invalidation coverage and all host capability combinations, remain in progress.
 
 ## Requirements
 
