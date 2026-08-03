@@ -130,7 +130,7 @@ function resourceChipRows(resources: StartupResources | undefined): { label: str
 	return rows;
 }
 
-const PANEL_SIDE_PADDING = 4;
+const PANEL_SIDE_PADDING = 2;
 const PANEL_MIN_WIDTH = 64;
 const PANEL_OUTER_WIDTH = PANEL_SIDE_PADDING * 2 + 2;
 /** Panels render only when the surface is wide enough to keep the box intact. */
