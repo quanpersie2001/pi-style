@@ -33,7 +33,7 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Full check
         run: npm run check
@@ -85,7 +85,7 @@ jobs:
         id: npm_publish
         continue-on-error: true
         run: |
-          npm install
+          npm ci
           if [ "${{ inputs.version }}" = "alpha" ]; then
             npm publish --access public --tag alpha
           elif [ "${{ inputs.version }}" = "beta" ]; then
