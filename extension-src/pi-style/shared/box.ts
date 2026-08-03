@@ -170,7 +170,7 @@ export function parens(theme: BoxTheme, text: string, skipTextColor?: boolean): 
 
 const BOX_HORIZONTAL = "─";
 const BOX_VERTICAL = "│";
-const BOX_SIDE_PADDING = 2;
+const BOX_SIDE_PADDING = 4;
 const BOX_MIN_WIDTH = 12;
 const BOX_WIDTH_CACHE = new Map<string, number>();
 const COMPACT_TOOL_NAME_WIDTH = safeVisibleWidth("Search");
