@@ -7,6 +7,10 @@
 
 ---
 
+![pi-style demo](assets/demo.jpeg)
+
+---
+
 ## Features
 
 - **Status line** — responsive segment layout (model, thinking, path, Git, context, usage, cost, time, extension statuses) through native widgets above or below the editor.
