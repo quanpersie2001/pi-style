@@ -31,7 +31,6 @@ const allowedPaths = new Set([
 	"placement",
 	"startup.mode",
 	"startup.showResources",
-	"startup.showModel",
 	"statusLine.enabled",
 	"statusLine.separator",
 	"statusLine.layout.left",
@@ -39,6 +38,8 @@ const allowedPaths = new Set([
 	"statusLine.layout.secondary",
 	"statusLine.disabledSegments",
 	"statusLine.customItems",
+	"statusLine.bottomMargin",
+	"statusLine.contextBarWidth",
 	"editor.enabled",
 	"editor.style",
 	"editor.frame",
@@ -50,6 +51,8 @@ const allowedPaths = new Set([
 	"tools.enabled",
 	"tools.style",
 	"tools.maxCollapsedLines",
+	"tools.maxExpandedLines",
+	"tools.dimOutput",
 	"tools.showElapsed",
 	"theme.nerdFonts",
 	"theme.terminalBackgroundSync",
@@ -67,7 +70,6 @@ function validatePathValue(path: string, value: unknown): boolean {
 		[
 			"enabled",
 			"startup.showResources",
-			"startup.showModel",
 			"statusLine.enabled",
 			"editor.enabled",
 			"editor.showMetadata",
@@ -77,6 +79,7 @@ function validatePathValue(path: string, value: unknown): boolean {
 			"messages.specialBlocks",
 			"tools.enabled",
 			"tools.showElapsed",
+			"tools.dimOutput",
 			"compatibility.allowSafePatches",
 			"compatibility.allowCorePatches",
 			"compatibility.preferExistingEditor",
@@ -92,7 +95,10 @@ function validatePathValue(path: string, value: unknown): boolean {
 	if (path === "editor.frame") return typeof value === "string" && frames.includes(value);
 	if (["theme.nerdFonts", "theme.terminalBackgroundSync", "statusLine.separator", "tools.style"].includes(path))
 		return typeof value === "string";
-	if (path === "tools.maxCollapsedLines") return typeof value === "number" && Number.isFinite(value) && value >= 0;
+	if (path === "tools.maxCollapsedLines" || path === "tools.maxExpandedLines")
+		return typeof value === "number" && Number.isFinite(value) && value >= 0;
+	if (path === "statusLine.bottomMargin" || path === "statusLine.contextBarWidth")
+		return typeof value === "number" && Number.isFinite(value) && value >= 0;
 	if (path.endsWith(".colors") || path.endsWith(".glyphs"))
 		return (
 			typeof value === "object" &&

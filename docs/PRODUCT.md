@@ -1,12 +1,12 @@
 # Product contract
 
-> Status: **Planned**
+> Status: **Implemented — Phase 7 verified**
 
 ## Product statement
 
 pi-style is a cohesive UI package for the Pi coding agent. It preserves Pi's native ownership of the conversation feed, scrolling, selection, editor placement, and terminal lifecycle while adding a compact, responsive visual system across the startup view, status line, editor, messages, and tool presentation.
 
-Its information architecture is inspired by `pi-powerline-footer`; its visual density, framing, prompts, badges, and message hierarchy are inspired by `pi-droid-styling`. pi-style reimplements the selected ideas as a smaller layered package rather than embedding either project as a dependency.
+Its information architecture uses native Pi layout with a responsive, segment-based status line; its visual density, framing, prompts, badges, and message hierarchy form one compact, structured visual language shared across all surfaces.
 
 ## Product goals
 
@@ -21,164 +21,62 @@ Its information architecture is inspired by `pi-powerline-footer`; its visual de
 - **PROD-009 — Maintainability.** Rendering is bounded and testable; compatibility-sensitive patches are isolated, reversible, and version/capability gated.
 - **PROD-010 — Full product by phases.** Incremental delivery is a sequencing strategy. The intended v1 includes all roadmap phases through hardening and release.
 
-## Intended v1 feature set
+## Feature set by surface
 
-### Status line
-
-- Native Pi widgets above or below the editor.
-- Segment registry and named presets.
-- Model and live thinking-level indicators.
-- Current path and Git status.
-- Context usage and auto-compaction marker.
-- Token/cache/cost/time statistics where reliable.
-- Extension statuses and configured custom items.
-- Responsive primary/secondary rows.
-- Unicode/ASCII fallback and optional Nerd Font glyphs.
-
-### Editor and input zone
-
-- A Droid-inspired `CustomEditor` implementation that preserves Pi keybindings.
-- Multiple code-defined styles: compact, boxed, dock, and native fallback.
-- Prompt glyph, multiline continuation alignment, frame selection, and themed thinking borders.
-- Optional metadata rows using the same status snapshot as the status line.
-- Previous editor/autocomplete composition when supported.
-
-### Startup presentation
-
-- Compact branded header and resource summary by default.
-- Optional startup overlay for users who want a richer presentation.
-- Quiet/off modes.
-- Width-safe rendering and prompt/agent-start dismissal.
-
-### Conversation and tools
-
-- Optional user and assistant prefixes.
-- Styled thinking and tool-only assistant states.
-- Consistent boxes for compaction, branch summaries, skills, and custom messages.
-- Compact badges and state-aware presentation for built-in tools.
-- Expanded/collapsed output and elapsed-time metadata.
-- Native renderer fallback when a Pi version or another extension owns the surface.
-
-### Theme and accessibility
-
-- Semantic theme resolver shared by every feature.
-- Integration with the active Pi theme.
-- Controlled pi-style overrides for colors and glyphs.
-- Truecolor/256-color-safe output through Pi's theme API.
-- Nerd Font auto-detection with explicit override.
-- `NO_COLOR` and ASCII-safe modes.
-- Optional terminal-background synchronization under a strict platform policy.
-
-### Operations
-
-- Global and project-local configuration.
-- Commands for inspection, toggling, presets, placement, editor style, reload, and diagnostics.
-- Reload-safe lifecycle and complete cleanup.
-- Compatibility doctor output.
-- Automated unit, integration, render, performance, and release tests.
+| Surface | Delivered behavior |
+| --- | --- |
+| Status line | Native Pi widgets above/below the editor; segment registry and named presets; model, live thinking, path, Git, context, usage, cache, cost, time; extension statuses and custom items; responsive primary/secondary rows; Unicode/ASCII fallback and optional Nerd glyphs. |
+| Editor | Compact/boxed/dock/native `CustomEditor` treatments preserving Pi keybindings; prompt glyph and continuation alignment; thinking-level border; optional metadata rows fed by the shared status snapshot; previous-editor composition. |
+| Startup | Compact gradient logo header by default; optional overlay with System & Context / Available Tools panels; quiet/off modes; snapshot-only rendering; width-safe dismissal and timeout. |
+| Messages | Optional user/assistant prefixes; thinking and tool-only assistant states; boxed compaction/skill/branch/custom (MCP) blocks; native rich content preserved. |
+| Tools | Compact boxed call/result presentation for built-in tools with pending/running/error markers; elapsed metrics; native expansion/truncation/diff preserved. |
+| Theme | Shared semantic resolver over the active Pi theme; Nerd/Unicode/ASCII glyph sets; `NO_COLOR` and ANSI-safe output; explicit overrides. |
+| Operations | Global/project settings, `/pi-style` commands, reload-safe lifecycle, `/pi-style doctor` diagnostics, automated unit/integration/render/performance tests. |
 
 ## User experience principles
 
-### Native behavior before decoration
-
-A styled screen that breaks selection, scrolling, autocomplete, or keybindings is a product failure. Visual enhancement must yield to a stable Pi experience.
-
-### Compact, not cryptic
-
-Short labels such as `think:high`, `ctx:42%`, or `+2 *1 ?3` are acceptable when their meaning is stable. Ambiguous glyph-only output is not.
-
-### Hierarchy before color
-
-Spacing, grouping, framing, and placement must communicate structure even in no-color mode. Color reinforces meaning but cannot be the only signal.
-
-### No accidental duplication
-
-The same metadata should not appear in both the editor and status line unless the selected preset explicitly opts into duplication. The default layout should choose one primary owner for each datum.
-
-### Graceful degradation
-
-Missing Git data, unsupported terminal features, absent Nerd Fonts, unknown Pi component shapes, or extension conflicts should disable or simplify one surface—not crash Pi or corrupt the terminal.
-
-### Predictable configuration
-
-Defaults, global settings, project settings, environment overrides, and session commands use one documented precedence ladder. Invalid values normalize safely.
+1. **Native behavior before decoration.** A styled screen that breaks selection, scrolling, autocomplete, or keybindings is a product failure.
+2. **Compact, not cryptic.** Short labels (`think:high`, `ctx:42%`) are acceptable when stable; ambiguous glyph-only output is not.
+3. **Hierarchy before color.** Spacing, grouping, framing, and placement must communicate structure in no-color mode.
+4. **No accidental duplication.** Presets choose one primary owner per datum; the default must not show the same text twice.
+5. **Graceful degradation.** Missing Git data, unsupported terminals, absent Nerd Fonts, unknown component shapes, or extension conflicts disable one surface—never crash Pi or corrupt the terminal.
+6. **Predictable configuration.** Defaults, global, project, env, and session commands use one documented precedence ladder; invalid values normalize safely.
 
 ## Supported UI surfaces
 
 | Surface | Default v1 ownership | Compatibility level |
 | --- | --- | --- |
 | Header/startup | Pi public header/overlay APIs | Public API |
-| Primary status row | Named Pi widget | Public API |
-| Secondary status row | Named Pi widget | Public API |
-| Footer data | Native footer or minimal data bridge only when necessary | Public API with composition constraints |
-| Editor | `CustomEditor` installed through Pi UI API | Public API; singleton conflict possible |
+| Primary/secondary status rows | Named Pi widgets | Public API |
+| Footer data | Native footer or minimal data bridge only when necessary | Public API, composition constraints |
+| Editor | `CustomEditor` through Pi UI API | Public API; singleton conflict possible |
 | Working indicator | `setWorkingIndicator()` | Public API |
 | User/assistant messages | Optional renderer patch/adapter | Compatibility-gated |
-| Special messages | Optional component patch/adapter | Compatibility-gated |
+| Special message blocks | Optional component patch/adapter | Compatibility-gated |
 | Built-in tools | Renderer registration or isolated patch | Compatibility-gated |
 | Terminal background | Explicit cell painting; optional OSC 11 | Platform-gated |
 
 ## Scope boundaries
 
-### Pi owns
+**Pi owns:** conversation storage/branching, feed scrolling and resize, selection and clipboard, model execution, core editor semantics and keybindings, the canonical theme/settings system, and built-in tool execution.
 
-- conversation storage and branching;
-- feed scrolling and terminal resize;
-- selection and clipboard behavior in the native layout;
-- model/provider execution;
-- core editor semantics and app keybindings;
-- the canonical active theme and settings system;
-- built-in tool execution.
+**pi-style owns:** visual presets and semantic style resolution; UI snapshots and caches; segment selection/ordering/responsive layout; the optional editor render treatment; UI installation, scheduling, cleanup, and diagnostics; compatibility fallback for surfaces it modifies.
 
-### pi-style owns
-
-- visual presets and semantic style resolution;
-- UI-specific snapshots and caches;
-- segment selection, ordering, and responsive layout;
-- the optional custom editor render treatment;
-- UI installation, render scheduling, cleanup, and diagnostics;
-- compatibility fallback for surfaces it modifies.
-
-### Other extensions own
-
-- their tool semantics and session state;
-- their status text exposed through Pi's extension-status APIs;
-- their own editors/footers/renderers when explicitly preferred by the user;
-- productivity workflows unrelated to styling.
+**Other extensions own:** their tool semantics and session state; their extension-status text; their own editors/footers/renderers when explicitly preferred; productivity workflows unrelated to styling.
 
 ## Explicit non-goals for v1
 
-The following reference features are not part of the intended v1 product:
-
-- a persistent shell/Bash mode;
+- persistent shell/Bash mode;
 - prompt stash and shell history management;
 - `/cd` or directory-jump ownership;
-- AI-generated working messages or “vibes”;
-- a fixed terminal scroll-region compositor;
-- custom selection/copy behavior inside a fixed zone;
+- AI-generated working messages ("vibes");
+- fixed terminal scroll-region compositor;
+- custom selection/copy inside a fixed zone;
 - chat virtualization;
 - physical terminal-buffer self-healing;
-- reimplementation of Pi's session browser or multiplexer behavior.
+- reimplementation of Pi's session browser or multiplexer.
 
-Some terminal-compositor ideas may be researched after v1, but only through a new decision record and explicit product approval.
-
-## User workflows
-
-### Install and activate
-
-The package is installable through Pi's package mechanism and declares its extension and theme resources in `package.json`. With defaults, it should activate without a separate setup wizard.
-
-### Choose a visual preset
-
-A user can select a named preset through settings or `/pi-style preset <name>`. The preset controls coordinated status, editor, startup, message, and tool defaults while still allowing narrow overrides.
-
-### Customize one surface
-
-A user can keep the default preset but disable the startup overlay, select the native editor fallback, move the status line, or disable compatibility-sensitive message/tool styling.
-
-### Troubleshoot compatibility
-
-`/pi-style doctor` reports Pi version/capabilities, active surfaces, disabled fallbacks, terminal/glyph assumptions, and conflicts detected during installation.
+Fixed-zone compositor ideas may be researched after v1 only through a new ADR and explicit product approval.
 
 ## v1 completion definition
 
@@ -187,9 +85,9 @@ The product is ready for v1 only when:
 1. all roadmap phases through Phase 7 satisfy their exit criteria;
 2. all accepted requirement IDs are implemented or explicitly superseded/rejected by an ADR;
 3. public API surfaces work without compatibility patches;
-4. compatibility-sensitive surfaces degrade independently and have disposal tests;
-5. width, no-color, ASCII, and terminal matrix checks are recorded;
-6. package installation, reload, disable, session switching, and shutdown are proven;
+4. compatibility-sensitive surfaces degrade independently with disposal tests;
+5. width, no-color, ASCII, and terminal-matrix checks are recorded;
+6. install, reload, disable, session switching, and shutdown are proven;
 7. documentation describes actual behavior rather than planned behavior.
 
 ## Roadmap coverage
@@ -198,4 +96,3 @@ The product is ready for v1 only when:
 - Completed by: Phase 7.
 - Requirement IDs: `PROD-001` through `PROD-010`.
 - Blocking decisions: ADR 0001–0004.
-- Required proof: the full validation ladder in `TESTING.md`.

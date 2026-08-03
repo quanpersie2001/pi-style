@@ -5,7 +5,7 @@
 
 ## Context
 
-`pi-powerline-footer` demonstrates valuable behavior but concentrates configuration, lifecycle, state, UI installation, providers, commands, Bash workflows, and rendering in a very large entry module. `pi-droid-styling` is more modular, but its folders reflect implementation history and extensive host patching rather than a strict dependency model.
+Monolithic single-entry extensions concentrate configuration, lifecycle, state, UI installation, providers, commands, workflow integration, and rendering in a very large module. Feature-folder layouts can reflect implementation history and extensive host patching rather than a strict dependency model.
 
 The sibling `../pi-rules` project already establishes a useful package pattern with explicit source layers, strict TypeScript, tsup, Vitest, Biome, and dependency-cruiser.
 
@@ -59,7 +59,7 @@ Rejected as excessive. The selected layers are enough to isolate Pi and render l
 - app-level snapshot design is required before UI implementation;
 - small changes may touch a contract and an adapter.
 
-These costs are accepted because pi-style's intended scope is larger than a minimal footer.
+These costs are accepted because pi-style's intended scope is larger than a minimal status line.
 
 ## Validation implications
 

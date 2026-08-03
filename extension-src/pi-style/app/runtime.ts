@@ -1,6 +1,7 @@
 import type { ExtensionContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { diffConfig } from "../domain/config-diff.js";
 import type { NormalizedPiStyleConfig } from "../domain/config-types.js";
+import type { GitCommandRunner } from "../domain/providers.js";
 import type { StatusSnapshot } from "../domain/status.js";
 import { normalizeThinkingLevel } from "../domain/status.js";
 import { installEditor } from "../features/editor/index.js";
@@ -46,7 +47,7 @@ export interface RuntimeHost {
 	readonly hasUI: boolean;
 	readonly ui?: ExtensionUIContext;
 	readonly cwd?: string;
-	readonly model?: { id?: string; name?: string } | undefined;
+	readonly model?: { id?: string; name?: string; provider?: string; reasoning?: boolean } | undefined;
 	readonly thinkingLevel?: string | undefined;
 	readonly config: NormalizedPiStyleConfig;
 	readonly startupReason?: StartupReason;
@@ -54,6 +55,7 @@ export interface RuntimeHost {
 	readonly requestRender?: () => void;
 	readonly resources?: StartupResources;
 	readonly extensionStatusProvider?: () => readonly import("../domain/status.js").ExtensionStatus[] | undefined;
+	readonly gitRunner?: GitCommandRunner;
 	getContextUsage?:
 		| (() => { tokens: number | null; contextWindow: number; percent: number | null } | undefined)
 		| undefined;
@@ -77,7 +79,7 @@ export function createPiStyleRuntime(
 	let currentConfig = host.config;
 	const disposables = new DisposableStore();
 	const scheduler = new RenderScheduler({ requestRender }, generation, () => !disposed);
-	const git = new CachedGitProvider();
+	const git = new CachedGitProvider(host.gitRunner);
 	const contextProvider = new InMemoryContextProvider();
 	const usageProvider = new InMemoryUsageProvider();
 	const usage = host.getContextUsage?.();
@@ -85,6 +87,8 @@ export function createPiStyleRuntime(
 	const initialValues = {
 		...(initialStatuses ? { extensionStatuses: initialStatuses } : {}),
 		...(host.model?.name || host.model?.id ? { model: host.model.name ?? host.model.id } : {}),
+		...(host.model?.provider ? { provider: host.model.provider } : {}),
+		...(host.model?.reasoning !== undefined ? { reasoning: host.model.reasoning } : {}),
 		...(host.thinkingLevel ? { thinkingLevel: normalizeThinkingLevel(host.thinkingLevel) } : {}),
 		...(host.cwd ? { cwd: host.cwd } : {}),
 		...(usage
@@ -109,7 +113,7 @@ export function createPiStyleRuntime(
 	const startupSnapshot = (config: NormalizedPiStyleConfig): StartupSnapshot => ({
 		...currentSnapshot,
 		reason: host.startupReason ?? "startup",
-		...(host.provider ? { provider: host.provider } : {}),
+		...(host.provider ? { startupProvider: host.provider } : {}),
 		...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
 		preset: config.preset,
 		...(host.resources ? { resources: host.resources } : {}),
@@ -126,6 +130,7 @@ export function createPiStyleRuntime(
 				generation,
 				initialSnapshot: currentSnapshot,
 				isCurrent: () => !disposed,
+				clearOnStartup: host.startupReason === "startup",
 			});
 			if (statusLine) {
 				disposables.add(statusLine);
@@ -236,7 +241,7 @@ export function createPiStyleRuntime(
 			startup?.update({
 				...currentSnapshot,
 				reason: host.startupReason ?? "startup",
-				...(host.provider ? { provider: host.provider } : {}),
+				...(host.provider ? { startupProvider: host.provider } : {}),
 				...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
 				preset: currentConfig.preset,
 				...(host.resources ? { resources: host.resources } : {}),
@@ -267,7 +272,7 @@ export function createPiStyleRuntime(
 			startup?.update({
 				...currentSnapshot,
 				reason: host.startupReason ?? "startup",
-				...(host.provider ? { provider: host.provider } : {}),
+				...(host.provider ? { startupProvider: host.provider } : {}),
 				...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
 				preset: currentConfig.preset,
 				resources,
@@ -299,7 +304,7 @@ export function createPiStyleRuntime(
 			startup?.update({
 				...currentSnapshot,
 				reason: host.startupReason ?? "startup",
-				...(host.provider ? { provider: host.provider } : {}),
+				...(host.provider ? { startupProvider: host.provider } : {}),
 				...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
 				preset: currentConfig.preset,
 				...(host.resources ? { resources: host.resources } : {}),
@@ -351,7 +356,7 @@ export function createPiStyleRuntime(
 				startup?.update({
 					...currentSnapshot,
 					reason: host.startupReason ?? "startup",
-					...(host.provider ? { provider: host.provider } : {}),
+					...(host.provider ? { startupProvider: host.provider } : {}),
 					...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
 					preset: currentConfig.preset,
 				});
@@ -365,6 +370,11 @@ export function createPiStyleRuntime(
 			if (disposed) return;
 			disposed = true;
 			scheduler.cancel();
+			// UI surfaces are restored synchronously so teardown is deterministic;
+			// the store then disposes the (already disposed) feature instances idempotently.
+			disposeStatus();
+			disposeEditor();
+			disposeStartup();
 			git.dispose();
 			contextProvider.clear();
 			usageProvider.reset();

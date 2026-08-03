@@ -6,6 +6,7 @@ import type {
 	Theme,
 	WorkingIndicatorOptions,
 } from "@earendil-works/pi-coding-agent";
+import type { GitCommandRunner } from "../../extension-src/pi-style/domain/providers.js";
 import { createFakeTheme } from "./fake-theme.js";
 
 export type FakePiMode = "tui" | "rpc" | "json" | "print";
@@ -28,6 +29,11 @@ export interface FakePiHostOptions {
 	systemPrompt?: string;
 	flags?: Record<string, boolean | string | undefined>;
 	projectTrusted?: boolean;
+	cwd?: string;
+	/** Test-only provider seam; production Pi does not expose this on ExtensionContext. */
+	gitRunner?: GitCommandRunner;
+	/** Session entries surfaced through the fake session manager (usage aggregation). */
+	sessionEntries?: readonly unknown[];
 }
 
 type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
@@ -65,6 +71,20 @@ export class FakePiHost {
 	readonly overlays: Array<{ options?: unknown; handle: { hidden: boolean; disposed: boolean } }> = [];
 	readonly workingIndicatorChanges: Array<WorkingIndicatorOptions | undefined> = [];
 	terminalInputSubscriptions = 0;
+	readonly terminalInputHandlers = new Set<(data: string) => { consume?: boolean; data?: string } | undefined>();
+
+	/** Dispatch raw terminal input through extension handlers; returns true when consumed. */
+	emitTerminalInput(data: string): boolean {
+		let consumed = false;
+		for (const handler of this.terminalInputHandlers) {
+			const result = handler(data);
+			if (result?.consume) {
+				consumed = true;
+				break;
+			}
+		}
+		return consumed;
+	}
 	private headerFactory: Parameters<NonNullable<ExtensionUIContext["setHeader"]>>[0] | undefined;
 	readonly ownership = {
 		header: { initial: false, current: false, restores: 0 },
@@ -84,6 +104,9 @@ export class FakePiHost {
 	private readonly systemPrompt: string;
 	private readonly flagValues: Record<string, boolean | string | undefined>;
 	private readonly projectTrusted: boolean;
+	private readonly cwd: string | undefined;
+	readonly gitRunner: GitCommandRunner | undefined;
+	readonly sessionEntries: readonly unknown[];
 
 	constructor(options: FakePiHostOptions = {}) {
 		this.mode = options.mode ?? "tui";
@@ -91,6 +114,9 @@ export class FakePiHost {
 		this.systemPrompt = options.systemPrompt ?? "";
 		this.flagValues = { ...options.flags };
 		this.projectTrusted = options.projectTrusted ?? true;
+		this.cwd = options.cwd ?? "/fake";
+		this.gitRunner = options.gitRunner ?? (async () => ({ stdout: "", stderr: "not a git repository", code: 1 }));
+		this.sessionEntries = options.sessionEntries ?? [];
 		this.capabilities = { ...defaultCapabilities, ...options.capabilities };
 		this.ownership.editor.initial = options.initialEditor !== undefined;
 		this.ownership.editor.current = this.ownership.editor.initial;
@@ -142,6 +168,11 @@ export class FakePiHost {
 			registerShortcut: () => {},
 			registerFlag: (name, options) => {
 				this.registeredFlags.set(name, options);
+				// Mirror Pi's extension loader: registerFlag seeds the runtime flag value
+				// with its default when the session did not pass an explicit value.
+				if (options.default !== undefined && this.flagValues[name] === undefined) {
+					this.flagValues[name] = options.default;
+				}
 			},
 			getFlag: (name) => this.flagValues[name],
 			registerTool: (tool) => {
@@ -194,10 +225,12 @@ export class FakePiHost {
 			notify: (message, type) => {
 				this.notifications.push({ message, type });
 			},
-			onTerminalInput: () => {
+			onTerminalInput: (handler) => {
 				this.terminalInputSubscriptions++;
+				this.terminalInputHandlers.add(handler as never);
 				return () => {
 					this.terminalInputSubscriptions--;
+					this.terminalInputHandlers.delete(handler as never);
 				};
 			},
 			setStatus: () => {},
@@ -292,8 +325,10 @@ export class FakePiHost {
 			ui,
 			mode: this.mode,
 			hasUI: this.mode === "tui" || this.mode === "rpc",
-			cwd: "/fake",
-			sessionManager: {} as never,
+			cwd: this.cwd ?? "/fake",
+			sessionManager: {
+				getEntries: () => this.sessionEntries,
+			} as never,
 			modelRegistry: {} as never,
 			model: undefined,
 			scopedModels: [],

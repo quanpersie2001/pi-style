@@ -5,10 +5,10 @@
 
 ## Context
 
-The references use two different layout strategies:
+UI extensions can follow two layout strategies:
 
-- `pi-powerline-footer` places status through Pi widgets/editor/footer APIs and lets Pi own the feed, scrolling, selection, and terminal layout.
-- `pi-droid-styling` can create a fixed bottom zone through terminal scroll regions and adds custom selection, background, physical-buffer, and virtualization logic.
+- native-layout extensions place status through Pi widgets/editor/footer APIs and let Pi own the feed, scrolling, selection, and terminal layout;
+- fixed-zone extensions create a fixed bottom zone through terminal scroll regions and add custom selection, background, physical-buffer, and virtualization logic.
 
 The fixed-zone approach offers stronger visual control but materially changes terminal ownership and multiplies platform, selection, copy, resize, and compatibility responsibilities.
 
@@ -26,7 +26,7 @@ The fixed-zone compositor, scroll-region management, terminal split, custom fixe
 
 ## Alternatives considered
 
-### Adopt the Droid fixed zone immediately
+### Adopt a fixed zone immediately
 
 Rejected for v1. It would make platform/terminal correctness the first dependency of every visual feature and conflict with the request to keep implementation maintainable.
 
@@ -36,7 +36,7 @@ Rejected. Two layout architectures would double feature integration and testing 
 
 ### Status/footer only, no custom editor
 
-Rejected. It would not absorb enough of the desired Droid visual identity.
+Rejected. It would not deliver enough of the desired compact visual identity.
 
 ## Consequences
 
@@ -52,7 +52,7 @@ Rejected. It would not absorb enough of the desired Droid visual identity.
 
 - the editor/status area cannot be guaranteed physically fixed independent of Pi layout behavior;
 - footer data access may be limited by ownership conflicts;
-- some exact Droid screenshots cannot be reproduced.
+- some tightly fixed-zone layouts cannot be reproduced.
 
 The product values behavior stability over exact imitation.
 

@@ -1,6 +1,6 @@
 # UI surface contracts
 
-> Status: **Phase 5 messages/tools subset accepted; remaining UI surfaces follow their roadmap phases**
+> Status: **All v1 UI surfaces implemented (Phases 2–5); Phase 7 verified**
 
 ## Surface map
 

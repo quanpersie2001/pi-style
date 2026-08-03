@@ -4,9 +4,11 @@ export const STATUS_SEGMENT_IDS = [
 	"pi",
 	"model",
 	"thinking",
+	"model_effort",
 	"path",
 	"git",
 	"context_pct",
+	"context_bar",
 	"context_total",
 	"auto_compact",
 	"token_in",
@@ -63,6 +65,10 @@ export interface ExtensionStatus {
 
 export interface StatusSnapshot {
 	readonly model?: string;
+	/** Provider name for the active model (e.g. `deepseek`), when known. */
+	readonly provider?: string;
+	/** Whether the active model supports reasoning/thinking levels, when known. */
+	readonly reasoning?: boolean;
 	readonly thinkingLevel?: ThinkingLevel;
 	readonly cwd?: string;
 	readonly git?: GitSnapshot;
@@ -138,120 +144,245 @@ export function createBuiltinSegments(): ReadonlyMap<StatusSegmentId, StatusSegm
 	const segments: StatusSegment[] = [
 		segment("pi", 10, ({ theme }) => ({
 			visible: true,
-			content: `${theme.glyph("pi")} pi`,
-			compactContent: theme.glyph("pi"),
+			content: theme.apply("accent", `${theme.glyph("pi")} pi`),
+			compactContent: theme.apply("accent", theme.glyph("pi")),
 		})),
 		segment(
 			"model",
 			100,
-			({ snapshot }) => ({
+			({ snapshot, theme }) => ({
 				visible: Boolean(snapshot.model),
-				content: snapshot.model ?? "",
-				compactContent: snapshot.model ?? "",
+				content: theme.apply("model", snapshot.model ?? ""),
+				compactContent: theme.apply("model", snapshot.model ?? ""),
 				truncatable: true,
 			}),
 			true,
 		),
 		segment(
+			"model_effort",
+			40,
+			({ snapshot, theme }) => {
+				const model = snapshot.model;
+				if (!model) return { visible: false, content: "" };
+				const label = snapshot.provider ? `(${snapshot.provider}) ${model}` : model;
+				const styledLabel = theme.apply("model", label);
+				const effort = effortLevel(snapshot);
+				if (!effort) {
+					return { visible: true, content: styledLabel, compactContent: theme.apply("model", model) };
+				}
+				return {
+					visible: true,
+					content: `${styledLabel} ${theme.apply("separator", "•")} ${styleEffort(theme, effort)}`,
+					compactContent: theme.apply("model", model),
+				};
+			},
+			false,
+		),
+		segment(
 			"thinking",
 			95,
-			({ snapshot }) => ({
-				visible: Boolean(snapshot.thinkingLevel),
-				content: snapshot.thinkingLevel ? `think:${thinkingLabel(snapshot.thinkingLevel)}` : "",
-				compactContent: snapshot.thinkingLevel ? `t:${thinkingLabel(snapshot.thinkingLevel)}` : "",
-			}),
+			({ snapshot, theme }) => {
+				const level = snapshot.thinkingLevel;
+				if (!level) return { visible: false, content: "" };
+				const label = thinkingLabel(level);
+				const text = `think:${label}`;
+				const compactText = `t:${label}`;
+				if (level === "high" || level === "xhigh" || level === "max") {
+					return { visible: true, content: theme.rainbow(text), compactContent: theme.rainbow(compactText) };
+				}
+				const token =
+					level === "minimal"
+						? "thinkingMinimal"
+						: level === "low"
+							? "thinkingLow"
+							: level === "medium"
+								? "thinkingMedium"
+								: "thinking";
+				return {
+					visible: true,
+					content: theme.apply(token, text),
+					compactContent: theme.apply(token, compactText),
+				};
+			},
 			true,
 		),
-		segment("path", 80, ({ snapshot }) => ({
-			visible: Boolean(snapshot.cwd),
-			content: snapshot.cwd ?? "",
-			compactContent: snapshot.cwd?.split(/[\\/]/).filter(Boolean).at(-1) ?? "",
-			truncatable: true,
-		})),
+		segment("path", 80, ({ snapshot, theme }) => {
+			const name = snapshot.cwd?.split(/[\\/]/).filter(Boolean).at(-1) ?? snapshot.cwd;
+			return {
+				visible: Boolean(snapshot.cwd),
+				content: theme.apply("path", name ?? ""),
+				compactContent: theme.apply("path", name ?? ""),
+				truncatable: true,
+			};
+		}),
 		segment("git", 75, ({ snapshot, theme }) => {
 			const git = snapshot.git;
 			if (!git?.available || !git.branch) return { visible: false, content: "" };
 			const counts = `${git.staged ? ` +${git.staged}` : ""}${git.unstaged ? ` *${git.unstaged}` : ""}${git.untracked ? ` ?${git.untracked}` : ""}`;
+			const token = git.staged || git.unstaged || git.untracked ? "gitDirty" : "gitClean";
 			return {
 				visible: true,
-				content: `${theme.glyph("git")} ${git.branch}${counts}`,
-				compactContent: `${theme.glyph("git")} ${git.branch}`,
+				content: theme.apply(token, `${theme.glyph("git")} ${git.branch}${counts}`),
+				compactContent: theme.apply(token, `${theme.glyph("git")} ${git.branch}`),
 			};
 		}),
 		segment(
 			"context_pct",
 			90,
-			({ snapshot }) => {
+			({ snapshot, theme }) => {
 				const percent = contextPercent(snapshot.context ?? {});
+				const state = contextState(percent);
+				const token =
+					state === "critical"
+						? "contextCritical"
+						: state === "high"
+							? "contextHigh"
+							: state === "medium"
+								? "contextMedium"
+								: "contextLow";
 				return {
 					visible: percent !== undefined,
-					content: percent === undefined ? "" : `ctx:${Math.round(percent)}%`,
-					compactContent: percent === undefined ? "" : `${Math.round(percent)}%`,
+					content: percent === undefined ? "" : theme.apply(token, `ctx:${Math.round(percent)}%`),
+					compactContent: percent === undefined ? "" : theme.apply(token, `${Math.round(percent)}%`),
 				};
 			},
 			true,
 		),
-		segment("context_total", 60, ({ snapshot }) => ({
+		segment("context_bar", 70, ({ snapshot, theme, options }) => {
+			const percent = contextPercent(snapshot.context ?? {});
+			if (percent === undefined) return { visible: false, content: "" };
+			const token = contextBarToken(percent);
+			const window = snapshot.context?.windowTokens;
+			const label = `ctx${window !== undefined ? ` (${formatTokens(window)})` : ""}:`;
+			const width = (options["context_bar"]?.width as number | undefined) ?? CONTEXT_BAR_WIDTH;
+			return {
+				visible: true,
+				content: `${theme.apply("muted", label)} ${theme.apply(token, contextBar(percent, width))} ${theme.apply(token, `${Math.round(percent)}%`)}`,
+				compactContent: theme.apply(token, `${Math.round(percent)}%`),
+			};
+		}),
+		segment("context_total", 60, ({ snapshot, theme }) => ({
 			visible: snapshot.context?.currentTokens !== undefined && snapshot.context.windowTokens !== undefined,
 			content:
 				snapshot.context?.currentTokens !== undefined && snapshot.context.windowTokens !== undefined
-					? `${snapshot.context.currentTokens}/${snapshot.context.windowTokens}`
+					? theme.apply("contextLow", `${snapshot.context.currentTokens}/${snapshot.context.windowTokens}`)
 					: "",
 		})),
-		segment("auto_compact", 55, ({ snapshot }) => ({
+		segment("auto_compact", 55, ({ snapshot, theme }) => ({
 			visible: Boolean(snapshot.context?.autoCompacting || snapshot.context?.customCompaction),
-			content: snapshot.context?.customCompaction ?? "compacting",
-			compactContent: "compact",
+			content: theme.apply("warning", snapshot.context?.customCompaction ?? "compacting"),
+			compactContent: theme.apply("warning", "compact"),
 		})),
-		segment("token_in", 50, ({ snapshot }) => ({
+		segment("token_in", 50, ({ snapshot, theme }) => ({
 			visible: snapshot.usage?.inputTokens !== undefined,
-			content: `in:${snapshot.usage?.inputTokens ?? 0}`,
-			compactContent: `i:${snapshot.usage?.inputTokens ?? 0}`,
+			content: theme.apply("tokens", `in:${snapshot.usage?.inputTokens ?? 0}`),
+			compactContent: theme.apply("tokens", `i:${snapshot.usage?.inputTokens ?? 0}`),
 		})),
-		segment("token_out", 50, ({ snapshot }) => ({
+		segment("token_out", 50, ({ snapshot, theme }) => ({
 			visible: snapshot.usage?.outputTokens !== undefined,
-			content: `out:${snapshot.usage?.outputTokens ?? 0}`,
-			compactContent: `o:${snapshot.usage?.outputTokens ?? 0}`,
+			content: theme.apply("tokens", `out:${snapshot.usage?.outputTokens ?? 0}`),
+			compactContent: theme.apply("tokens", `o:${snapshot.usage?.outputTokens ?? 0}`),
 		})),
-		segment("cache_read", 40, ({ snapshot }) => ({
+		segment("cache_read", 40, ({ snapshot, theme }) => ({
 			visible: Boolean(snapshot.usage?.cacheReadTokens),
-			content: `cache:${snapshot.usage?.cacheReadTokens ?? 0}`,
-			compactContent: `cr:${snapshot.usage?.cacheReadTokens ?? 0}`,
+			content: theme.apply("cache", `cache:${snapshot.usage?.cacheReadTokens ?? 0}`),
+			compactContent: theme.apply("cache", `cr:${snapshot.usage?.cacheReadTokens ?? 0}`),
 		})),
-		segment("cache_write", 35, ({ snapshot }) => ({
+		segment("cache_write", 35, ({ snapshot, theme }) => ({
 			visible: Boolean(snapshot.usage?.cacheWriteTokens),
-			content: `cw:${snapshot.usage?.cacheWriteTokens ?? 0}`,
+			content: theme.apply("cache", `cw:${snapshot.usage?.cacheWriteTokens ?? 0}`),
 		})),
-		segment("cost", 65, ({ snapshot }) => ({
-			visible: snapshot.usage?.cost !== undefined && snapshot.usage.cost > 0,
-			content: snapshot.usage?.cost === undefined ? "" : `$${snapshot.usage.cost.toFixed(2)}`,
-			compactContent: snapshot.usage?.cost === undefined ? "" : `$${snapshot.usage.cost.toFixed(2)}`,
-		})),
-		segment("time_spent", 25, ({ snapshot }) => ({
+		segment("cost", 65, ({ snapshot, theme }) => {
+			const cost = snapshot.usage?.cost;
+			const content = cost === undefined || cost <= 0 ? "" : theme.apply("cost", `$${cost.toFixed(3)}`);
+			return { visible: Boolean(content), content, compactContent: content };
+		}),
+		segment("time_spent", 25, ({ snapshot, theme }) => ({
 			visible: snapshot.sessionStartedAt !== undefined,
-			content: snapshot.sessionStartedAt === undefined ? "" : formatElapsed(Date.now() - snapshot.sessionStartedAt),
+			content:
+				snapshot.sessionStartedAt === undefined
+					? ""
+					: theme.apply("time", formatElapsed(Date.now() - snapshot.sessionStartedAt)),
 			compactContent:
-				snapshot.sessionStartedAt === undefined ? "" : formatElapsed(Date.now() - snapshot.sessionStartedAt),
+				snapshot.sessionStartedAt === undefined
+					? ""
+					: theme.apply("time", formatElapsed(Date.now() - snapshot.sessionStartedAt)),
 		})),
-		segment("time", 20, () => ({
+		segment("time", 20, ({ theme }) => ({
 			visible: true,
-			content: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-			compactContent: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+			content: theme.apply("time", new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
+			compactContent: theme.apply("time", new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
 		})),
-		segment("hostname", 20, ({ snapshot }) => ({
+		segment("hostname", 20, ({ snapshot, theme }) => ({
 			visible: Boolean(snapshot.hostname),
-			content: snapshot.hostname ?? "",
+			content: theme.apply("muted", snapshot.hostname ?? ""),
 		})),
-		segment("session", 20, ({ snapshot }) => ({
+		segment("session", 20, ({ snapshot, theme }) => ({
 			visible: Boolean(snapshot.sessionName || snapshot.sessionId),
-			content: snapshot.sessionName ?? snapshot.sessionId ?? "",
+			content: theme.apply("muted", snapshot.sessionName ?? snapshot.sessionId ?? ""),
 		})),
-		segment("extension_statuses", 30, ({ snapshot }) => ({
-			visible: Boolean(snapshot.extensionStatuses?.length),
-			content: snapshot.extensionStatuses?.map((item) => `${item.key}:${item.value}`).join(" ") ?? "",
-		})),
+		segment("extension_statuses", 30, ({ snapshot, theme }) => {
+			const statuses = snapshot.extensionStatuses;
+			if (!statuses || statuses.length === 0) return { visible: false, content: "" };
+			// Values already carry their display label (extensions publish via
+			// `ctx.ui.setStatus(key, text)` where text is the visible string).
+			// Mirror Pi's native footer: sort by key, join the values only.
+			const text = [...statuses]
+				.sort((a, b) => a.key.localeCompare(b.key))
+				.map((item) => item.value)
+				.join(" ");
+			return { visible: true, content: theme.apply("muted", text) };
+		}),
 	];
 	return new Map(segments.map((item) => [item.id, item]));
+}
+
+const CONTEXT_BAR_WIDTH = 10;
+
+function contextBar(percent: number, width = CONTEXT_BAR_WIDTH): string {
+	const filled = Math.max(0, Math.min(width, Math.round((percent / 100) * width)));
+	return "█".repeat(filled) + "░".repeat(width - filled);
+}
+
+/** Bar colors: green under 50%, yellow from 50% to 70%, red above 70%. */
+function contextBarToken(percent: number): SemanticToken {
+	if (percent > 70) return "error";
+	if (percent >= 50) return "warning";
+	return "success";
+}
+
+function formatTokens(value: number): string {
+	if (value >= 1_000_000) {
+		const millions = value / 1_000_000;
+		return `${Number.isInteger(millions) ? millions : millions.toFixed(1)}M`;
+	}
+	if (value >= 1_000) {
+		const thousands = value / 1_000;
+		return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)}K`;
+	}
+	return String(value);
+}
+
+function effortLevel(snapshot: StatusSnapshot): ThinkingLevel | undefined {
+	const level = snapshot.thinkingLevel;
+	if (!level) return undefined;
+	// Reasoning models always surface an effort level (defaulting to off); other
+	// models only show a level when one is actively set.
+	if (snapshot.reasoning === true) return level;
+	return level === "off" ? undefined : level;
+}
+
+function styleEffort(theme: ResolvedTheme, level: ThinkingLevel): string {
+	if (level === "high" || level === "xhigh" || level === "max") return theme.rainbow(level);
+	const token =
+		level === "minimal"
+			? "thinkingMinimal"
+			: level === "low"
+				? "thinkingLow"
+				: level === "medium"
+					? "thinkingMedium"
+					: "thinking";
+	return theme.apply(token, level);
 }
 
 function formatElapsed(ms: number): string {

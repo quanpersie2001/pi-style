@@ -18,6 +18,8 @@ import { normalizeStatusLayout } from "../../extension-src/pi-style/domain/statu
 import { renderStatus } from "../../extension-src/pi-style/domain/status-renderer.js";
 import { resolveTheme } from "../../extension-src/pi-style/domain/theme.js";
 
+import { stripAnsi } from "../../extension-src/pi-style/shared/ansi.js";
+
 const theme = resolveTheme(undefined, normalizeConfig({ theme: { nerdFonts: "off" } }));
 function segment(
 	id: string,
@@ -48,9 +50,9 @@ describe("status contracts", () => {
 				segments: createBuiltinSegments(),
 				theme,
 			});
-			expect(result.primary).toContain(
-				level === "minimal" ? "think:min" : level === "medium" ? "think:med" : `think:${level}`,
-			);
+			// Rainbow levels embed ANSI between characters; compare the visible text.
+			const plain = stripAnsi(result.primary);
+			expect(plain).toContain(level === "minimal" ? "think:min" : level === "medium" ? "think:med" : `think:${level}`);
 		}
 		expect(contextPercent({ percent: -10 })).toBe(0);
 		expect(contextPercent({ percent: 140 })).toBe(100);
@@ -68,6 +70,114 @@ describe("status contracts", () => {
 });
 
 describe("responsive status renderer", () => {
+	it("renders the context progress bar with label and compact fallback", () => {
+		const full = renderStatus(
+			{ left: ["context_bar"], right: [], secondary: [] },
+			{ context: { percent: 47, windowTokens: 1_000_000 } },
+			80,
+			{ segments: createBuiltinSegments(), theme },
+		);
+		const plain = stripAnsi(full.primary);
+		expect(plain).toMatch(/^ctx \(1M\): █{5}░{5} 47%$/);
+		expect(plain).toContain("47%");
+		// Zero percent renders an empty bar; compact form drops the bar and label.
+		const empty = renderStatus(
+			{ left: ["context_bar"], right: [], secondary: [] },
+			{ context: { percent: 0, windowTokens: 1_000_000 } },
+			80,
+			{ segments: createBuiltinSegments(), theme },
+		);
+		expect(stripAnsi(empty.primary)).toMatch(/^ctx \(1M\): ░{10} 0%$/);
+		const hidden = renderStatus({ left: ["context_bar"], right: [], secondary: [] }, { context: {} }, 80, {
+			segments: createBuiltinSegments(),
+			theme,
+		});
+		expect(hidden.lines).toEqual([]);
+	});
+
+	it("colors the context bar green under 50%, yellow 50-70%, red above 70%", () => {
+		const colored = resolveTheme(
+			undefined,
+			normalizeConfig({
+				theme: { nerdFonts: "off", colors: { success: "#00ff00", warning: "#ffff00", error: "#ff0000" } },
+			}),
+		);
+		const render = (percent: number) =>
+			renderStatus({ left: ["context_bar"], right: [], secondary: [] }, { context: { percent } }, 80, {
+				segments: createBuiltinSegments(),
+				theme: colored,
+			}).primary;
+		expect(render(49)).toContain("\x1b[38;2;0;255;0m");
+		expect(render(60)).toContain("\x1b[38;2;255;255;0m");
+		expect(render(71)).toContain("\x1b[38;2;255;0;0m");
+	});
+
+	it("renders model_effort right-aligned with provider and effort level", () => {
+		const result = renderStatus(
+			{ left: [], right: ["model_effort"], secondary: [] },
+			{ model: "deepseek-v4-flash", provider: "deepseek", thinkingLevel: "high", reasoning: true },
+			80,
+			{ segments: createBuiltinSegments(), theme },
+		);
+		const plain = stripAnsi(result.primary);
+		expect(plain.endsWith("(deepseek) deepseek-v4-flash • high")).toBe(true);
+		expect(plain).toHaveLength(80);
+		// Non-reasoning model with no active level shows just the model.
+		const bare = renderStatus(
+			{ left: [], right: ["model_effort"], secondary: [] },
+			{ model: "claude-sonnet-4-5" },
+			80,
+			{ segments: createBuiltinSegments(), theme },
+		);
+		expect(stripAnsi(bare.primary).trim()).toBe("claude-sonnet-4-5");
+	});
+
+	it("renders extension statuses as sorted values only (native footer format)", () => {
+		const result = renderStatus(
+			{ left: ["extension_statuses"], right: [], secondary: [] },
+			{
+				extensionStatuses: [
+					{ key: "pi-rules", value: "pi-rules: 0 rules ✓" },
+					{ key: "MCP", value: "🔌 MCP: 1 server enabled" },
+				],
+			},
+			80,
+			{ segments: createBuiltinSegments(), theme },
+		);
+		expect(stripAnsi(result.primary)).toBe("🔌 MCP: 1 server enabled pi-rules: 0 rules ✓");
+	});
+
+	it("renders the default layout with a right-aligned model row", () => {
+		const config = normalizeConfig({ theme: { nerdFonts: "off" } });
+		const result = renderStatus(
+			config.statusLine.layout,
+			{
+				model: "deepseek-v4-flash",
+				provider: "deepseek",
+				reasoning: true,
+				thinkingLevel: "high",
+				cwd: "/Users/quannv.dev/Workspace/Personal/pi-dev/pi-style",
+				git: { available: true, branch: "main", staged: 0, unstaged: 36, untracked: 9, refreshing: false },
+				context: { percent: 47, windowTokens: 1_000_000 },
+				usage: {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+					cost: 0.015,
+					streaming: false,
+				},
+			},
+			120,
+			{ separator: "│", segments: createBuiltinSegments(), theme },
+		);
+		const plain = stripAnsi(result.primary);
+		expect(plain).toMatch(
+			/^pi-style │ ⎇ main \*36 \?9 │ ctx \(1M\): █{5}░{5} 47% │ \$0\.015 │\s+\(deepseek\) deepseek-v4-flash • high$/,
+		);
+		expect(plain).toHaveLength(120);
+	});
+
 	it("fits every documented width without exceeding it", () => {
 		const segments = new Map([
 			["model", segment("model", "model-name", "m", 1, "primary")],

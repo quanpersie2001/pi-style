@@ -13,6 +13,7 @@ export interface CompatibilityCoordinator {
 		coreFlag: boolean,
 		userFlag: boolean,
 		assistantFlag: boolean,
+		specialBlocksFlag: boolean,
 		toolsFlag: boolean,
 		asciiFlag: boolean,
 	): void;
@@ -29,18 +30,29 @@ export interface CompatibilityCoordinator {
 export function createCompatibilityCoordinator(dispose = disposePiCompatibilityProbe): CompatibilityCoordinator {
 	let report: CompatibilityProbeReport | undefined;
 	let cleanupPending = false;
-	let authorization: { core: boolean; user: boolean; assistant: boolean; tools: boolean; ascii: boolean } | undefined;
+	let authorization:
+		| {
+				core: boolean;
+				user: boolean;
+				assistant: boolean;
+				specialBlocks: boolean;
+				tools: boolean;
+				ascii: boolean;
+		  }
+		| undefined;
 	return {
 		get report() {
 			return report;
 		},
-		captureAuthorization(core, user, assistant, tools, ascii) {
-			if (!authorization) authorization = { core, user, assistant, tools, ascii };
+		captureAuthorization(core, user, assistant, specialBlocks, tools, ascii) {
+			authorization = { core, user, assistant, specialBlocks, tools, ascii };
 		},
 		state(config) {
 			const version = detectPiVersion();
 			const messagesConfigured =
-				config.enabled && config.messages.enabled && (config.messages.userPrefix || config.messages.assistantPrefix);
+				config.enabled &&
+				config.messages.enabled &&
+				(config.messages.userPrefix || config.messages.assistantPrefix || config.messages.specialBlocks);
 			const toolsConfigured = config.enabled && config.tools.enabled;
 			const surface = (
 				feature: "messages" | "tools",
@@ -92,6 +104,11 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 					"native-assistant-message",
 				),
 				tools: surface("tools", config.enabled && config.tools.enabled, Boolean(authorization?.tools)),
+				specialBlocks: surface(
+					"messages",
+					config.enabled && config.messages.enabled && config.messages.specialBlocks,
+					Boolean(authorization?.core),
+				),
 			};
 		},
 		install(config, tui, productGate = "omitted") {
@@ -117,7 +134,16 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 					surface: "assistantMessage",
 					config,
 				});
-			const messagesEnabled = (userEnabled || assistantEnabled) && config.messages.enabled;
+			const specialBlocksEnabled =
+				authorization.specialBlocks &&
+				isTierCAuthorized({
+					certifiedHost,
+					coreFlag: authorization.core,
+					surfaceFlag: true,
+					surface: "specialBlocks",
+					config,
+				});
+			const messagesEnabled = (userEnabled || assistantEnabled || specialBlocksEnabled) && config.messages.enabled;
 			const toolsEnabled =
 				authorization.tools &&
 				isTierCAuthorized({ certifiedHost, coreFlag: authorization.core, surfaceFlag: true, surface: "tools", config });
@@ -131,8 +157,12 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 						enabled: messagesEnabled,
 						userPrefix: userEnabled,
 						assistantPrefix: assistantEnabled,
+						specialBlocks: messagesEnabled && config.messages.specialBlocks && specialBlocksEnabled,
 					},
-					tools: { ...config.tools, enabled: toolsEnabled },
+					tools: {
+						...config.tools,
+						enabled: toolsEnabled,
+					},
 				},
 				messageSnapshot: {
 					userPrefix: authorization.ascii ? "[user] " : "❯ ",
@@ -143,6 +173,7 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 				toolSnapshot: {
 					callMarker: authorization.ascii ? "[tool] " : "[tool] ",
 					resultMarker: authorization.ascii ? "[result] " : "[tool:result] ",
+					style: config.tools.style === "compact-box" ? "compact-box" : "marker",
 				},
 			});
 			return report;

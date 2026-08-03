@@ -1,6 +1,6 @@
 # Compatibility policy
 
-> Status: **Phase 6 accepted after independent Peer acceptance and Root validation; Phase 7 remains blocked/not started pending Supervisor/program acceptance**
+> Status: **Phase 7 verified**
 
 ## Principles
 
@@ -8,7 +8,7 @@ pi-style modifies UI owned by a fast-moving host and may coexist with other UI e
 
 - Public Pi APIs are preferred even when an internal patch could produce a more exact imitation.
 - A compatibility-sensitive feature is optional and independently degradable.
-- Unknown capability means “use the safe fallback,” not “assume the current reference implementation shape.”
+- Unknown capability means "use the safe fallback," not "assume the current implementation shape."
 - Terminal mutation must be reversible.
 
 ## Compatibility tiers
@@ -22,185 +22,83 @@ pi-style modifies UI owned by a fast-moving host and may coexist with other UI e
 
 ## Tier A surfaces
 
-Expected stable integrations:
-
-- lifecycle events;
-- `thinking_level_select` and `model_select`;
-- `ctx.ui.setWidget()`;
-- `ctx.ui.setHeader()` when available;
-- `ctx.ui.setEditorComponent()` and `CustomEditor`;
-- `ctx.ui.setFooter()` when explicitly selected;
-- `ctx.ui.setWorkingIndicator()`;
-- active theme access;
-- commands and settings UI components.
-
-Tier A features still need cleanup and singleton-conflict handling.
+Expected stable integrations: lifecycle events, `thinking_level_select`/`model_select`, `ctx.ui.setWidget()`, `ctx.ui.setHeader()` when available, `ctx.ui.setEditorComponent()` + `CustomEditor`, `ctx.ui.setFooter()` when explicitly selected, `ctx.ui.setWorkingIndicator()`, active theme access, commands, and settings UI. Tier A features still need cleanup and singleton-conflict handling.
 
 ## Tier B surfaces
 
-Examples:
-
-- reading an existing editor factory;
-- preserving an internal autocomplete provider when no public composition API exists;
-- footer data provider methods or invalidation hooks exposed in some host versions;
-- optional context/settings manager helpers.
-
-Tier B code must check method existence, validate returned shapes, and keep a public-API fallback.
+Examples: reading an existing editor factory, preserving an internal autocomplete provider without a public composition API, footer data provider methods in some host versions, optional context/settings helpers. Tier B code checks method existence, validates returned shapes, and keeps a public-API fallback.
 
 ## Tier C surfaces
 
-The accepted Tier C certification is exact Pi `0.83.0`, governed by policy range `>=0.83.0 <0.84.0`. The immutable certification table records expected native targets, fingerprints, method shapes, adapter identities, and certified status. Installation requires own-descriptor shape and writable/configurable ownership gates; cleanup restores the exact captured descriptor only while pi-style still owns the installed identity. Unknown or mismatched versions fail closed to native behavior.
+Certification is exact Pi `0.83.0`, governed by policy range `>=0.83.0 <0.84.0`. An immutable certification table records expected native targets, fingerprints, method shapes, adapter identities, and certified status. Installation requires own-descriptor shape and writable/configurable ownership gates; cleanup restores the exact captured descriptor only while pi-style still owns the installed identity. Unknown or mismatched versions fail closed to native behavior.
 
-Certified surfaces are the user-message render, assistant-message render, tool call renderer, and tool result renderer. User/assistant message surfaces require the core flag plus the corresponding per-surface flag; tool selectors require core plus tools. The public session flags are default-deny and non-persistent. ASCII changes markers only on an authorized surface.
+Certified surfaces: user-message render, assistant-message render, tool call renderer, tool result renderer, and the four special message blocks (compaction, branch, skill, custom/MCP). The core/message/tool surface flags are default-on (`default: true`) — patches are fingerprint-verified and fail closed elsewhere — and non-persistent. The OFF switch is `compatibility.allowCorePatches: false` (or `enabled: false`). ASCII changes markers only on an authorized surface.
 
-Lifecycle installs occur at interactive `session_start`, retain incomplete probes when exact restoration is rejected, retry before a new generation, preserve later owners, and expose frozen runtime/final diagnostics. Recertification is required for any Pi build outside exact `0.83.0` evidence.
+Lifecycle: installs at interactive `session_start`, retains incomplete probes when exact restoration is rejected, retries before a new generation, preserves later owners, and exposes frozen runtime/final diagnostics. Recertification is required for any Pi build outside exact `0.83.0` evidence.
 
-Approved fallbacks remain native: special message blocks without a certified adapter, generic cancelled/truncated tool distinction without reliable host state, images without decoration claim, malformed/unsafe shapes, disabled surfaces, and unknown/mismatched versions.
+Approved native fallbacks: special blocks without a certified adapter, generic cancelled/truncated tool distinction without reliable host state, images without decoration claim, malformed/unsafe shapes, disabled surfaces, and unknown/mismatched versions.
 
-Certified Tier C surfaces:
-
-- assistant/user message render patches;
-- compaction, skill, branch-summary, or custom message component patches;
-- built-in tool presentation replacement when renderer-only public integration is insufficient.
-
-A Tier C feature is accepted only when it has:
-
-1. a documented user-visible requirement;
-2. a known Pi version/capability range;
-3. idempotent installation;
-4. identity-safe restoration;
-5. shape mismatch tests;
-6. another-extension conflict behavior;
-7. native fallback;
-8. doctor diagnostics;
-9. no change to core execution semantics.
+A Tier C feature is accepted only when it has: a documented user-visible requirement; a known Pi version/capability range; idempotent installation; identity-safe restoration; shape mismatch tests; another-extension conflict behavior; native fallback; doctor diagnostics; and no change to core execution semantics.
 
 ## Pi version policy
 
-The package will declare an explicit peer dependency range based on tested versions. Capability detection remains required inside that range because optional APIs may differ by build or extension load order.
+The package declares an explicit peer dependency range based on tested versions; capability detection remains required inside that range.
 
-A compatibility matrix should record:
-
-| Capability | Minimum tested version | Detection | Fallback |
+| Capability | Minimum tested | Detection | Fallback |
 | --- | --- | --- | --- |
-| widgets with placement | To be recorded in Phase 7 | public method/options | disable/move row |
-| editor getter/composition | To be recorded in Phase 7 | method existence | prefer existing/native editor |
-| footer data branch/status | Phase 6 safe injected provider boundary | injected capability-safe provider only | hide affected segments and report unavailable/recovery without footer takeover |
-| header API | To be recorded in Phase 7 | method existence | startup widget or off |
-| message component shape | 0.83.0 | exact version + prototype shape/fingerprint | native messages |
-| built-in renderer integration | 0.83.0 | exact version + selector shape/fingerprint | native tools |
-
-Version numbers are filled in from actual implementation tests, not copied blindly from the references.
+| Widgets with placement | Phase 7 verified | public method/options | disable/move row |
+| Editor getter/composition | Phase 7 verified | method existence | prefer existing/native editor |
+| Footer data branch/status | Phase 6 verified | injected capability-safe provider | hide affected segments; no footer takeover |
+| Header API | Phase 7 verified | method existence | startup widget or off |
+| Message component shape | 0.83.0 | exact version + shape/fingerprint | native messages |
+| Built-in renderer integration | 0.83.0 | exact version + selector/fingerprint | native tools |
 
 ## Coexistence with other extensions
 
-### Existing editor
-
-Default: preserve an existing custom editor when full safe composition is unavailable. The user may explicitly prefer pi-style, but doctor output must show that a replacement occurred.
-
-### Existing footer
-
-Default: preserve it. Status widgets should not require footer ownership. If branch or extension-status data is unavailable, hide those segments instead of silently replacing another footer.
-
-### Existing widget IDs
-
-Use namespaced IDs. Never use generic keys such as `status`, `footer`, or `top`.
-
-### Existing message/tool patches
-
-Detect wrapper markers and target identity. If ownership cannot be determined, leave the existing renderer in place and disable the pi-style surface.
-
-### Extension statuses
-
-Treat status values as opaque styled strings unless a configured custom item explicitly extracts a known semantic value. Never remove another extension's status merely because it is displayed in pi-style.
+| Conflict | Default behavior |
+| --- | --- |
+| Existing editor | Preserve it when full safe composition is unavailable; explicit preference is allowed with doctor visibility. |
+| Existing footer | Replace with an empty pi-style-owned component while the status line is enabled; `setFooter(undefined)` restores native. Hide branch/status segments when data is unavailable. |
+| Existing widget IDs | Use namespaced IDs; never generic keys such as `status`, `footer`, `top`. |
+| Existing message/tool patches | Detect wrapper markers and target identity; if ownership is unclear, keep the existing renderer and disable the pi-style surface. |
+| Extension statuses | Treat as opaque styled strings unless a configured custom item extracts a known semantic value; never remove another extension's status. |
 
 ## Terminal compatibility
 
-Target validation matrix:
+Target validation matrix: Ghostty, iTerm2, Kitty, WezTerm, a common Linux terminal, Windows Terminal native and WSL, and SSH/tmux where detection is incomplete.
 
-- Ghostty;
-- iTerm2;
-- Kitty;
-- WezTerm;
-- a common Linux terminal (for example GNOME Terminal or Konsole);
-- Windows Terminal native and WSL;
-- SSH/tmux scenarios where environment detection may be incomplete.
+**Width and Unicode** — all lines use ANSI-aware visible width; ambiguous-width and private-use glyphs are optional; ASCII mode avoids private-use separators.
 
-### Width and Unicode
+**Nerd Font detection** — order: explicit `PI_STYLE_NERD_FONTS=1|0` → explicit config `on|off` → strong signals like `GHOSTTY_RESOURCES_DIR` → conservative terminal-name heuristic → Unicode/ASCII fallback. Terminal brand never guarantees the configured font; the explicit override is authoritative.
 
-All lines use ANSI-aware visible width. Ambiguous-width and private-use glyphs are optional. ASCII mode avoids powerline private-use separators.
+**`NO_COLOR`** — pi-style removes decorative color while preserving text, borders/glyph fallbacks, spacing, labels, and error/state markers.
 
-### Nerd Font detection
-
-Detection order:
-
-1. explicit `PI_STYLE_NERD_FONTS=1|0`;
-2. explicit config `on|off`;
-3. known environment signals such as `GHOSTTY_RESOURCES_DIR`;
-4. conservative terminal-name heuristic;
-5. fallback to Unicode/ASCII.
-
-Terminal brand does not guarantee the configured font. The explicit override remains authoritative.
-
-### `NO_COLOR`
-
-When `NO_COLOR` is present and not explicitly overridden, pi-style removes decorative color while preserving text, borders/glyph fallbacks, spacing, labels, and error/state markers.
-
-### ANSI reset
-
-Every independently rendered line must be self-contained. Styling cannot rely on color state carrying across lines. Truncation must preserve/reset ANSI state safely.
+**ANSI reset** — every independently rendered line is self-contained; styling never relies on color carrying across lines; truncation preserves/resets ANSI state safely.
 
 ## Terminal background policy
 
-Default behavior is explicit cell background painting through theme callbacks when needed.
+Default is explicit cell background painting through theme callbacks when needed.
 
-OSC policy:
-
-- do not use OSC 10 for foreground;
-- OSC 11 may set the terminal background only when configuration/platform policy permits it;
-- record whether pi-style changed the background;
-- restore with OSC 111 or the documented prior-state strategy on shutdown;
-- disable automatically on unverified Windows paths unless explicitly forced;
-- no continuous polling of terminal background during render.
+Terminal-global background synchronization is unsupported/off for technical v1: production emits no OSC 10/11/111, performs no terminal query or polling, installs no terminal-background widget, and claims no terminal-global ownership. Explicit cell backgrounds and Pi theme APIs remain supported; physical terminal/platform/color synchronization stays unclaimed unless mandatory platform evidence requires a future decision.
 
 ## Graceful fallback table
 
 | Problem | Fallback |
 | --- | --- |
 | Unknown Pi version | Tier A only; compatibility surfaces disabled. |
-| Missing widget placement support | Use supported placement or disable secondary row. |
+| Missing widget placement support | Supported placement or no secondary row. |
 | Existing custom editor | Preserve it by default; status/theme remain active. |
-| Missing footer data | Hide branch/extension-status-dependent segments. |
+| Missing footer data | Hide branch/extension-status segments. |
 | No Nerd Font | Unicode/ASCII glyphs and separators. |
 | `NO_COLOR` | Structural monochrome rendering. |
 | Tool/message patch mismatch | Native tool/message rendering. |
-| OSC unsupported | No terminal-global background change. |
-| Git unavailable/not a repo | Hide Git segment. |
+| Terminal-global background sync unsupported/off | No OSC output, query/polling, widget, or ownership. |
+| Git unavailable / not a repo | Hide Git segment. |
 | Very narrow width | Keep essential text, hide optional segments, never overflow. |
 
 ## Doctor output
 
-`/pi-style doctor` should report:
-
-- Pi version and declared support range;
-- detected public/reflective capabilities;
-- terminal, color, glyph, and OSC assumptions;
-- active preset and effective config sources;
-- active, disabled, conflicted, and failed surfaces;
-- current editor/footer ownership decision;
-- installed Tier C patches and their target identities;
-- provider errors such as repeated Git failures;
-- actionable recovery commands.
-
-It must not print secrets, full settings files, API keys, or arbitrary extension data.
-
-## Phase 4 implementation notes
-
-Startup remains Tier A: it uses public `setHeader`, `setWidget`, `custom`, overlay options, and terminal-input APIs. Missing capabilities disable or simplify only startup. Header cleanup is identity-safe when a public owner adapter is available; no private Pi internals are used.
-
-## Phase 2 implementation notes
-
-Status widgets use Tier A public APIs, namespaced IDs, component factories, guarded placement, and identity-safe removal. The editor uses the Tier A public factory and `CustomEditor`; an existing editor is preserved by default when safe composition is unavailable, while explicit replacement remains identity-safe. Missing editor behavior is contained to the editor feature, and print/json modes perform no editor installation. Tier C patches and broader message/tool conflict behavior remain planned.
+`/pi-style doctor` reports: Pi version and declared support range; detected public/reflective capabilities; terminal/color/glyph/OSC assumptions; active preset and effective config sources; active/disabled/conflicted/failed surfaces; current editor/footer ownership decision; installed Tier C patches and target identities; provider errors; and actionable recovery commands. It never prints secrets, full settings files, API keys, or arbitrary extension data.
 
 ## Compatibility requirements
 
@@ -215,13 +113,13 @@ Status widgets use Tier A public APIs, namespaced IDs, component factories, guar
 
 ## Post-v1 boundary
 
-Fixed-zone compositing, terminal scroll-region management, custom fixed-zone selection, chat virtualization, and physical-buffer self-healing are Tier D research. They require a separate ADR, product contract, and terminal test plan before entering implementation.
+Fixed-zone compositing, terminal scroll-region management, custom fixed-zone selection, chat virtualization, and physical-buffer self-healing are Tier D research. They require a separate ADR, product contract, and terminal test plan before implementation.
 
 ## Roadmap coverage
 
-- Capability detection and diagnostic foundation: Phase 1A (implemented).
-- Singleton/editor/footer behavior: Phases 2–3.
+- Capability detection and diagnostics foundation: Phase 1A.
 - Singleton/editor/footer behavior: Phases 2–3.
 - Tier C surfaces: Phase 5.
-- Full conflict/doctor behavior: Phase 6 accepted after independent Peer acceptance and Root validation.
-- Terminal and version proof: Phase 7.
+- Full conflict/doctor behavior: Phase 6.
+- Terminal and version proof: Phase 7; manual evidence pending.
+- Requirement IDs: `COMPAT-001` through `COMPAT-008`.

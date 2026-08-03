@@ -5,9 +5,9 @@
 
 ## Context
 
-The desired product includes surfaces that Pi exposes through public APIs—widgets, editor, header, footer—and surfaces that reference implementations reach through internal component prototypes—user/assistant messages, special blocks, and some built-in tool rendering.
+The desired product includes surfaces that Pi exposes through public APIs—widgets, editor, header, footer—and surfaces that reach through internal component prototypes—user/assistant messages, special blocks, and some built-in tool rendering.
 
-Treating all techniques as equally safe would make upgrades unpredictable. Refusing every compatibility patch would exclude important parts of the desired Droid UI.
+Treating all techniques as equally safe would make upgrades unpredictable. Refusing every compatibility patch would exclude important parts of the desired compact message/tool UI.
 
 ## Decision
 
@@ -22,7 +22,7 @@ A Tier C feature must be isolated, idempotent, reversible, identity-safe, tested
 
 ### Accepted Phase 5 decision
 
-Human-authorized Droid-style Tier C compatibility is accepted only for exact Pi `0.83.0` within `>=0.83.0 <0.84.0`. It is explicit default-deny: the core flag plus the relevant user/assistant/tools surface flag is required, and flags are session-only. Certified adapters cover user/assistant prefixes and tool call/result selectors with exact certified state markers. Compaction/branch/skill/custom blocks, unreliable generic cancelled/truncated distinction, and image-specific decoration remain approved native-preserved fallbacks. The boundary is renderer-only: no broad compositor, tool registration, execution, prompt, filesystem, or process mutation.
+Human-authorized compact-style Tier C compatibility is accepted only for exact Pi `0.83.0` within `>=0.83.0 <0.84.0`. It is explicit default-deny: the core flag plus the relevant user/assistant/tools surface flag is required, and flags are session-only. Certified adapters cover user/assistant prefixes and tool call/result selectors with exact certified state markers. Compaction/branch/skill/custom blocks, unreliable generic cancelled/truncated distinction, and image-specific decoration remain approved native-preserved fallbacks. The boundary is renderer-only: no broad compositor, tool registration, execution, prompt, filesystem, or process mutation.
 
 ## Alternatives considered
 
@@ -49,7 +49,7 @@ Rejected. pi-style is an extension/package, not a Pi distribution.
 
 ### Costs
 
-- exact Droid-style coverage depends on tested Pi versions;
+- exact compact-style coverage depends on tested Pi versions;
 - some users will see native message/tool rendering;
 - patch registry/disposal tests add implementation work.
 

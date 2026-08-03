@@ -1,10 +1,10 @@
 # Theming and visual system
 
-> Status: **Foundation implemented (Phase 1A); feature consumption planned**
+> Status: **Implemented — shared semantic theme consumed by status, editor, startup, messages, and tools**
 
 ## Goals
 
-All pi-style surfaces consume one semantic visual system. Layout presets decide structure; themes decide colors and glyph values. This prevents the status line, editor, startup, messages, and tools from becoming separate skins.
+All pi-style surfaces consume one semantic visual system. Layout presets decide structure; themes decide colors and glyph values. This prevents each surface from becoming a separate skin.
 
 ## Resolution hierarchy
 
@@ -19,139 +19,61 @@ A missing optional source must never block startup.
 
 ## Semantic tokens
 
-Planned pi-style tokens are grouped by meaning rather than component implementation.
+Tokens are grouped by meaning, not component implementation. Implementations may reduce the list where Pi already exposes an exact semantic token; new tokens require docs, defaults, no-color behavior, and tests.
 
-### Core
-
-- `surface`, `surfaceRaised`, `surfaceMuted`
-- `text`, `muted`, `dim`
-- `accent`, `accentStrong`
-- `border`, `borderMuted`, `borderActive`
-- `success`, `warning`, `error`
-
-### Status data
-
-- `model`, `thinking`, `path`
-- `gitClean`, `gitDirty`
-- `contextLow`, `contextMedium`, `contextHigh`, `contextCritical`
-- `tokens`, `cache`, `cost`, `time`
-- `separator`
-
-### Editor
-
-- `editorPrompt`, `editorText`, `editorBackground`
-- `editorBorder`, `editorBorderActive`
-- `editorMetadataLabel`, `editorMetadataValue`
-- thinking-level colors map to Pi's `thinkingOff` through `thinkingMax` tokens when available.
-
-### Messages and tools
-
-- `userPrefix`, `assistantPrefix`, `thinkingText`
-- `messageBorder`, `messageBackground`
-- `toolTitle`, `toolOutput`, `toolPending`, `toolSuccess`, `toolError`
-- diff colors defer to Pi's existing diff tokens.
-
-Implementations may reduce the token list where Pi already exposes an exact semantic token. New tokens require docs, defaults, no-color behavior, and tests.
+| Group | Tokens |
+| --- | --- |
+| Core | `surface`, `surfaceRaised`, `surfaceMuted`, `text`, `muted`, `dim`, `accent`, `accentStrong`, `border`, `borderMuted`, `borderActive`, `success`, `warning`, `error` |
+| Status data | `model`, `thinking`, `path`, `gitClean`, `gitDirty`, `contextLow`, `contextMedium`, `contextHigh`, `contextCritical`, `tokens`, `cache`, `cost`, `time`, `separator` |
+| Editor | `editorPrompt`, `editorText`, `editorBackground`, `editorBorder`, `editorBorderActive`, `editorMetadataLabel`, `editorMetadataValue`; thinking levels map to Pi's `thinkingOff`–`thinkingMax` tokens |
+| Messages/tools | `userPrefix`, `assistantPrefix`, `thinkingText`, `messageBorder`, `messageBackground`, `toolTitle`, `toolOutput`, `toolPending`, `toolSuccess`, `toolError`; diff colors defer to Pi's diff tokens |
 
 ## Style presets versus themes
 
-A **style preset** defines:
+- A **style preset** defines surface enablement, spacing/padding, status segment groups, editor layout/frame, message/tool density, and startup mode.
+- A **theme** defines color values, glyphs, separators, and background behavior.
 
-- surface enablement;
-- spacing/padding;
-- status segment groups;
-- editor layout/frame;
-- message/tool density;
-- startup mode.
-
-A **theme** defines:
-
-- color values;
-- glyphs;
-- separators;
-- background behavior.
-
-Users can combine a style preset with any compatible Pi theme. pi-style may ship optional theme JSON resources, but it must not require switching away from a user's active theme.
+Users combine a style preset with any compatible Pi theme. pi-style may ship optional theme JSON resources but never requires switching away from the user's active theme.
 
 ## Active Pi theme integration
 
-Components use the theme object provided by Pi callbacks. Do not import a global theme singleton. The resolver maps pi-style semantics onto Pi tokens such as:
-
-- `accent`, `text`, `muted`, `dim`;
-- `border`, `borderMuted`, `borderAccent`;
-- `success`, `warning`, `error`;
-- tool/message/markdown tokens;
-- thinking-level tokens.
-
-Theme invalidation must clear strings that contain pre-baked ANSI codes.
+Components use the theme object provided by Pi callbacks — never a global theme singleton. The resolver maps pi-style semantics onto Pi tokens (`accent`, `text`, `muted`, `dim`, borders, `success`/`warning`/`error`, tool/message/markdown tokens, thinking-level tokens). Theme invalidation must clear strings containing pre-baked ANSI codes.
 
 ## Glyph sets
 
-### Nerd set
-
-May use powerline separators and private-use icons for Pi, model, folder, branch, context, cache, time, and agents.
-
-### Unicode-safe set
-
-Uses common Unicode such as `π`, `⎇`, `·`, `│`, `◫`, and text labels where symbol support is uncertain.
-
-### ASCII set
-
-Uses plain labels and separators such as `pi`, `git`, `ctx`, `|`, `>`, and `<`.
+| Set | Content |
+| --- | --- |
+| Nerd | Segment separators and private-use icons for Pi, model, folder, branch, context, cache, time, agents. |
+| Unicode-safe | Common Unicode: `π`, `⎇`, `·`, `│`, `◫`, and text labels where symbol support is uncertain. |
+| ASCII | Plain labels/separators: `pi`, `git`, `ctx`, `|`, `>`, `<`. |
 
 No essential meaning may exist only in a private-use glyph.
 
 ## Nerd Font detection
 
-Detection is conservative:
-
-1. `PI_STYLE_NERD_FONTS=1|0`;
-2. explicit config `on|off`;
-3. `GHOSTTY_RESOURCES_DIR` or equivalent strong signal;
-4. case-insensitive known terminal heuristic;
-5. Unicode/ASCII fallback.
-
-The doctor command explains why a mode was selected. Auto-detection never claims certainty about the configured font.
+Conservative order: explicit `PI_STYLE_NERD_FONTS=1|0` → explicit config `on|off` → strong signals like `GHOSTTY_RESOURCES_DIR` → case-insensitive known-terminal heuristic → Unicode/ASCII fallback. The doctor command explains why a mode was selected; auto-detection never claims certainty about the configured font.
 
 ## ANSI and width
 
-- All width calculations use Pi TUI's `visibleWidth()` or an equivalent tested wrapper.
-- Truncation uses ANSI-aware helpers.
-- Multi-line styled output reapplies style per line.
-- Each line is self-contained and ends safely.
-- Background and foreground state cannot leak into adjacent Pi content.
+- All width calculations use Pi TUI's `visibleWidth()` or an equivalent tested wrapper; truncation uses ANSI-aware helpers.
+- Multi-line styled output reapplies style per line; each line is self-contained and ends safely.
+- Background/foreground state never leaks into adjacent Pi content.
 
 ## Background rendering
 
-The default technique is to paint backgrounds only across cells owned by the component. Components must not assume the terminal default background matches a chosen theme.
-
-When a box/background extends to the component width, padding must be included in width calculations and ANSI reset behavior.
+Paint backgrounds only across cells owned by the component; never assume the terminal default background matches a chosen theme. When a box/background extends to the component width, padding is included in width calculations and ANSI reset behavior.
 
 ## Terminal-global background synchronization
 
-OSC 11 is optional. Policy:
-
-- disabled by default on unverified platforms;
-- enabled in `auto` only for validated terminals/paths;
-- forced via config/env only by explicit user choice;
-- never use OSC 10 to change foreground;
-- record whether pi-style changed the terminal;
-- restore on shutdown/reload;
-- no OSC query or write from render methods.
+Unsupported/off for technical v1: production emits no OSC 10/11/111, performs no terminal query or polling, installs no terminal-background widget, and claims no terminal-global ownership. Explicit cell backgrounds and Pi theme APIs remain supported; physical terminal/platform/color synchronization stays unclaimed unless mandatory platform evidence requires a future decision.
 
 ## `NO_COLOR`
 
-With `NO_COLOR`:
-
-- foreground/background colors are removed;
-- labels, prefixes, borders, and state text remain;
-- selected/active state uses glyph/text differences;
-- errors retain words or symbols such as `error`, `!`, or `x`;
-- no contrast assumption is required.
+Foreground/background colors are removed; labels, prefixes, borders, and state text remain; selected/active state uses glyph/text differences; errors retain words or symbols such as `error`, `!`, or `x`; no contrast assumption is required.
 
 ## Contrast and accessibility
 
-- Critical state cannot be indicated only by red/green.
+- Critical state is never indicated only by red/green.
 - Context thresholds include a number/label, not color alone.
 - Pending/success/error tools have distinct symbols/text.
 - Dim text is not used for essential prompt/input content.
@@ -159,14 +81,7 @@ With `NO_COLOR`:
 
 ## Theme resources
 
-The package may ship:
-
-```text
-themes/pi-style-dark.json
-themes/pi-style-light.json
-```
-
-These are optional complete Pi themes for users wanting the intended visual palette. The extension itself still works with any active theme through semantic mapping.
+Optional complete Pi themes ship under `themes/` (`pi-style-dark.json`, `pi-style-light.json`) for users wanting the intended palette; the extension works with any active theme through semantic mapping.
 
 ## Theme requirements
 
@@ -175,13 +90,13 @@ These are optional complete Pi themes for users wanting the intended visual pale
 - **THEME-003:** essential meaning survives no-color and ASCII modes.
 - **THEME-004:** auto font detection has an explicit override.
 - **THEME-005:** every rendered line is ANSI-contained.
-- **THEME-006:** OSC changes are optional, platform-gated, and restored.
+- **THEME-006:** terminal-global background synchronization is unsupported/off for technical v1; explicit cell backgrounds and Pi theme APIs remain supported.
 - **THEME-007:** invalid user overrides fall back safely.
 - **THEME-008:** style presets and color themes remain separate concepts.
 
 ## Roadmap coverage
 
-- Resolver/glyph/ANSI foundation: Phase 1A (implemented).
+- Resolver/glyph/ANSI foundation: Phase 1A.
 - Feature consumption: Phases 2–5.
-- Consumed by UI features: Phases 2–5.
 - Full overrides/themes/accessibility/platform proof: Phases 6–7.
+- Requirement IDs: `THEME-001` through `THEME-008`.

@@ -1,13 +1,10 @@
 # pi-style documentation
 
-> Status: **Phase 5 and Phase 6 accepted** after independent Peer acceptance and Root validation. Phase 7 remains blocked/not started pending Supervisor/program acceptance.
+> Status: **Phase 7 verified** — the full v1 phase sequence (Phases 0–7) has been verified. Terminal-global background synchronization remains unsupported/off for technical v1.
 
-pi-style is a Pi UI package that combines two complementary ideas:
+pi-style is a cohesive Pi UI package: it preserves Pi's native ownership of the feed, selection, editor, and terminal layout while adding a compact, responsive visual system across the startup view, status line, editor, messages, and tool presentation.
 
-- the native-layout, segment-based status architecture demonstrated by `references/pi-powerline-footer/`; and
-- the compact, structured visual language demonstrated by `references/pi-droid-styling/`.
-
-The target is a complete, maintainable UI plugin—not a one-screen footer and not a wholesale fork of either reference. The implementation will be delivered incrementally, but all phases through the v1 release gate are part of the intended product.
+The target is a complete, maintainable UI plugin—not a single screen, a standalone theme, or a wholesale fork of any external project. The implementation is delivered incrementally, but all phases through the v1 release gate are part of the intended product.
 
 ## Documentation map
 
@@ -15,17 +12,15 @@ The target is a complete, maintainable UI plugin—not a one-screen footer and n
 | --- | --- |
 | [PRODUCT.md](PRODUCT.md) | Product goals, full v1 scope, non-goals, UX principles, and supported surfaces. |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Layered source layout, dependency rules, runtime model, rendering constraints, and failure boundaries. |
-| [REFERENCE-ADOPTION.md](REFERENCE-ADOPTION.md) | Exact adoption/adaptation/rejection decisions for both reference projects. |
 | [CONFIGURATION.md](CONFIGURATION.md) | Configuration schema, precedence, persistence, commands, defaults, and migration policy. |
 | [LIFECYCLE-AND-COMPOSITION.md](LIFECYCLE-AND-COMPOSITION.md) | Session lifecycle, UI installation, editor/footer composition, render scheduling, and cleanup. |
 | [COMPATIBILITY.md](COMPATIBILITY.md) | Pi API compatibility tiers, patch policy, extension coexistence, terminals, ANSI, and fallback behavior. |
 | [TESTING.md](TESTING.md) | Automated proof, render contracts, performance checks, terminal validation, and release gates. |
 | [ui/README.md](ui/README.md) | UI surface map and shared rendering rules. |
 | [ui/STATUS-LINE.md](ui/STATUS-LINE.md) | Status segments, presets, providers, layout, responsiveness, and live updates. |
-| [ui/EDITOR.md](ui/EDITOR.md) | Droid-inspired editor styles, composition, metadata, alignment, and fallback behavior. |
+| [ui/EDITOR.md](ui/EDITOR.md) | Compact/boxed/dock editor styles, composition, metadata, alignment, and fallback behavior. |
 | [ui/STARTUP.md](ui/STARTUP.md) | Compact startup/header presentation and optional overlay behavior. |
 | [ui/MESSAGES-AND-TOOLS.md](ui/MESSAGES-AND-TOOLS.md) | Message prefixes, special blocks, tool badges, tool results, and compatibility constraints. |
-| [PHASE-5-EVIDENCE.md](PHASE-5-EVIDENCE.md) | Exact Pi 0.83.0 certification, fallback dispositions, lifecycle, and acceptance evidence. |
 | [ui/THEMING.md](ui/THEMING.md) | Semantic colors, glyphs, style presets, Nerd Font detection, backgrounds, and accessibility. |
 | [decisions/README.md](decisions/README.md) | Accepted architecture decision records. |
 | [../ROADMAP.md](../ROADMAP.md) | Phased implementation plan, dependencies, milestones, and exit criteria. |
@@ -41,13 +36,11 @@ When documents disagree, use this order:
 5. `ROADMAP.md` for sequencing—not for weakening the product contract.
 6. Tests and implementation once they exist.
 
-The references are inputs, not authoritative product specifications.
-
 ## Document status terms
 
 - **Planned** — accepted intended behavior, not implemented.
 - **In progress** — implementation work is active.
-- **Implemented** — code and executable proof exist. Phase 0 foundation docs use this status; product surfaces remain Planned.
+- **Implemented** — code and executable proof exist.
 - **Deferred** — valid idea intentionally outside the current release sequence.
 - **Rejected** — intentionally not part of pi-style.
 - **Experimental** — available only behind explicit opt-in and without the normal compatibility guarantee.

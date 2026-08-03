@@ -12,22 +12,31 @@ export const DEFAULT_CONFIG: NormalizedPiStyleConfig = Object.freeze({
 	schemaVersion: PI_STYLE_SCHEMA_VERSION,
 	enabled: true,
 	preset: "default",
-	placement: "above",
-	startup: Object.freeze({ mode: "compact", showResources: true, showModel: true }),
+	placement: "below",
+	startup: Object.freeze({ mode: "compact", showResources: false, alwaysExpanded: false }),
 	statusLine: Object.freeze({
 		enabled: true,
 		separator: "powerline-thin",
 		layout: Object.freeze({
-			left: ["model", "thinking", "path", "git"],
-			right: ["context_pct", "cost"],
-			secondary: ["extension_statuses"],
+			left: ["path", "git", "context_bar", "cost"],
+			right: ["model_effort"],
+			secondary: [],
 		}),
 		disabledSegments: [],
 		customItems: [],
+		bottomMargin: 1,
+		contextBarWidth: 10,
 	}),
-	editor: Object.freeze({ enabled: true, style: "compact", frame: "auto", showMetadata: true }),
+	editor: Object.freeze({ enabled: true, style: "compact", frame: "auto", showMetadata: false }),
 	messages: Object.freeze({ enabled: true, userPrefix: true, assistantPrefix: true, specialBlocks: true }),
-	tools: Object.freeze({ enabled: true, style: "compact-box", maxCollapsedLines: 10, showElapsed: true }),
+	tools: Object.freeze({
+		enabled: true,
+		style: "compact-box",
+		maxCollapsedLines: 10,
+		maxExpandedLines: 50,
+		dimOutput: false,
+		showElapsed: true,
+	}),
 	theme: Object.freeze({ nerdFonts: "auto", terminalBackgroundSync: "auto", colors: {}, glyphs: {} }),
 	compatibility: Object.freeze({
 		allowSafePatches: true,
@@ -51,6 +60,11 @@ function merge(base: Record<string, unknown>, source: unknown): Record<string, u
 }
 function bool(value: unknown, fallback: boolean): boolean {
 	return typeof value === "boolean" ? value : fallback;
+}
+function boundedInt(value: unknown, fallback: number, min: number, max: number): number {
+	return typeof value === "number" && Number.isFinite(value)
+		? Math.min(max, Math.max(min, Math.floor(value)))
+		: fallback;
 }
 function stringEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
 	return typeof value === "string" && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
@@ -94,6 +108,10 @@ export function normalizeConfig(
 		tools.maxCollapsedLines >= 0
 			? Math.floor(tools.maxCollapsedLines)
 			: defaults.tools.maxCollapsedLines;
+	const maxExpanded =
+		typeof tools.maxExpandedLines === "number" && Number.isFinite(tools.maxExpandedLines) && tools.maxExpandedLines >= 0
+			? Math.min(Math.floor(tools.maxExpandedLines), 1000)
+			: defaults.tools.maxExpandedLines;
 	return Object.freeze({
 		schemaVersion: PI_STYLE_SCHEMA_VERSION,
 		enabled: bool(value.enabled, defaults.enabled),
@@ -102,7 +120,7 @@ export function normalizeConfig(
 		startup: Object.freeze({
 			mode: stringEnum(startup.mode, ["off", "compact", "overlay"], defaults.startup.mode),
 			showResources: bool(startup.showResources, defaults.startup.showResources),
-			showModel: bool(startup.showModel, defaults.startup.showModel),
+			alwaysExpanded: bool(startup.alwaysExpanded, defaults.startup.alwaysExpanded),
 		}),
 		statusLine: Object.freeze({
 			enabled: bool(status.enabled, defaults.statusLine.enabled),
@@ -126,6 +144,8 @@ export function normalizeConfig(
 			),
 			disabledSegments: strings(status.disabledSegments, defaults.statusLine.disabledSegments),
 			customItems: customItems(status.customItems),
+			bottomMargin: boundedInt(status.bottomMargin, defaults.statusLine.bottomMargin, 0, 4),
+			contextBarWidth: boundedInt(status.contextBarWidth, defaults.statusLine.contextBarWidth, 4, 40),
 		}),
 		editor: Object.freeze({
 			enabled: bool(editor.enabled, defaults.editor.enabled),
@@ -147,6 +167,8 @@ export function normalizeConfig(
 			enabled: bool(tools.enabled, defaults.tools.enabled),
 			style: typeof tools.style === "string" ? tools.style : defaults.tools.style,
 			maxCollapsedLines: max,
+			maxExpandedLines: maxExpanded,
+			dimOutput: bool(tools.dimOutput, defaults.tools.dimOutput),
 			showElapsed: bool(tools.showElapsed, defaults.tools.showElapsed),
 		}),
 		theme: Object.freeze({
@@ -186,7 +208,7 @@ const ENUMS: Readonly<Record<string, readonly string[]>> = {
 const BOOL_PATHS = new Set([
 	"enabled",
 	"startup.showResources",
-	"startup.showModel",
+	"startup.alwaysExpanded",
 	"statusLine.enabled",
 	"editor.enabled",
 	"editor.showMetadata",
@@ -196,6 +218,7 @@ const BOOL_PATHS = new Set([
 	"messages.specialBlocks",
 	"tools.enabled",
 	"tools.showElapsed",
+	"tools.dimOutput",
 	"compatibility.allowSafePatches",
 	"compatibility.allowCorePatches",
 	"compatibility.preferExistingEditor",
@@ -237,7 +260,10 @@ function validLeaf(path: string, value: unknown): boolean {
 	if (BOOL_PATHS.has(path)) return typeof value === "boolean";
 	if (ENUMS[path]) return typeof value === "string" && ENUMS[path].includes(value);
 	if (path === "statusLine.separator" || path === "tools.style") return typeof value === "string";
-	if (path === "tools.maxCollapsedLines") return typeof value === "number" && Number.isFinite(value) && value >= 0;
+	if (path === "tools.maxCollapsedLines" || path === "tools.maxExpandedLines")
+		return typeof value === "number" && Number.isFinite(value) && value >= 0;
+	if (path === "statusLine.bottomMargin" || path === "statusLine.contextBarWidth")
+		return typeof value === "number" && Number.isFinite(value) && value >= 0;
 	if (STRING_ARRAY_PATHS.has(path)) return Array.isArray(value) && value.every((item) => typeof item === "string");
 	if (MAP_PATHS.has(path)) return isRecord(value) && Object.values(value).every((item) => typeof item === "string");
 	if (path === "statusLine.customItems") return Array.isArray(value) && value.every(validCustomItem);

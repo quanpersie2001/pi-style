@@ -1,4 +1,30 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { renderBoxedToolCall, renderBoxedToolResult } from "./boxed/index.js";
+
+/**
+ * Neutralize the native ToolExecutionComponent status background for boxed
+ * rendering: Pi's updateDisplay sets contentBox/selfRenderContainer bgFn to
+ * toolPendingBg/toolErrorBg/toolSuccessBg before invoking the renderers. The
+ * boxed renderers own their visual boundary (borders + ✓/✗ state marks), so the
+ * container fill is removed (no background slab).
+ * Runs on every boxed dispatch; updateDisplay re-applies the bgFn on the next
+ * pass and this wrapper re-neutralizes it.
+ */
+function neutralizeToolContainerBackground(instance: object): void {
+	const host = instance as {
+		getRenderShell?(): string;
+		selfRenderContainer?: { setBgFn?(fn: (text: string) => string): void; paddingX?: number; paddingY?: number };
+		contentBox?: { setBgFn?(fn: (text: string) => string): void; paddingX?: number; paddingY?: number };
+	};
+	const container =
+		typeof host.getRenderShell === "function" && host.getRenderShell() === "self"
+			? host.selfRenderContainer
+			: host.contentBox;
+	if (!container) return;
+	container.paddingX = 0;
+	container.paddingY = 0;
+	if (typeof container.setBgFn === "function") container.setBgFn((text) => text);
+}
 
 type RenderFunction = (this: object, ...args: unknown[]) => unknown;
 type RendererSubtype = "tool-call-renderer" | "tool-result-renderer";
@@ -18,7 +44,12 @@ type ToolRenderContext = {
 	showImages: boolean;
 	isError: boolean;
 };
-type ToolDecorationSnapshot = Readonly<{ callMarker: string; resultMarker: string }>;
+type ToolDecorationSnapshot = Readonly<{
+	callMarker: string;
+	resultMarker: string;
+	/** marker = prefix lines; compact-box = boxed tool call/result rendering. */
+	style?: "marker" | "compact-box";
+}>;
 type DescriptorView = Readonly<{
 	kind: "data" | "accessor";
 	value?: unknown;
@@ -65,6 +96,7 @@ type DecorationState = {
 const DEFAULT_SNAPSHOT: ToolDecorationSnapshot = Object.freeze({
 	callMarker: "[tool] ",
 	resultMarker: "[tool:result] ",
+	style: "marker",
 });
 let ownerGeneration = 0;
 const piStyleWrappers = new WeakSet<RenderFunction>();
@@ -354,6 +386,57 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 		decorateToolRendererSelection(subtype: RendererSubtype, original: unknown, instance: object, args: unknown[]) {
 			if (typeof original !== "function") return undefined;
 			const renderer = Reflect.apply(original, instance, args);
+			if (state.snapshot.style === "compact-box") {
+				const toolName = (instance as { toolName?: unknown }).toolName;
+				// Tools without a native renderCall/renderResult (e.g. extension tools
+				// like TaskUpdate/TaskList) still get boxed presentation through a
+				// fallback renderer, mirroring the generic boxed fallback used for
+				// unknown tool names.
+				if (typeof renderer !== "function") {
+					neutralizeToolContainerBackground(instance);
+					if (subtype === "tool-call-renderer")
+						return (callArgs: unknown, theme: unknown, context: unknown) =>
+							renderBoxedToolCall(toolName, callArgs as Record<string, unknown>, theme as never, context as never);
+					return (result: unknown, options: unknown, theme: unknown, context: unknown) =>
+						renderBoxedToolResult(
+							toolName,
+							result as { content?: readonly unknown[]; details?: unknown },
+							options as { expanded: boolean; isPartial: boolean },
+							theme as never,
+							context as never,
+						);
+				}
+				return function (this: unknown, ...rendererArgs: unknown[]) {
+					const valid = subtype === "tool-call-renderer" ? validCallArgs(rendererArgs) : validResultArgs(rendererArgs);
+					if (!valid) {
+						note(state, `${subtype}-malformed-context`);
+						return Reflect.apply(renderer, this, rendererArgs);
+					}
+					const component =
+						subtype === "tool-call-renderer"
+							? (() => {
+									const [args, theme, context] = rendererArgs as [object, object, ToolRenderContext];
+									return renderBoxedToolCall(
+										toolName,
+										args as Record<string, unknown>,
+										theme as never,
+										context as never,
+									);
+								})()
+							: (() => {
+									const [result, options, theme, context] = rendererArgs as [object, object, object, ToolRenderContext];
+									return renderBoxedToolResult(
+										toolName,
+										result as { content?: readonly unknown[]; details?: unknown },
+										options as { expanded: boolean; isPartial: boolean },
+										theme as never,
+										context as never,
+									);
+								})();
+					neutralizeToolContainerBackground(instance);
+					return component;
+				};
+			}
 			if (typeof renderer !== "function") return renderer;
 			return function (this: unknown, ...rendererArgs: unknown[]) {
 				const valid = subtype === "tool-call-renderer" ? validCallArgs(rendererArgs) : validResultArgs(rendererArgs);

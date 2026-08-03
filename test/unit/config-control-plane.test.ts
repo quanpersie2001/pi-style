@@ -1,3 +1,5 @@
+const ESC = "\x1b";
+
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +20,7 @@ import { createPiConfigFilePort } from "../../extension-src/pi-style/pi/config-h
 import { createConfigSourceAdapter, resolveProductGate } from "../../extension-src/pi-style/pi/config-session.js";
 import { FakePiHost } from "../helpers/fake-pi-host.js";
 
-describe("Phase 6 configuration control plane", () => {
+describe("configuration control plane and composition", () => {
 	it("covers the complete product gate matrix across trust and raw layers", () => {
 		const values = [undefined, true, false, "invalid"] as const;
 		for (const trusted of [true, false])
@@ -107,7 +109,6 @@ describe("Phase 6 configuration control plane", () => {
 			["placement", "below", "bad"],
 			["startup.mode", "overlay", "bad"],
 			["startup.showResources", false, "bad"],
-			["startup.showModel", false, "bad"],
 			["statusLine.enabled", false, "bad"],
 			["statusLine.separator", "sep", 3],
 			["statusLine.layout.left", [], "bad"],
@@ -424,24 +425,35 @@ describe("Phase 6 configuration control plane", () => {
 	it("reconciles real FakePiHost public slots through off/on transitions", () => {
 		const host = new FakePiHost();
 		const app = createPiStyleApp();
-		app.sessionStart({ mode: "tui", hasUI: true, ui: host.extensionContext.ui, cwd: "/fake", projectTrusted: true });
+		app.sessionStart({
+			mode: "tui",
+			hasUI: true,
+			ui: host.extensionContext.ui,
+			cwd: "/fake",
+			projectTrusted: true,
+			...(host.gitRunner ? { gitRunner: host.gitRunner } : {}),
+		});
 		const providers = app.runtime.current?.providerIdentity;
 		expect(providers).toBeDefined();
 		expect(host.widgets.has("pi-style.status.primary")).toBe(true);
 		expect(host.ownership.editor.current).toBe(true);
+		expect(host.ownership.footer.current).toBe(true);
 		app.applySession({ enabled: false });
 		expect(app.runtime.current?.providerIdentity.git).toBe(providers?.git);
 		expect(host.widgets.has("pi-style.status.primary")).toBe(false);
 		expect(host.ownership.editor.current).toBe(false);
+		expect(host.ownership.footer.current).toBe(false);
 		const laterEditor = (() => undefined) as never;
 		host.extensionContext.ui.setEditorComponent?.(laterEditor);
 		app.applySession({ enabled: true });
 		expect(host.ownership.editor.current).toBe(true);
 		expect(host.ownership.editor.restores).toBe(1);
+		expect(host.ownership.footer.current).toBe(true);
 		app.sessionShutdown();
+		expect(host.ownership.footer.current).toBe(false);
 	});
 
-	it("rebuilds placement and custom status layout without footer takeover", () => {
+	it("rebuilds placement and custom status layout while owning the footer", () => {
 		const host = new FakePiHost();
 		const app = createPiStyleApp({
 			statusLine: {
@@ -450,10 +462,12 @@ describe("Phase 6 configuration control plane", () => {
 			},
 		});
 		app.sessionStart({ mode: "tui", hasUI: true, ui: host.extensionContext.ui });
-		expect(host.widgets.get("pi-style.status.primary")?.placement).toBe("aboveEditor");
-		app.applySession({ placement: "below" });
 		expect(host.widgets.get("pi-style.status.primary")?.placement).toBe("belowEditor");
-		expect(host.ownership.footer.current).toBe(false);
+		expect(host.ownership.footer.current).toBe(true);
+		app.applySession({ placement: "above" });
+		expect(host.widgets.get("pi-style.status.primary")?.placement).toBe("aboveEditor");
+		expect(host.ownership.footer.current).toBe(true);
+		expect(host.ownership.footer.restores).toBe(1);
 	});
 
 	it("hides extension statuses and reports recovery when the provider fails", () => {
@@ -468,12 +482,12 @@ describe("Phase 6 configuration control plane", () => {
 			},
 		});
 		app.update({}, "immediate");
-		expect(host.ownership.footer.current).toBe(false);
+		expect(host.ownership.footer.current).toBe(true);
 		expect(host.notifications.some((item) => item.message.includes("recovery required"))).toBe(true);
 		expect(app.doctor()).toMatchObject({ operational: { provider: { status: "unavailable" } } });
 	});
 
-	it("uses an injected extension-status provider and never acquires the footer", () => {
+	it("uses an injected extension-status provider while owning the footer", () => {
 		const host = new FakePiHost();
 		const app = createPiStyleApp({ statusLine: { layout: { left: ["extension_statuses"] } } });
 		app.sessionStart({
@@ -481,10 +495,11 @@ describe("Phase 6 configuration control plane", () => {
 			hasUI: true,
 			ui: host.extensionContext.ui,
 			cwd: "/fake",
+			...(host.gitRunner ? { gitRunner: host.gitRunner } : {}),
 			extensionStatusProvider: () => [{ key: "opaque", value: "safe" }],
 		});
 		app.update({}, "immediate");
-		expect(host.ownership.footer.current).toBe(false);
+		expect(host.ownership.footer.current).toBe(true);
 		expect(host.widgets.has("pi-style.status.primary")).toBe(true);
 		const factory = host.componentFactories.get("pi-style.status.primary");
 		const rendered =
@@ -493,6 +508,27 @@ describe("Phase 6 configuration control plane", () => {
 				.join(" ") ?? "";
 		expect(rendered).toContain("safe");
 		expect(app.doctor()).toMatchObject({ operational: { provider: { status: "available" } } });
+	});
+
+	it("renders the configured bottom margin and context bar width", () => {
+		const host = new FakePiHost();
+		const app = createPiStyleApp({ statusLine: { bottomMargin: 2, contextBarWidth: 6 } });
+		app.sessionStart({
+			mode: "tui",
+			hasUI: true,
+			ui: host.extensionContext.ui,
+			cwd: "/fake",
+			model: { name: "model", provider: "provider" },
+		});
+		app.update({ context: { percent: 50, windowTokens: 1_000_000 } }, "immediate");
+		const factory = host.componentFactories.get("pi-style.status.primary");
+		const lines = factory?.({ requestRender: () => {} }, host.theme).render(120) ?? [];
+		// The two trailing rows are the configured bottom margin.
+		expect(lines.slice(-2)).toEqual(["", ""]);
+		const plain = lines[0] ?? "";
+		expect(plain).toContain("ctx (1M):");
+		// contextBarWidth 6 renders a 6-cell bar: 50% → 3 filled cells.
+		expect(plain.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "")).toMatch(/ctx \(1M\): █{3}░{3} 50%/);
 	});
 
 	it("keeps print and json sessions inert", () => {

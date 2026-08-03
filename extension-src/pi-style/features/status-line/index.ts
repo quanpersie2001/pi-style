@@ -1,7 +1,7 @@
 import type { NormalizedPiStyleConfig } from "../../domain/config-types.js";
 import { createBuiltinSegments, type SegmentContext, type StatusSnapshot } from "../../domain/status.js";
 import { renderStatus } from "../../domain/status-renderer.js";
-import { resolveTheme } from "../../domain/theme.js";
+import { type ResolvedTheme, resolveTheme } from "../../domain/theme.js";
 import { visibleWidth } from "../../shared/ansi.js";
 
 export const PRIMARY_WIDGET_KEY = "pi-style.status.primary";
@@ -10,6 +10,20 @@ export const SECONDARY_WIDGET_KEY = "pi-style.status.secondary";
 type WidgetPlacement = "aboveEditor" | "belowEditor";
 type RenderComponent = { render(width: number): string[]; invalidate(): void; dispose?(): void };
 type WidgetFactory = (tui: { requestRender?: () => void }, theme: ActivePiTheme) => RenderComponent;
+
+/** Read-only view of Pi's footer data provider, kept out of the domain layer. */
+export interface FooterDataProviderView {
+	getGitBranch(): string | null;
+	getExtensionStatuses(): ReadonlyMap<string, string>;
+	onBranchChange(callback: () => void): () => void;
+}
+
+type FooterFactory = (
+	tui: { requestRender?: (force?: boolean) => void },
+	// The footer renders nothing, so the theme is intentionally untyped.
+	theme: unknown,
+	footerData: FooterDataProviderView,
+) => RenderComponent;
 
 /** Minimal structural view of Pi's theme, kept out of the domain layer. */
 export interface ActivePiTheme {
@@ -23,6 +37,8 @@ export interface StatusLineWidgetHost {
 		content: string[] | WidgetFactory | undefined,
 		options?: { placement?: WidgetPlacement },
 	): void;
+	/** Replace the native Pi footer with a pi-style owned component; undefined restores it. */
+	setFooter(factory: FooterFactory | undefined): void;
 }
 
 export interface StatusLineInstallation {
@@ -40,6 +56,8 @@ export interface StatusLineInstallOptions {
 	generation: number;
 	initialSnapshot: StatusSnapshot;
 	isCurrent?: () => boolean;
+	/** Force a full terminal redraw (clear screen + scrollback) on the first footer mount. */
+	clearOnStartup?: boolean;
 }
 
 interface Ownership {
@@ -82,10 +100,14 @@ function safeWidget(
 function placementFor(config: NormalizedPiStyleConfig): WidgetPlacement {
 	return config.placement === "below" ? "belowEditor" : "aboveEditor";
 }
-function separatorFor(config: NormalizedPiStyleConfig): string {
-	if (config.statusLine.separator === "powerline-thin") return "│";
-	if (config.statusLine.separator.length === 0) return "│";
-	return config.statusLine.separator;
+function separatorsFor(config: NormalizedPiStyleConfig, theme: ResolvedTheme): string {
+	const style = config.statusLine.separator;
+	if (style === "powerline") return theme.apply("separator", theme.glyph("powerlineLeft"));
+	if (style === "powerline-thin" || style === "" || style === undefined) {
+		return theme.apply("separator", theme.glyph("powerlineThinLeft"));
+	}
+	if (style === "none") return " ";
+	return theme.apply("separator", style);
 }
 
 export function installStatusLine(options: StatusLineInstallOptions): StatusLineInstallation {
@@ -98,6 +120,10 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 	let disposed = false;
 	let primaryComponent: RenderComponent | undefined;
 	let secondaryComponent: RenderComponent | undefined;
+	let footerData: FooterDataProviderView | undefined;
+	let footerOwner = false;
+	let footerUnsubscribe: (() => void) | undefined;
+	let clearedOnStartup = false;
 	const segments = new Map(createBuiltinSegments());
 	for (const item of config.statusLine.customItems) {
 		if (!item.id || !item.statusKey) continue;
@@ -117,22 +143,99 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 
 	const render = (activeTheme: ActivePiTheme, width: number, secondary: boolean): string[] => {
 		if (width <= 0 || !config.enabled || !config.statusLine.enabled) return [];
-		const resolved = renderStatus(config.statusLine.layout, snapshot, width, {
-			separator: separatorFor(config),
+		const resolved = resolveTheme(
+			activeTheme.colors || activeTheme.fg
+				? {
+						...(activeTheme.colors ? { colors: activeTheme.colors } : {}),
+						// Call through the theme instance so `this` binds correctly inside Pi's fg().
+						...(activeTheme.fg ? { fg: (color: string, text: string) => activeTheme.fg?.(color, text) ?? text } : {}),
+					}
+				: undefined,
+			config,
+		);
+		const result = renderStatus(config.statusLine.layout, effectiveSnapshot(snapshot), width, {
+			separator: separatorsFor(config, resolved),
 			segments,
-			theme: resolveTheme(
-				activeTheme.colors || activeTheme.fg
-					? {
-							...(activeTheme.colors ? { colors: activeTheme.colors } : {}),
-							...(activeTheme.fg ? { fg: (token: string) => activeTheme.fg?.(token, "") ?? "" } : {}),
-						}
-					: undefined,
-				config,
-			),
-			options: Object.fromEntries(config.statusLine.disabledSegments.map((id) => [id, { disabled: true }])),
+			theme: resolved,
+			options: {
+				...Object.fromEntries(config.statusLine.disabledSegments.map((id) => [id, { disabled: true }])),
+				context_bar: { width: config.statusLine.contextBarWidth },
+			},
 		});
-		const lines = secondary ? resolved.lines.slice(1) : resolved.lines.slice(0, 1);
-		return lines.filter((line) => visibleWidth(line) <= width);
+		const lines = secondary ? result.lines.slice(1) : result.lines.slice(0, 1);
+		const rendered = lines.filter((line) => visibleWidth(line) <= width);
+		if (!secondary && rendered.length > 0 && config.statusLine.bottomMargin > 0) {
+			// Blank rows below the primary row keep the status line off the terminal edge.
+			return [...rendered, ...Array.from({ length: config.statusLine.bottomMargin }, () => "")];
+		}
+		return rendered;
+	};
+	/** Merge authoritative native footer data (branch + extension statuses) into the snapshot. */
+	const effectiveSnapshot = (input: StatusSnapshot): StatusSnapshot => {
+		if (!footerData) return input;
+		const statuses = footerData.getExtensionStatuses();
+		const extensionStatuses = statuses.size > 0 ? [...statuses].map(([key, value]) => ({ key, value })) : undefined;
+		const branch = footerData.getGitBranch();
+		const git = branch && input.git ? { ...input.git, branch } : input.git;
+		return {
+			...input,
+			...(extensionStatuses ? { extensionStatuses } : {}),
+			...(git ? { git } : {}),
+		};
+	};
+	const releaseFooterData = (): void => {
+		footerUnsubscribe?.();
+		footerUnsubscribe = undefined;
+		footerData = undefined;
+	};
+	const footerFactory: FooterFactory = (tui, _theme, data) => {
+		footerData = data;
+		footerUnsubscribe?.();
+		footerUnsubscribe = data.onBranchChange(() => {
+			primaryComponent?.invalidate();
+			secondaryComponent?.invalidate();
+			tui.requestRender?.();
+		});
+		if (options.clearOnStartup && !clearedOnStartup) {
+			clearedOnStartup = true;
+			// Force a full redraw on the first frame: clears the screen and scrollback.
+			tui.requestRender?.(true);
+		}
+		return {
+			// The native footer is replaced by an empty component; visible status lives in widgets.
+			render() {
+				return [];
+			},
+			invalidate() {
+				tui.requestRender?.();
+			},
+			dispose() {
+				releaseFooterData();
+			},
+		};
+	};
+	const mountFooter = (): void => {
+		if (disposed || options.isCurrent?.() === false) return;
+		if (!config.enabled || !config.statusLine.enabled) {
+			clearFooter();
+			return;
+		}
+		try {
+			options.host.setFooter(footerFactory);
+			footerOwner = true;
+		} catch {
+			footerOwner = false;
+		}
+	};
+	const clearFooter = (): void => {
+		if (!footerOwner) return;
+		footerOwner = false;
+		releaseFooterData();
+		try {
+			options.host.setFooter(undefined);
+		} catch {
+			// Best-effort restore; cleanup must never throw.
+		}
 	};
 	const factory =
 		(secondary: boolean): WidgetFactory =>
@@ -162,10 +265,12 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 		if (!config.enabled || !config.statusLine.enabled) {
 			clear(PRIMARY_WIDGET_KEY);
 			clear(SECONDARY_WIDGET_KEY);
+			clearFooter();
 			return;
 		}
 		if (safeWidget(options.host, PRIMARY_WIDGET_KEY, factory(false), placementFor(config))) claim(PRIMARY_WIDGET_KEY);
 		if (safeWidget(options.host, SECONDARY_WIDGET_KEY, factory(true), "belowEditor")) claim(SECONDARY_WIDGET_KEY);
+		mountFooter();
 	};
 	function clear(key: string): void {
 		const current = owners.get(key);
@@ -190,6 +295,7 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 			if (placementChanged || enabledChanged) {
 				clear(PRIMARY_WIDGET_KEY);
 				clear(SECONDARY_WIDGET_KEY);
+				clearFooter();
 				primaryComponent = undefined;
 				secondaryComponent = undefined;
 				mount();
@@ -203,6 +309,7 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 			disposed = true;
 			clear(PRIMARY_WIDGET_KEY);
 			clear(SECONDARY_WIDGET_KEY);
+			clearFooter();
 			installationMap(options.host).delete(options.generation);
 		},
 	};

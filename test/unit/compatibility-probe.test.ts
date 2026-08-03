@@ -35,7 +35,7 @@ import {
 	installDelegatingPatch,
 	nextGeneration,
 } from "../../extension-src/pi-style/pi/compatibility-registry.js";
-import piStyleExtension from "../../extension-src/pi-style/pi/index.js";
+import piStyleExtension, { __setCompatibilityTestHooks } from "../../extension-src/pi-style/pi/index.js";
 import { FakePiHost } from "../helpers/fake-pi-host.js";
 import { createFakeTheme } from "../helpers/fake-theme.js";
 
@@ -144,22 +144,14 @@ describe("Pi 0.83 compatibility probe", () => {
 		expect(output).toEqual(["  ", "│ \x1b]133;A\x07text\x1b]133;B\x07", "\x1b]133;B\x07\x1b]133;C\x07"]);
 	});
 	it.each([
-		[{}, 0],
-		[{ "pi-style-core-patches": true }, 0],
-		[{ "pi-style-message-user": true }, 0],
-		[{ "pi-style-core-patches": true, "pi-style-message-user": true }, 1],
-		[{ "pi-style-core-patches": true, "pi-style-message-assistant": true }, 1],
-		[{ "pi-style-core-patches": true, "pi-style-tools": true }, 2],
-		[
-			{
-				"pi-style-core-patches": true,
-				"pi-style-message-user": true,
-				"pi-style-message-assistant": true,
-				"pi-style-tools": true,
-			},
-			4,
-		],
-	] as const)("authorizes only explicit core-plus-surface flags %#", async (flags, expected) => {
+		// Core/message/tool surfaces are default-on (fingerprint-certified, fail-closed,
+		// conflict-preserving); explicit flags and the ASCII override still work.
+		[{}, 8],
+		[{ "pi-style-core-patches": false }, 0],
+		[{ "pi-style-ascii": true }, 8],
+		[{ "pi-style-tools": false }, 6],
+		[{ "pi-style-message-special-blocks": false }, 4],
+	] as const)("enables certified surfaces by default with explicit flag overrides %#", async (flags, expected) => {
 		const host = new FakePiHost({ flags });
 		piStyleExtension(host.extensionApi);
 		await host.sessionStart();
@@ -178,32 +170,9 @@ describe("Pi 0.83 compatibility probe", () => {
 		const report = probePiCompatibility("0.83.0", markers);
 		expect(report.recordSnapshots).toHaveLength(8);
 		expect(report.recordSnapshots.every((record) => record.piVersion === "0.83.0")).toBe(true);
-		expect(
-			report.recordSnapshots
-				.filter(
-					(record) =>
-						record.feature === "messages" &&
-						record.subtype !== "native-user-message" &&
-						record.subtype !== "native-assistant-message",
-				)
-				.every((record) => record.shape === "unsupported"),
-		).toBe(true);
-		expect(
-			report.recordSnapshots
-				.filter(
-					(record) =>
-						record.subtype === "native-user-message" ||
-						record.subtype === "native-assistant-message" ||
-						record.feature === "tools",
-				)
-				.every((record) => record.shape === "installed"),
-		).toBe(true);
-		expect(
-			report.recordSnapshots
-				.filter((record) => record.shape === "installed")
-				.every((record) => record.disposed === false),
-		).toBe(true);
-		expect(report.unsupported).toHaveLength(4);
+		expect(report.recordSnapshots.every((record) => record.shape === "installed")).toBe(true);
+		expect(report.recordSnapshots.every((record) => record.disposed === false)).toBe(true);
+		expect(report.unsupported).toHaveLength(0);
 		const user = new UserMessageComponent("# Native **markdown**\n\n```ts\nconst image = 'sentinel';\n```");
 		const assistant = new AssistantMessageComponent(
 			assistantMessage([{ type: "text", text: "native rich-content sentinel" }]),
@@ -241,12 +210,20 @@ describe("Pi 0.83 compatibility probe", () => {
 		expect(assistantResult.every((line) => visibleWidth(line) <= 80)).toBe(true);
 		expect(nativeSpecial.map((component) => component.render(80))).toEqual(beforeExpandedSpecial);
 		for (const component of nativeSpecial) component.setExpanded?.(false);
+		// Without a session theme the boxed adapters fall back to the native layout.
 		const decoratedSpecial = nativeSpecial.map((component) => component.render(80));
 		expect(decoratedSpecial).toHaveLength(beforeSpecial.length);
-		// Private special-component layouts are intentionally native until each subtype
-		// has a certified adapter; the collapsed render remains host-owned.
 		expect(decoratedSpecial).toEqual(beforeSpecial);
-		expect(markers).toEqual(new Set(["native-user-message:delegated", "native-assistant-message:delegated"]));
+		expect(markers).toEqual(
+			new Set([
+				"native-user-message:delegated",
+				"native-assistant-message:delegated",
+				"native-compaction-message:delegated",
+				"native-branch-message:delegated",
+				"native-skill-message:delegated",
+				"native-custom-message:delegated",
+			]),
+		);
 		disposePiCompatibilityProbe(report);
 		expect(
 			report.recordSnapshots.every(
@@ -465,14 +442,42 @@ describe("Pi 0.83 compatibility probe", () => {
 		expect(calls).toBe(1);
 	});
 
-	it("keeps core-only authorization default-deny", async () => {
-		const host = new FakePiHost({ flags: { "pi-style-core-patches": true } });
+	it("installs certified surfaces by default and honors the config product gate", async () => {
+		// Default-on: no flags needed for the certified 0.83.0 surfaces.
+		const host = new FakePiHost();
 		piStyleExtension(host.extensionApi);
-		const before = descriptors();
 		await host.sessionStart();
-		expect(descriptors()).toEqual(before);
+		expect(
+			targetSpecs.filter((spec) => getCompatibilityRecords(spec.target).some((record) => !record.disposed)).length,
+		).toBe(8);
 		await host.sessionShutdown();
-		expect(descriptors()).toEqual(before);
+		expect(targetSpecs.every((spec) => getCompatibilityRecords(spec.target).length === 0)).toBe(true);
+
+		// OFF switch: `compatibility.allowCorePatches: false` in config denies all core patches.
+		let document = JSON.stringify({
+			piStyle: { schemaVersion: 1, compatibility: { allowCorePatches: false } },
+		});
+		const settings = {
+			port: {
+				read: async (path: string) => (path === "global" ? document : "{}"),
+				writeAtomic: async (_path: string, content: string) => {
+					document = content;
+				},
+			},
+			paths: () => ({ globalPath: "global", projectPath: "project" }),
+		};
+		const reset = __setCompatibilityTestHooks({ filePort: settings.port, paths: settings.paths });
+		try {
+			const deniedHost = new FakePiHost();
+			const before = descriptors();
+			piStyleExtension(deniedHost.extensionApi);
+			await deniedHost.sessionStart();
+			expect(descriptors()).toEqual(before);
+			await deniedHost.sessionShutdown();
+			expect(descriptors()).toEqual(before);
+		} finally {
+			reset();
+		}
 	});
 
 	it("fails closed for unknown and mismatched versions", () => {
@@ -575,7 +580,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		expect(() =>
 			Object.defineProperty(report.certification[0].descriptor as object, "configurable", { value: false }),
 		).toThrow();
-		expect(() => Object.defineProperty(report.unsupported, "length", { value: 0 })).toThrow();
+		expect(() => Object.defineProperty(report.certification, "length", { value: 1 })).toThrow();
 		expect(() => Reflect.apply(Array.prototype.push, report.delegationMarkers, ["mutated"])).toThrow();
 		expect(JSON.stringify(report.recordSnapshots)).toBe(before);
 		disposePiCompatibilityProbe(report);
@@ -600,7 +605,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		disposePiCompatibilityProbe(report);
 		expect(descriptors()).toEqual(beforeDescriptors);
 		const replacement = probePiCompatibility("0.83.0");
-		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(4);
+		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(8);
 		expect(markers).not.toContain("native-user-message:delegated");
 		const snapshots: readonly CompatibilityRecordSnapshot[] = report.recordSnapshots;
 		expect(snapshots.every((record) => record.generation > 0)).toBe(true);
@@ -1077,12 +1082,14 @@ describe("Pi 0.83 compatibility probe", () => {
 		const baselineEntryRenderers = [...host.registeredEntryRenderers];
 		for (let cycle = 0; cycle < 10; cycle++) {
 			await host.sessionStart();
+			// Default-on certified surfaces are installed during the session…
 			const installed = descriptors();
 			for (let index = 0; index < installed.length; index++) {
-				expect(installed[index]?.value).toBe(baseline[index]?.value);
+				expect(installed[index]?.value).not.toBe(baseline[index]?.value);
 			}
-			expect(getCompatibilityRecords(UserMessageComponent.prototype).length).toBe(0);
+			expect(getCompatibilityRecords(UserMessageComponent.prototype).length).toBe(1);
 			await host.sessionShutdown();
+			// …and every wrapper is restored exactly on shutdown.
 			expect(descriptors()).toEqual(baseline);
 			expect(targetSpecs.reduce((count, spec) => count + getCompatibilityRecords(spec.target).length, 0)).toBe(0);
 			expect(host.componentFactories.size).toBe(baselineFactories);

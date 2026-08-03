@@ -14,7 +14,7 @@
   ],
   "pi": {
     "extensions": [
-      "./dist/extensions/pi-style.js"
+      "./extension-src/pi-style/pi/index.ts"
     ],
     "themes": [
       "./themes"
@@ -25,7 +25,8 @@
     "themes",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "extension-src"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -33,9 +34,10 @@
     "lint:fix": "biome check --write .",
     "depcruise": "depcruise extension-src/pi-style --config dependency-cruiser.config.cjs",
     "test": "vitest run",
+    "test:rendering-and-runtime-contracts": "vitest run test/render/*.test.ts test/performance/*.test.ts test/e2e/*.test.ts",
     "test:watch": "vitest",
     "build": "tsup",
-    "package:smoke": "node --input-type=module -e \"const manifest = await import('./package.json', { with: { type: 'json' } }); if (manifest.default.pi.extensions[0] !== './dist/extensions/pi-style.js') throw new Error('invalid Pi extension manifest path'); const extension = await import('./dist/extensions/pi-style.js'); if (typeof extension.default !== 'function') throw new Error('built extension has no default factory'); console.log('package smoke: built extension loaded');\"",
+    "package:smoke": "node --input-type=module -e \"const manifest = await import('./package.json', { with: { type: 'json' } }); const entry = manifest.default.pi.extensions[0]; if (entry !== './extension-src/pi-style/pi/index.ts') throw new Error('invalid Pi extension manifest path: ' + entry); const { readFileSync } = await import('node:fs'); const source = readFileSync('./extension-src/pi-style/pi/index.ts', 'utf8'); if (!/export\\s+default\\s+function/.test(source)) throw new Error('extension TS entry has no default factory'); if (!source.includes('createPiStyleSessionCoordinator')) throw new Error('extension TS entry missing coordinator wiring'); console.log('package smoke: extension TS entry valid (jiti loads with Pi runtime aliases)');\"\"\"",
     "dev": "tsup --watch",
     "check": "npm run typecheck && npm run lint && npm run depcruise && npm run test && npm run build && npm run package:smoke"
   },

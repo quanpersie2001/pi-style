@@ -20,13 +20,23 @@ const EMPTY_USAGE: UsageSnapshot = Object.freeze({
 });
 
 export class NodeGitCommandRunner implements GitCommandRunner {
-	async run(args: readonly string[], cwd: string, timeoutMs: number): Promise<GitCommandResult> {
+	async run(args: readonly string[], cwd: string, timeoutMs: number, signal?: AbortSignal): Promise<GitCommandResult> {
+		if (signal?.aborted) return { stdout: "", stderr: "git command aborted", code: 1 };
 		try {
-			const result = await execFileAsync("git", [...args], { cwd, timeout: timeoutMs, maxBuffer: 1024 * 1024 });
+			const result = await execFileAsync("git", [...args], {
+				cwd,
+				timeout: timeoutMs,
+				maxBuffer: 1024 * 1024,
+				signal,
+			});
 			return { stdout: result.stdout, stderr: result.stderr, code: 0 };
 		} catch (error) {
-			const failure = error as { stdout?: string; stderr?: string; code?: number };
-			return { stdout: failure.stdout ?? "", stderr: failure.stderr ?? "", code: failure.code ?? 1 };
+			const failure = error as { stdout?: string; stderr?: string; code?: number; signal?: string };
+			return {
+				stdout: failure.stdout ?? "",
+				stderr: failure.stderr ?? (failure.signal ? `git terminated by ${failure.signal}` : "git command failed"),
+				code: failure.code ?? 1,
+			};
 		}
 	}
 }
@@ -34,46 +44,121 @@ export class NodeGitCommandRunner implements GitCommandRunner {
 interface GitEntry {
 	value: GitSnapshot;
 	expiresAt: number;
+	retryAt: number;
+	generation: number;
 	promise?: Promise<GitSnapshot>;
+	controller?: AbortController;
+	needsRefresh?: boolean;
+	resultReady: boolean;
+}
+
+export interface GitProviderStats {
+	readonly entries: number;
+	readonly inFlight: number;
+	readonly refreshes: number;
+	readonly disposed: boolean;
+}
+
+export interface GitProviderClock {
+	now(): number;
 }
 
 export class CachedGitProvider implements GitProvider {
 	private readonly cache = new Map<string, GitEntry>();
 	private disposed = false;
+	private refreshCount = 0;
 	constructor(
 		private readonly runner: GitCommandRunner = new NodeGitCommandRunner(),
 		private readonly ttlMs = 1000,
 		private readonly timeoutMs = 800,
+		private readonly maxBackoffMs = 5000,
+		private readonly clock: GitProviderClock = { now: () => Date.now() },
 	) {}
+	get stats(): GitProviderStats {
+		return {
+			entries: this.cache.size,
+			inFlight: [...this.cache.values()].filter((entry) => entry.promise).length,
+			refreshes: this.refreshCount,
+			disposed: this.disposed,
+		};
+	}
 	async get(cwd: string): Promise<GitSnapshot> {
 		if (this.disposed) return unavailableGit("provider disposed");
+		const now = this.clock.now();
 		const current = this.cache.get(cwd);
-		if (current && current.expiresAt > Date.now()) return current.value;
-		if (current?.promise) return current.promise;
+		if (current && current.expiresAt > now && !current.needsRefresh) return current.value;
+		if (current?.promise) return current.resultReady ? current.value : current.promise;
+		if (current && current.retryAt > now) return current.value;
 		const stale = current?.value;
-		const promise = this.refresh(cwd, stale);
-		this.cache.set(cwd, { value: stale ?? refreshingGit(), expiresAt: Date.now() + this.ttlMs, promise });
-		return promise;
+		const entry: GitEntry = current ?? {
+			value: refreshingGit(),
+			expiresAt: 0,
+			retryAt: 0,
+			generation: 0,
+			resultReady: false,
+		};
+		entry.needsRefresh = false;
+		entry.resultReady = Boolean(stale);
+		entry.value = stale ? { ...stale, refreshing: true } : refreshingGit();
+		entry.controller = new AbortController();
+		entry.promise = this.refresh(cwd, entry, stale, entry.controller.signal);
+		this.cache.set(cwd, entry);
+		return stale ? entry.value : entry.promise;
 	}
 	invalidate(cwd?: string): void {
-		if (cwd === undefined) this.cache.clear();
-		else this.cache.delete(cwd);
+		const keys = cwd === undefined ? [...this.cache.keys()] : [cwd];
+		for (const key of keys) {
+			const entry = this.cache.get(key);
+			if (!entry) continue;
+			entry.generation++;
+			entry.expiresAt = 0;
+			if (entry.promise) entry.needsRefresh = true;
+			else this.cache.delete(key);
+		}
 	}
 	dispose(): void {
+		if (this.disposed) return;
 		this.disposed = true;
+		for (const entry of this.cache.values()) entry.controller?.abort();
 		this.cache.clear();
 	}
-	private async refresh(cwd: string, stale?: GitSnapshot): Promise<GitSnapshot> {
-		const result = await this.runner.run(["status", "--porcelain=v1", "--branch"], cwd, this.timeoutMs);
-		if (result.code !== 0) {
-			const value = stale
-				? { ...stale, refreshing: false, error: result.stderr.trim() || "git status failed" }
-				: unavailableGit(result.stderr.trim() || "git status failed");
-			this.cache.set(cwd, { value, expiresAt: Date.now() + this.ttlMs });
+	private async refresh(
+		cwd: string,
+		entry: GitEntry,
+		stale: GitSnapshot | undefined,
+		signal: AbortSignal,
+	): Promise<GitSnapshot> {
+		this.refreshCount++;
+		const generation = entry.generation;
+		let value: GitSnapshot;
+		try {
+			const result = await this.runner.run(["status", "--porcelain=v1", "--branch"], cwd, this.timeoutMs, signal);
+			if (result.code !== 0) {
+				value = stale
+					? { ...stale, refreshing: false, error: result.stderr.trim() || "git status failed" }
+					: unavailableGit(result.stderr.trim() || "git status failed");
+			} else value = parseGitStatus(result.stdout);
+		} catch (error) {
+			value = stale ? { ...stale, refreshing: false, error: String(error) } : unavailableGit(String(error));
+		}
+		if (this.disposed || this.cache.get(cwd) !== entry) return value;
+		const invalidated = entry.generation !== generation || entry.needsRefresh;
+		delete entry.promise;
+		delete entry.controller;
+		entry.value = value;
+		entry.resultReady = true;
+		if (invalidated) {
+			entry.needsRefresh = false;
+			entry.expiresAt = 0;
+			void this.get(cwd);
 			return value;
 		}
-		const value = parseGitStatus(result.stdout);
-		this.cache.set(cwd, { value, expiresAt: Date.now() + this.ttlMs });
+		entry.retryAt = value.error ? this.clock.now() + Math.min(this.maxBackoffMs, Math.max(this.ttlMs, 100)) : 0;
+		entry.expiresAt = this.clock.now() + this.ttlMs;
+		if (entry.needsRefresh) {
+			entry.needsRefresh = false;
+			void this.get(cwd);
+		}
 		return value;
 	}
 }

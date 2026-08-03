@@ -2,10 +2,10 @@ import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import { type EditorComponent, visibleWidth } from "@earendil-works/pi-tui";
 import type { NormalizedPiStyleConfig } from "../../domain/config-types.js";
-import { contextPercent, type StatusSnapshot } from "../../domain/status.js";
+import { contextPercent, type StatusSnapshot, type ThinkingLevel } from "../../domain/status.js";
 import type { ResolvedTheme } from "../../domain/theme.js";
 import { resolveTheme } from "../../domain/theme.js";
-import { truncateAnsi } from "../../shared/ansi.js";
+import { stripAnsi, truncateAnsi } from "../../shared/ansi.js";
 
 export const EDITOR_DIAGNOSTIC_KEY = "pi-style.editor";
 type SetEditorComponent = NonNullable<ExtensionUIContext["setEditorComponent"]>;
@@ -16,6 +16,8 @@ type Keybindings = Parameters<EditorFactory>[2];
 type EditorHost = Pick<ExtensionUIContext, "setEditorComponent"> & {
 	getEditorComponent?: () => EditorFactory | undefined;
 	notify?: (message: string, type?: "info" | "warning" | "error") => void;
+	/** Full Pi theme; provides thinking-level border colors when available. */
+	readonly theme?: { getThinkingBorderColor?: (level: ThinkingLevel) => (str: string) => string };
 };
 
 export interface EditorInstallation {
@@ -32,6 +34,8 @@ interface EditorOptions {
 	config: NormalizedPiStyleConfig;
 	snapshot: StatusSnapshot;
 	theme: PiEditorTheme;
+	/** Full Pi theme for thinking-level border colors (optional; falls back to borderColor). */
+	fullTheme?: { getThinkingBorderColor?: (level: ThinkingLevel) => (str: string) => string };
 	onSnapshot: (snapshot: StatusSnapshot) => void;
 }
 
@@ -42,6 +46,11 @@ function widthSafe(value: string, width: number): string {
 	const fitted = widthOf(value) > width ? truncateAnsi(value, width, "") : value;
 	const current = widthOf(fitted);
 	return current < width ? fitted + " ".repeat(width - current) : fitted;
+}
+
+function isNativeBorderLine(line: string): boolean {
+	const stripped = stripAnsi(line);
+	return /^─{2,}$/.test(stripped) || /^─── [↑↓] \d+ more /.test(stripped);
 }
 
 function semanticTheme(theme: PiEditorTheme, config: NormalizedPiStyleConfig): ResolvedTheme {
@@ -65,6 +74,7 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	private config: NormalizedPiStyleConfig;
 	private snapshot: StatusSnapshot;
 	private readonly piTheme: PiEditorTheme;
+	private readonly fullTheme: EditorOptions["fullTheme"];
 	private readonly onSnapshot: (snapshot: StatusSnapshot) => void;
 	private semantic: ResolvedTheme;
 	private disposed = false;
@@ -74,6 +84,7 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		this.config = options.config;
 		this.snapshot = options.snapshot;
 		this.piTheme = theme;
+		this.fullTheme = options.fullTheme;
 		this.onSnapshot = options.onSnapshot;
 		this.semantic = semanticTheme(theme, options.config);
 		this.setPaddingX(0);
@@ -106,17 +117,42 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 
 	override render(width: number): string[] {
 		if (width <= 0) return [];
+		const nativeLines = super.render(width);
+		// Autocomplete (slash menu / @-mentions) restructure: Pi draws the
+		// suggestions after its own bottom border, which pushes the below-editor
+		// widgets (status line) down. Re-frame the native output so the dropdown
+		// lives INSIDE the input box, keeping the footer directly below the input.
+		// Native layout: [top border, text lines, bottom border, dropdown lines...].
+		if ((this as unknown as { autocompleteState?: unknown }).autocompleteState) {
+			const prompt = this.prompt();
+			const padding = this.paddingFor(width, this.styleFor(width));
+			const promptWidth = widthOf(prompt) + 1;
+			const prefix = `${" ".repeat(padding)}${prompt} `;
+			const continuation = " ".repeat(padding + promptWidth);
+			const borderIndex = nativeLines.slice(1).findIndex((line) => isNativeBorderLine(line));
+			const split = borderIndex >= 0 ? borderIndex + 1 : nativeLines.length;
+			const body = nativeLines.slice(1, split);
+			const dropdown = nativeLines.slice(split);
+			const border = this.borderFor(width);
+			const renderedBody = body.map((line, index) => widthSafe(`${index === 0 ? prefix : continuation}${line}`, width));
+			return [
+				border("─".repeat(width)),
+				...renderedBody,
+				...dropdown.map((line) => widthSafe(line, width)),
+				border("─".repeat(width)),
+			];
+		}
 		const style = this.styleFor(width);
-		if (style === "native") return super.render(width).map((line) => widthSafe(line, width));
+		if (style === "native") return nativeLines.map((line) => widthSafe(line, width));
 
 		const prompt = this.prompt();
 		const promptWidth = widthOf(prompt) + 1;
 		const padding = this.paddingFor(width, style);
 		const innerWidth = Math.max(1, width - promptWidth - padding * 2);
-		const nativeLines = super.render(innerWidth);
-		if (nativeLines.length === 0) return [];
+		const innerLines = super.render(innerWidth);
+		if (innerLines.length === 0) return [];
 
-		const body = nativeLines.slice(1, -1);
+		const body = innerLines.slice(1, -1);
 		const prefix = `${" ".repeat(padding)}${prompt} `;
 		const continuation = " ".repeat(padding + promptWidth);
 		const renderedBody = body.map((line, index) => {
@@ -155,16 +191,25 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		return style === "boxed" ? 2 : style === "dock" ? 1 : 1;
 	}
 
+	private borderFor(width: number): (line: string) => string {
+		// Sync the frame color with the active thinking level, matching Pi's native editor.
+		const level = this.snapshot.thinkingLevel;
+		const thinking = this.fullTheme?.getThinkingBorderColor?.(level ?? "off");
+		const border = thinking ?? this.piTheme.borderColor;
+		return (line: string) => border(widthSafe(line, width));
+	}
+
 	private frame(
 		width: number,
 		style: "compact" | "boxed" | "dock" | "native",
 		body: string[],
 		metadata: string[],
 	): string[] {
-		const border = (line: string) => this.piTheme.borderColor(widthSafe(line, width));
+		const border = this.borderFor(width);
 		const lineMode = this.config.editor.frame === "line" || this.config.editor.frame === "solid";
 		if (style === "compact" || lineMode) {
-			return [...body, border("─".repeat(width)), ...metadata];
+			// Match Pi's native editor: a horizontal border above and below the input.
+			return [border("─".repeat(width)), ...body, border("─".repeat(width)), ...metadata];
 		}
 		if (style === "boxed") {
 			const glyph = this.config.editor.frame === "halfblock" ? "▀" : "━";
@@ -217,6 +262,7 @@ export function installEditor(options: {
 			config,
 			snapshot,
 			theme,
+			...(options.host.theme ? { fullTheme: options.host.theme } : {}),
 			onSnapshot: (next) => {
 				if (!disposed && options.isCurrent?.() !== false) snapshot = next;
 			},

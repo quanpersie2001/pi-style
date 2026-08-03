@@ -19,17 +19,28 @@ export interface PiStyleConfig {
 	enabled?: boolean;
 	preset?: string;
 	placement?: string;
-	startup?: { mode?: string; showResources?: boolean; showModel?: boolean };
+	startup?: { mode?: string; showResources?: boolean; alwaysExpanded?: boolean };
 	statusLine?: {
 		enabled?: boolean;
 		separator?: string;
 		layout?: { left?: string[]; right?: string[]; secondary?: string[] };
 		disabledSegments?: string[];
 		customItems?: StatusCustomItemConfig[];
+		/** Blank rows reserved below the primary status row (0 disables). */
+		bottomMargin?: number;
+		/** Context progress-bar cell count (default 10). */
+		contextBarWidth?: number;
 	};
 	editor?: { enabled?: boolean; style?: string; frame?: string; showMetadata?: boolean };
 	messages?: { enabled?: boolean; userPrefix?: boolean; assistantPrefix?: boolean; specialBlocks?: boolean };
-	tools?: { enabled?: boolean; style?: string; maxCollapsedLines?: number; showElapsed?: boolean };
+	tools?: {
+		enabled?: boolean;
+		style?: string;
+		maxCollapsedLines?: number;
+		maxExpandedLines?: number;
+		dimOutput?: boolean;
+		showElapsed?: boolean;
+	};
 	theme?: {
 		nerdFonts?: string;
 		terminalBackgroundSync?: string;
@@ -51,17 +62,32 @@ export interface NormalizedPiStyleConfig {
 	readonly enabled: boolean;
 	readonly preset: PresetName;
 	readonly placement: Placement;
-	readonly startup: { mode: "off" | "compact" | "overlay"; showResources: boolean; showModel: boolean };
+	readonly startup: {
+		mode: "off" | "compact" | "overlay";
+		showResources: boolean;
+		alwaysExpanded: boolean;
+	};
 	readonly statusLine: {
 		enabled: boolean;
 		separator: string;
 		layout: { left: readonly string[]; right: readonly string[]; secondary: readonly string[] };
 		disabledSegments: readonly string[];
 		customItems: readonly StatusCustomItemConfig[];
+		/** Blank rows reserved below the primary status row (0 disables). */
+		bottomMargin: number;
+		/** Context progress-bar cell count. */
+		contextBarWidth: number;
 	};
 	readonly editor: { enabled: boolean; style: EditorStyle; frame: EditorFrame; showMetadata: boolean };
 	readonly messages: { enabled: boolean; userPrefix: boolean; assistantPrefix: boolean; specialBlocks: boolean };
-	readonly tools: { enabled: boolean; style: string; maxCollapsedLines: number; showElapsed: boolean };
+	readonly tools: {
+		enabled: boolean;
+		style: string;
+		maxCollapsedLines: number;
+		maxExpandedLines: number;
+		dimOutput: boolean;
+		showElapsed: boolean;
+	};
 	readonly theme: {
 		nerdFonts: NerdFontsMode;
 		terminalBackgroundSync: ToggleMode;

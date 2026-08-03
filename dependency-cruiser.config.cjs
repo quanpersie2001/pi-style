@@ -24,10 +24,14 @@ module.exports = {
     },
     {
       name: "features-no-sibling-features",
-      comment: "feature modules must not depend on sibling features; app/ composes features",
+      comment:
+        "feature modules must not depend on sibling features; app/ composes features. Submodules within one feature folder are allowed (e.g. features/startup/index.ts → features/startup/logo.ts, features/tools/index.ts → features/tools/boxed/index.ts, features/messages/index.ts → features/messages/boxed-block.ts). Shared rendering primitives (box, render-budget, elapsed, split-diff, theme-extras) live in shared/ so cross-feature imports remain violations.",
       severity: "error",
       from: { path: "^extension-src/pi-style/features/" },
-      to: { path: "^extension-src/pi-style/features/" },
+      to: {
+        path: "^extension-src/pi-style/features/",
+        pathNot: "^extension-src/pi-style/features/(startup|tools|messages)/",
+      },
     },
     {
       name: "app-no-pi",

@@ -1,15 +1,23 @@
-import {
-	type Component,
-	type OverlayHandle,
-	type OverlayOptions,
-	truncateToWidth,
-	visibleWidth,
-} from "@earendil-works/pi-tui";
+import type { Component, OverlayHandle, OverlayOptions } from "@earendil-works/pi-tui";
 import type { NormalizedPiStyleConfig } from "../../domain/config-types.js";
 import type { StatusSnapshot } from "../../domain/status.js";
-import { type ActiveTheme, resolveTheme } from "../../domain/theme.js";
+import { type ActiveTheme, type ResolvedTheme, resolveTheme } from "../../domain/theme.js";
+import { fitAnsiWidth, truncateAnsi, visibleWidth } from "../../shared/ansi.js";
+import { compactLogoHeader } from "./logo.js";
 
 export type StartupReason = "startup" | "reload" | "new" | "resume" | "fork";
+
+export interface StartupDetailItem {
+	readonly kind: "system" | "append" | "context";
+	readonly path: string;
+	readonly words: number;
+	readonly lines: number;
+}
+
+export interface StartupToolItem {
+	readonly source: string;
+	readonly name: string;
+}
 
 export interface StartupResources {
 	readonly contextFiles?: number;
@@ -17,13 +25,16 @@ export interface StartupResources {
 	readonly skills?: number;
 	readonly prompts?: number;
 	readonly tools?: number;
+	readonly models?: number;
+	readonly details?: readonly StartupDetailItem[];
+	readonly toolDetails?: readonly StartupToolItem[];
 	readonly error?: string;
 }
 
 export interface StartupSnapshot extends StatusSnapshot {
 	readonly reason: StartupReason;
 	readonly project?: string | undefined;
-	readonly provider?: string | undefined;
+	readonly startupProvider?: string | undefined;
 	readonly resources?: StartupResources | undefined;
 	readonly preset?: string | undefined;
 	readonly compatibility?: string | undefined;
@@ -36,7 +47,7 @@ function activeThemeFromPi(theme: unknown): ActiveTheme {
 	const candidate = theme as { fg?: (token: string, text?: string) => string; colors?: Record<string, string> };
 	return {
 		...(candidate.colors ? { colors: candidate.colors } : {}),
-		...(candidate.fg ? { fg: (token: string) => candidate.fg?.(token, "") ?? "" } : {}),
+		...(candidate.fg ? { fg: (color: string, text: string) => candidate.fg?.(color, text) ?? text } : {}),
 	};
 }
 
@@ -107,46 +118,189 @@ function overlayAllowed(reason: StartupReason): boolean {
 	return reason === "startup";
 }
 
-function projectName(snapshot: StartupSnapshot): string | undefined {
-	if (snapshot.project) return snapshot.project;
-	return snapshot.cwd?.split(/[\\/]/).filter(Boolean).at(-1);
+function resourceChipRows(resources: StartupResources | undefined): { label: string; count: number }[] {
+	if (!resources) return [];
+	const rows: { label: string; count: number }[] = [];
+	if (resources.contextFiles !== undefined) rows.push({ label: "context", count: resources.contextFiles });
+	if (resources.extensions !== undefined) rows.push({ label: "extensions", count: resources.extensions });
+	if (resources.skills !== undefined) rows.push({ label: "skills", count: resources.skills });
+	if (resources.prompts !== undefined) rows.push({ label: "prompts", count: resources.prompts });
+	if (resources.tools !== undefined) rows.push({ label: "tools", count: resources.tools });
+	if (resources.models !== undefined) rows.push({ label: "models", count: resources.models });
+	return rows;
 }
 
-function compactResourceLine(resources: StartupResources | undefined): string | undefined {
-	if (!resources) return undefined;
-	const parts: string[] = [];
-	if (resources.contextFiles !== undefined) parts.push(`${resources.contextFiles} context`);
-	if (resources.extensions !== undefined) parts.push(`${resources.extensions} extensions`);
-	if (resources.skills !== undefined) parts.push(`${resources.skills} skills`);
-	if (resources.prompts !== undefined) parts.push(`${resources.prompts} prompts`);
-	if (resources.tools !== undefined) parts.push(`${resources.tools} tools`);
-	return parts.length > 0 ? `resources  ${parts.join(" · ")}` : undefined;
+const PANEL_SIDE_PADDING = 2;
+const PANEL_MIN_WIDTH = 64;
+const PANEL_OUTER_WIDTH = PANEL_SIDE_PADDING * 2 + 2;
+/** Panels render only when the surface is wide enough to keep the box intact. */
+const MIN_PANELS_WIDTH = PANEL_MIN_WIDTH + PANEL_OUTER_WIDTH;
+const RESOURCE_ROW_GAP = "  ·  ";
+const CONTEXT_KIND_RANK: Record<StartupDetailItem["kind"], number> = { system: 0, append: 1, context: 2 };
+
+/** `◆ Resources` summary chips. */
+function renderResourceChips(resolved: ResolvedTheme, resources: StartupResources | undefined): string {
+	const rows = resourceChipRows(resources);
+	if (rows.length === 0) return "";
+	const marker = resolved.apply("accent", "◆ Resources");
+	const chips = rows.map((row, index) => {
+		const label = resolved.apply(index === 0 ? "text" : "muted", row.label);
+		const count = resolved.apply("success", String(row.count));
+		return `${label} ${count}`;
+	});
+	return [marker, ...chips].join(resolved.apply("dim", RESOURCE_ROW_GAP));
 }
 
-function buildPlainLines(snapshot: StartupSnapshot, config: NormalizedPiStyleConfig, overlay: boolean): string[] {
-	const lines: string[] = [];
-	const model = config.startup.showModel ? snapshot.model : undefined;
-	const project = projectName(snapshot);
-	const identity = [model, snapshot.thinkingLevel ? `think ${snapshot.thinkingLevel}` : undefined, project]
-		.filter(Boolean)
-		.join("  ·  ");
-	lines.push(identity ? `π pi-style  ${identity}` : "π pi-style");
-	const context = snapshot.context?.percent;
-	const details = [
-		context !== undefined && Number.isFinite(context) ? `context ${Math.round(context)}%` : undefined,
-		snapshot.provider ? `provider ${snapshot.provider}` : undefined,
-		snapshot.preset ? `preset ${snapshot.preset}` : undefined,
-		snapshot.compatibility ? snapshot.compatibility : undefined,
-	].filter(Boolean);
-	if (details.length > 0) lines.push(details.join("  ·  "));
-	if (config.startup.showResources) {
-		const resources = compactResourceLine(snapshot.resources);
-		if (resources) lines.push(resources);
-		if (snapshot.resources?.error) lines.push(`resources unavailable  ·  ${snapshot.resources.error}`);
+function sortedContextItems(items: readonly StartupDetailItem[]): StartupDetailItem[] {
+	return [...items].sort((a, b) => (CONTEXT_KIND_RANK[a.kind] ?? 9) - (CONTEXT_KIND_RANK[b.kind] ?? 9));
+}
+
+function renderPanelBorder(resolved: ResolvedTheme, left: string, right: string, panelWidth: number): string {
+	return resolved.apply("dim", `${left}${"─".repeat(panelWidth + PANEL_SIDE_PADDING * 2)}${right}`);
+}
+
+function renderPanelLine(resolved: ResolvedTheme, content: string, panelWidth: number): string {
+	const sidePadding = " ".repeat(PANEL_SIDE_PADDING);
+	const padding = " ".repeat(Math.max(0, panelWidth - visibleWidth(content)));
+	return `${resolved.apply("dim", "│")}${sidePadding}${content}${padding}${sidePadding}${resolved.apply("dim", "│")}`;
+}
+
+/** Boxed System & Context table. */
+function renderSystemContextPanel(
+	resolved: ResolvedTheme,
+	items: readonly StartupDetailItem[],
+	minTotalWidth: number,
+): string[] {
+	const sorted = sortedContextItems(items);
+	const titleLine = resolved.apply("accent", "System & Context");
+	if (sorted.length === 0) return [];
+	const typeHeader = "Type";
+	const pathHeader = "Path";
+	const metricLabel = "Words/Lines";
+	const typeWidth = Math.max(typeHeader.length, ...sorted.map((item) => visibleWidth(item.kind)));
+	const divider = resolved.apply("muted", " | ");
+	const dividerWidth = visibleWidth(divider);
+	const metricWidth = Math.max(metricLabel.length, ...sorted.map((item) => `${item.words}/${item.lines}`.length));
+	const fixedColumnsWidth = typeWidth + dividerWidth + dividerWidth + metricWidth;
+	const panelWidth = Math.max(PANEL_MIN_WIDTH, minTotalWidth - PANEL_OUTER_WIDTH, visibleWidth(titleLine));
+	const pathWidth = Math.max(pathHeader.length, panelWidth - fixedColumnsWidth);
+	const header = `${resolved.apply("text", typeHeader.padEnd(typeWidth))}${divider}${resolved.apply(
+		"text",
+		pathHeader.padEnd(pathWidth),
+	)}${divider}${resolved.apply("text", metricLabel.padStart(metricWidth))}`;
+	const separator = `${resolved.apply("dim", "─".repeat(typeWidth))}${divider}${resolved.apply(
+		"dim",
+		"─".repeat(pathWidth),
+	)}${divider}${resolved.apply("dim", "─".repeat(metricWidth))}`;
+	const lines = [
+		renderPanelBorder(resolved, "┌", "┐", panelWidth),
+		renderPanelLine(resolved, titleLine, panelWidth),
+		renderPanelLine(resolved, header, panelWidth),
+		renderPanelLine(resolved, separator, panelWidth),
+	];
+	for (const item of sorted) {
+		const metric = `${item.words}/${item.lines}`;
+		const typePadding = " ".repeat(Math.max(0, typeWidth - visibleWidth(item.kind)));
+		const path = fitAnsiWidth(item.path, pathWidth);
+		const pathPadding = " ".repeat(Math.max(0, pathWidth - visibleWidth(path)));
+		const metricPadding = " ".repeat(Math.max(0, metricWidth - visibleWidth(metric)));
+		lines.push(
+			renderPanelLine(
+				resolved,
+				`${resolved.apply("text", item.kind)}${typePadding}${divider}${resolved.apply(
+					"text",
+					path,
+				)}${pathPadding}${divider}${metricPadding}${resolved.apply("text", metric)}`,
+				panelWidth,
+			),
+		);
 	}
-	if (overlay) lines.push("enter prompt to continue  ·  esc dismiss");
-	return lines.filter((line) => line.trim().length > 0);
+	lines.push(renderPanelBorder(resolved, "└", "┘", panelWidth));
+	return lines;
 }
+
+function groupToolDetails(tools: readonly StartupToolItem[]): { source: string; names: string[] }[] {
+	const groups = new Map<string, Set<string>>();
+	for (const tool of tools) {
+		const source = tool.source.trim() || "extension";
+		const name = tool.name.trim();
+		if (!name) continue;
+		let names = groups.get(source);
+		if (!names) {
+			names = new Set();
+			groups.set(source, names);
+		}
+		names.add(name);
+	}
+	return [...groups.entries()]
+		.map(([source, names]) => ({ source, names: [...names].sort((a, b) => a.localeCompare(b)) }))
+		.sort((a, b) => {
+			if (a.source === "core") return -1;
+			if (b.source === "core") return 1;
+			return a.source.localeCompare(b.source);
+		});
+}
+
+/** Boxed Available Tools table. */
+function renderToolsPanel(resolved: ResolvedTheme, tools: readonly StartupToolItem[], minTotalWidth: number): string[] {
+	const groups = groupToolDetails(tools);
+	if (groups.length === 0) return [];
+	const titleLine = resolved.apply("accent", "Available Tools");
+	const sourceHeader = "Source";
+	const countHeader = "Count";
+	const toolsHeader = "Tools";
+	const countWidth = Math.max(countHeader.length, ...groups.map((group) => String(group.names.length).length));
+	const divider = resolved.apply("muted", " | ");
+	const dividerWidth = visibleWidth(divider);
+	const panelWidth = Math.max(PANEL_MIN_WIDTH, minTotalWidth - PANEL_OUTER_WIDTH, visibleWidth(titleLine));
+	const availableTextWidth = Math.max(
+		sourceHeader.length + toolsHeader.length,
+		panelWidth - countWidth - dividerWidth * 2,
+	);
+	const maxSourceWidth = Math.max(sourceHeader.length, ...groups.map((group) => visibleWidth(group.source)));
+	const sourceWidth = Math.min(maxSourceWidth, Math.max(sourceHeader.length, Math.floor(availableTextWidth * 0.28)));
+	const toolsWidth = Math.max(toolsHeader.length, availableTextWidth - sourceWidth);
+	const header = `${resolved.apply("text", sourceHeader.padEnd(sourceWidth))}${divider}${resolved.apply(
+		"text",
+		countHeader.padStart(countWidth),
+	)}${divider}${resolved.apply("text", toolsHeader.padEnd(toolsWidth))}`;
+	const separator = `${resolved.apply("dim", "─".repeat(sourceWidth))}${divider}${resolved.apply(
+		"dim",
+		"─".repeat(countWidth),
+	)}${divider}${resolved.apply("dim", "─".repeat(toolsWidth))}`;
+	const lines = [
+		renderPanelBorder(resolved, "┌", "┐", panelWidth),
+		renderPanelLine(resolved, titleLine, panelWidth),
+		renderPanelLine(resolved, header, panelWidth),
+		renderPanelLine(resolved, separator, panelWidth),
+	];
+	for (const group of groups) {
+		const count = String(group.names.length);
+		const toolList = fitAnsiWidth(group.names.join(", "), toolsWidth);
+		const source = fitAnsiWidth(group.source, sourceWidth);
+		const sourcePadding = " ".repeat(Math.max(0, sourceWidth - visibleWidth(source)));
+		const countPadding = " ".repeat(Math.max(0, countWidth - count.length));
+		lines.push(
+			renderPanelLine(
+				resolved,
+				`${resolved.apply("text", source)}${sourcePadding}${divider}${countPadding}${resolved.apply(
+					"success",
+					count,
+				)}${divider}${resolved.apply("text", toolList)}`,
+				panelWidth,
+			),
+		);
+	}
+	lines.push(renderPanelBorder(resolved, "└", "┘", panelWidth));
+	return lines;
+}
+
+/** Left margin for the whole startup block so it does not touch the terminal edge. */
+const STARTUP_INDENT = "    ";
+/** Blank rows above the block, separating it from the status line / terminal top. */
+const STARTUP_PADDING_TOP = 2;
+/** Blank rows below the block, separating it from the editor / chat. */
+const STARTUP_PADDING_BOTTOM = 2;
 
 function styledLines(
 	theme: ActiveTheme,
@@ -157,12 +311,55 @@ function styledLines(
 ): string[] {
 	if (width <= 0 || config.startup.mode === "off") return [];
 	const resolved = resolveTheme(theme, config);
-	const plain = buildPlainLines(snapshot, config, overlay);
-	return plain.map((line, index) => {
-		const token = index === 0 ? "accent" : index === plain.length - 1 && overlay ? "dim" : "muted";
-		const styled = resolved.noColor ? line : `${resolved.color(token as never)}${line}\x1b[0m`;
-		return visibleWidth(styled) <= width ? styled : truncateToWidth(styled, width, "");
-	});
+	const lines: string[] = [];
+	const indentWidth = visibleWidth(STARTUP_INDENT);
+	const bodyWidth = Math.max(1, width - indentWidth);
+	const indent = (content: string): string => `${STARTUP_INDENT}${content}`;
+
+	// Breathing room above the block (separates it from the status line / terminal top).
+	lines.push(...Array.from({ length: STARTUP_PADDING_TOP }, () => ""));
+
+	const logoTitle = resolved.mode === "ascii" ? "pi-style" : `${resolved.glyph("pi")} pi-style`;
+	lines.push(
+		...compactLogoHeader(
+			resolved,
+			[
+				resolved.apply("accent", logoTitle),
+				resolved.apply("muted", "/ commands · ! bash"),
+				resolved.apply("success", "● ready"),
+			],
+			bodyWidth,
+		).map(indent),
+	);
+
+	const info: string[] = [];
+	if (config.startup.showResources) {
+		const chips = renderResourceChips(resolved, snapshot.resources);
+		if (chips) info.push(chips);
+		if (snapshot.resources?.error)
+			info.push(resolved.apply("muted", `resources unavailable  ·  ${snapshot.resources.error}`));
+	}
+	if (info.length > 0) lines.push("", ...info.map(indent));
+
+	const expanded = overlay || config.startup.alwaysExpanded;
+	if (expanded && bodyWidth >= MIN_PANELS_WIDTH && config.startup.showResources) {
+		const contextItems = snapshot.resources?.details ?? [];
+		const toolItems = snapshot.resources?.toolDetails ?? [];
+		if (contextItems.length > 0) {
+			lines.push("");
+			lines.push(...renderSystemContextPanel(resolved, contextItems, bodyWidth).map(indent));
+		}
+		if (toolItems.length > 0) {
+			lines.push("");
+			lines.push(...renderToolsPanel(resolved, toolItems, bodyWidth).map(indent));
+		}
+	}
+
+	// Breathing room below the block (separates it from the editor / chat).
+	lines.push(...Array.from({ length: STARTUP_PADDING_BOTTOM }, () => ""));
+	if (overlay) lines.push(indent(resolved.apply("dim", "enter prompt to continue  ·  esc dismiss")));
+
+	return lines.map((line) => (visibleWidth(line) <= width ? line : truncateAnsi(line, width, "")));
 }
 
 class StartupComponent implements Component {
@@ -270,15 +467,19 @@ export function installStartup(options: StartupInstallOptions): StartupInstallat
 	};
 	const mountCompact = (): boolean => {
 		const factory = (tui: unknown, theme: unknown) => component(theme, false, tui as { requestRender?: () => void });
-		// A production host without an owner getter cannot safely prove header ownership.
-		// Prefer the namespaced widget in that case; injected adapters may opt into headers.
+		// Pi's public `setHeader` is the intended startup-header surface ("shown at
+		// startup, above chat"). Prefer it so the startup renders at the top of the
+		// terminal rather than inside the editor area. The injected ownership
+		// adapter, when present, still guards against overwriting a later owner;
+		// the widget remains the fallback when the header API is unavailable.
 		let currentHeader: unknown = Symbol("unreadable");
 		const observable =
 			host.getHeaderFactory &&
 			safeCall(() => {
 				currentHeader = host.getHeaderFactory?.();
 			});
-		if (host.setHeader && observable && currentHeader === undefined && safeCall(() => host.setHeader?.(factory))) {
+		const headerAvailable = host.setHeader !== undefined && (!observable || currentHeader === undefined);
+		if (headerAvailable && safeCall(() => host.setHeader?.(factory))) {
 			installedHeaderFactory = factory;
 			headerInstalled = true;
 			map.set("header", token);

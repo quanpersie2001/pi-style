@@ -1,6 +1,14 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { StatusSnapshot } from "../domain/status.js";
 import { registerPiStyleCommand } from "./commands.js";
 import { type CompatibilityTestHooks, createPiStyleSessionCoordinator } from "./session-coordinator.js";
+import { usageFromSession } from "./session-usage.js";
+
+/** Usage patch that omits the key when no session usage exists (exact optional types). */
+function usagePatch(ctx: ExtensionContext): StatusSnapshot {
+	const usage = usageFromSession(ctx.sessionManager);
+	return usage ? { usage } : {};
+}
 
 let compatibilityTestHooks: CompatibilityTestHooks = {};
 export function __setCompatibilityTestHooks(hooks: CompatibilityTestHooks): () => void {
@@ -13,14 +21,19 @@ export function __setCompatibilityTestHooks(hooks: CompatibilityTestHooks): () =
 
 /** Thin Pi adapter: register flags, commands, and forward lifecycle events. */
 export default function piStyleExtension(pi: ExtensionAPI): void {
+	// The core/message/tool surfaces are default-on (safe: fingerprint-certified against
+	// exact Pi 0.83.0, fail-closed elsewhere, conflict-preserving). The OFF switch is the
+	// product gate `compatibility.allowCorePatches: false` (or `enabled: false`) in config.
 	for (const [name, description] of [
-		["pi-style-core-patches", "Enable opt-in pi-style message/tool core patches"],
+		["pi-style-core-patches", "Enable pi-style message/tool core patches"],
 		["pi-style-message-user", "Enable pi-style user message prefix"],
 		["pi-style-message-assistant", "Enable pi-style assistant message prefix"],
+		["pi-style-message-special-blocks", "Enable pi-style boxed compaction/skill/branch/custom message blocks"],
 		["pi-style-tools", "Enable pi-style tool renderer decoration"],
-		["pi-style-ascii", "Use ASCII pi-style markers"],
 	] as const)
-		pi.registerFlag(name, { type: "boolean", description });
+		pi.registerFlag(name, { type: "boolean", description, default: true });
+	// ASCII markers stay opt-in; unicode markers are the default.
+	pi.registerFlag("pi-style-ascii", { type: "boolean", description: "Use ASCII pi-style markers" });
 	const coordinator = createPiStyleSessionCoordinator(pi, compatibilityTestHooks);
 	registerPiStyleCommand(pi, coordinator.app);
 	pi.on("session_start", async (event, ctx) => {
@@ -29,24 +42,36 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	pi.on("agent_start", () => coordinator.app.runtime.current?.dismissStartup());
 	pi.on("input", () => coordinator.app.runtime.current?.dismissStartup());
 	pi.on("tool_execution_start", () => coordinator.app.runtime.current?.dismissStartup());
-	pi.on("model_select", (event) => coordinator.app.update({ model: event.model.name || event.model.id }, "immediate"));
+	pi.on("model_select", (event) =>
+		coordinator.app.update(
+			{
+				model: event.model.name || event.model.id,
+				...(event.model.provider ? { provider: event.model.provider } : {}),
+				...(event.model.reasoning !== undefined ? { reasoning: event.model.reasoning } : {}),
+			},
+			"immediate",
+		),
+	);
 	pi.on("thinking_level_select", (event) => coordinator.app.update({ thinkingLevel: event.level }, "immediate"));
 	pi.on("session_info_changed", (event) => coordinator.app.update({ sessionName: event.name }, "coalesced"));
 	pi.on("message_update", () => coordinator.app.update({}, "coalesced"));
-	pi.on("message_end", () => coordinator.app.update({}, "coalesced"));
-	pi.on("turn_end", () => coordinator.app.update({}, "deferred"));
-	pi.on("agent_settled", () => coordinator.app.update({}, "coalesced"));
-	pi.on("session_tree", () => coordinator.app.update({}, "deferred"));
-	pi.on("session_compact", () => coordinator.app.update({}, "deferred"));
-	pi.on("tool_result", (event) => {
+	// Usage (tokens + cost) is aggregated from finalized session entries at
+	// message/turn boundaries, mirroring Pi's native footer; per-chunk updates
+	// stay usage-free to keep streaming cheap.
+	pi.on("message_end", (_event, ctx) => coordinator.app.update({ ...usagePatch(ctx) }, "coalesced"));
+	pi.on("turn_end", (_event, ctx) => coordinator.app.update({ ...usagePatch(ctx) }, "deferred"));
+	pi.on("agent_settled", (_event, ctx) => coordinator.app.update({ ...usagePatch(ctx) }, "coalesced"));
+	pi.on("session_tree", (_event, ctx) => coordinator.app.update({ ...usagePatch(ctx) }, "deferred"));
+	pi.on("session_compact", (_event, ctx) => coordinator.app.update({ ...usagePatch(ctx) }, "deferred"));
+	pi.on("tool_result", (event, ctx) => {
 		if (["write", "edit", "bash"].includes(event.toolName)) {
 			coordinator.app.runtime.current?.invalidateGit();
-			coordinator.app.update({}, "delayed-retry");
+			coordinator.app.update({ ...usagePatch(ctx) }, "delayed-retry");
 		}
 	});
-	pi.on("user_bash", () => {
+	pi.on("user_bash", (_event, ctx) => {
 		coordinator.app.runtime.current?.invalidateGit();
-		coordinator.app.update({}, "delayed-retry");
+		coordinator.app.update({ ...usagePatch(ctx) }, "delayed-retry");
 	});
 	pi.on("session_shutdown", () => coordinator.shutdown());
 }

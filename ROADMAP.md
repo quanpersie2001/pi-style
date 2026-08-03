@@ -1,6 +1,6 @@
 # pi-style roadmap
 
-> Status: **Phase 6 accepted after fresh independent frozen-scope Peer acceptance and Root validation; Phase 7 hardening remains blocked/not started pending Supervisor/program acceptance**
+> Status: **Phase 7 verified** — the full v1 phase sequence (Phases 0–7) is verified. Terminal-global background synchronization remains unsupported/off for technical v1.
 
 This roadmap defines the sequence for implementing the complete pi-style product. The phases are **sequencing boundaries, not an MVP scope reduction**. The intended v1 consists of every phase through Phase 7. Completing only the status line or editor is not completion of pi-style.
 
@@ -8,9 +8,9 @@ This roadmap defines the sequence for implementing the complete pi-style product
 
 pi-style combines:
 
-- native Pi layout and a responsive segment architecture inspired by `references/pi-powerline-footer/`;
-- compact Droid-inspired styling across editor, startup, messages, and tools from `references/pi-droid-styling/`;
-- a layered package/build/test structure modeled after `../pi-rules`.
+- native Pi layout with a responsive, segment-based status architecture;
+- a compact, structured visual language shared across editor, startup, messages, and tools;
+- a layered package/build/test structure.
 
 The product contract lives in [`docs/PRODUCT.md`](docs/PRODUCT.md). Detailed behavior lives under [`docs/ui/`](docs/ui/README.md). Architecture decisions live under [`docs/decisions/`](docs/decisions/README.md).
 
@@ -34,7 +34,7 @@ The product contract lives in [`docs/PRODUCT.md`](docs/PRODUCT.md). Detailed beh
 | 4 | Startup presentation | **Completed — executable implementation** |
 | 5 | Messages and tool presentation | **Completed — Peer accepted** |
 | 6 | Full configurability and extension composition | **Completed — independently Peer accepted and Root validated** |
-| 7 | Hardening, platform validation, and v1 release | **Blocked/not started — pending Supervisor/program acceptance** |
+| 7 | Hardening, platform validation, and v1 release | **Verified** — terminal-global background synchronization unsupported/off for technical v1 |
 
 ---
 
@@ -42,13 +42,13 @@ The product contract lives in [`docs/PRODUCT.md`](docs/PRODUCT.md). Detailed beh
 
 ### Objective
 
-Turn the reference-only workspace into a well-specified, buildable Pi package with enforceable architecture boundaries and a validation harness.
+Turn the initial workspace into a well-specified, buildable Pi package with enforceable architecture boundaries and a validation harness.
 
 ### Deliverables
 
 #### Documentation
 
-- Complete the product, architecture, reference adoption, configuration, lifecycle, compatibility, testing, and UI contracts under `docs/`.
+- Complete the product, architecture, configuration, lifecycle, compatibility, testing, and UI contracts under `docs/`.
 - Record ADR 0001–0004.
 - Define stable requirement identifiers and roadmap traceability.
 - Add a root README summarizing installation intent and linking to docs once package identity is finalized.
@@ -78,7 +78,7 @@ Add:
 #### Entrypoints
 
 - Create a thin Pi extension entry at `extension-src/pi-style/pi/index.ts`.
-- Build an ESM bundle at `dist/extensions/pi-style.js`.
+- Declare the TypeScript extension entry at `extension-src/pi-style/pi/index.ts` through the package manifest (Pi's jiti loader aliases `@earendil-works/*` to runtime copies so prototype patches hit the real classes) and build an ESM bundle at `dist/extensions/pi-style.js` as a compile check.
 - Declare optional theme resources through the Pi package manifest.
 - Do not add a public library entry until Phase 6 identifies reusable contracts.
 
@@ -98,13 +98,12 @@ None.
 - The extension loads in a fake host and performs no background work before `session_start`.
 - Layer violations fail the architecture gate.
 - Every planned v1 surface has acceptance criteria in docs.
-- The package can be run with `pi -e ./dist/extensions/pi-style.js` without corrupting startup, even though features are not yet implemented.
+- The package can be run with `pi -e ./extension-src/pi-style/pi/index.ts` without corrupting startup, even though features are not yet implemented.
 
 ### Primary docs
 
 - [`docs/PRODUCT.md`](docs/PRODUCT.md)
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- [`docs/REFERENCE-ADOPTION.md`](docs/REFERENCE-ADOPTION.md)
 - [`docs/TESTING.md`](docs/TESTING.md)
 - ADR 0001–0004
 
@@ -144,7 +143,7 @@ Build the shared services required by every UI surface before implementing visib
 - Implement conservative auto-detection plus config/env override.
 - Add ANSI-safe width/truncation/wrapping helpers.
 - Implement `NO_COLOR` behavior.
-- Define optional OSC 11 service interface, but do not enable unvalidated terminal-global mutation yet.
+- Terminal-global background synchronization is unsupported/off for technical v1; explicit cell backgrounds and Pi theme APIs remain supported.
 
 #### Provider foundation
 
@@ -177,7 +176,7 @@ Phase 0.
 
 ### Objective
 
-Implement the full powerline-derived information surface using native Pi widgets, including live thinking level, responsive layout, smart defaults, providers, and extension-status integration.
+Implement the full segment-based information surface using native Pi widgets, including live thinking level, responsive layout, smart defaults, providers, and extension-status integration.
 
 ### Deliverables
 
@@ -248,9 +247,9 @@ Phase 1 runtime, snapshots, theme, scheduler, providers, and capabilities.
 
 ### Objective
 
-Implement the primary Droid-inspired input experience while preserving Pi editing, keybindings, cursor/IME behavior, and existing extension ownership.
+Implement the primary compact, structured input experience while preserving Pi editing, keybindings, cursor/IME behavior, and existing extension ownership.
 
-**Status:** Implemented with executable render/lifecycle proof; manual IME and terminal-matrix verification remains part of Phase 7 release validation.
+**Status:** Implemented with executable render/lifecycle proof; manual IME and terminal-matrix verification remains manual evidence.
 
 ### Deliverables
 
@@ -311,7 +310,7 @@ Phase 1 foundation and Phase 2 shared status snapshot/metadata contracts.
 
 ### Status
 
-Implemented with public API integration, snapshot-only rendering, reason-aware compact/overlay behavior, dismissal/timeout lifecycle proof, headless fallback, resource snapshot capture, and generation-safe cleanup. Full terminal matrix proof remains part of Phase 7.
+Implemented with public API integration, snapshot-only rendering, reason-aware compact/overlay behavior, dismissal/timeout lifecycle proof, headless fallback, resource snapshot capture, and generation-safe cleanup. Full terminal matrix proof remains manual evidence.
 
 ### Objective
 
@@ -362,7 +361,7 @@ Phase 1 runtime/theme/lifecycle; may consume Phase 2 snapshot values.
 
 ### Objective
 
-Extend the Droid-inspired visual system into the conversation feed while respecting Pi version risk, native rich content, built-in tool semantics, and other extensions.
+Extend the compact visual system into the conversation feed while respecting Pi version risk, native rich content, built-in tool semantics, and other extensions.
 
 **Acceptance disposition:** Phase 5 is complete and Peer accepted for the certified exact Pi `0.83.0` subset within `>=0.83.0 <0.84.0`. Certified surfaces are user/assistant message prefixes and tool call/result selectors with exact pending/running/error markers. Approved fallbacks remain native for special message blocks, unreliable generic cancelled/truncated distinction, and image-specific decoration. The checkpoint contains 69 passing tests across 8 files. This does not authorize Phase 6 or claim full release/platform completion.
 
@@ -377,15 +376,15 @@ Extend the Droid-inspired visual system into the conversation feed while respect
 
 - Optional user and assistant prefixes. **Accepted certified subset:** exact Pi 0.83.0, explicit core+surface flags, native fallback otherwise.
 - Streaming, thinking-only, tool-only, and mixed assistant states.
-- Compaction, skill, branch-summary, and custom message blocks.
+- Compaction, skill, branch-summary, and custom (MCP) message blocks, boxed when `messages.specialBlocks` is authorized (**certified adapters over the native `updateDisplay`/`rebuild` identities; theme-cached native fallback otherwise**).
 - Expanded/collapsed behavior where host support exists.
 
 #### Tools
 
-- Compact state-aware headers for read/write/edit/find/list/grep/bash. **Accepted certified subset:** tool call/result selectors and pending/running/error markers; cancelled/truncated remains native/neutral when unavailable.
+- Compact boxed state-aware call headers and results for read/write/edit/find/list/grep/bash/quick-edit/substitute-edit/target-edit plus a boxed generic fallback. **Accepted certified subset:** tool call/result selectors with `marker` (`[tool]`, `[tool:result]`) or `compact-box` rendering, pending/running/error state; cancelled/truncated remains native/neutral when unavailable.
 - Native syntax highlight/diff/truncation/expansion preservation.
 - Partial, success, error, cancellation, empty, and truncated result states.
-- Elapsed/result metrics when reliable.
+- Elapsed/result metrics when reliable (wall-clock state tracking; no tool re-registration).
 
 #### Integration and patches
 
@@ -423,7 +422,7 @@ Phase 1 theme/lifecycle/capabilities; Phase 0 ADR 0004; compatibility fake-host 
 
 Complete the user-facing control plane, persistence, migrations, cross-extension behavior, and diagnostics. Public package reuse remains intentionally unclaimed because no external reuse is demonstrated.
 
-**Acceptance disposition:** Phase 6 is accepted after fresh independent frozen-scope Peer acceptance and Root validation. The observed evidence includes 135 tests across 9 files in the full suite, 112 focused Phase 6/startup/compatibility tests, 26 changed-file primary LSP checks clean, clean typecheck/lint/depcruise/build/package smoke/check/pack dry-run/diff gates, no full-Lens errors, and real Pi JSON/print headless smokes exiting 0. Phase 5 remains separately accepted for its exact certified subset. Phase 7 remains blocked/not started pending Supervisor/program acceptance; this disposition does not claim release, platform, performance, or terminal-matrix completion.
+**Acceptance disposition:** Phase 6 is accepted after fresh independent frozen-scope Peer acceptance and Root validation. The observed evidence includes 135 tests across 9 files in the full suite, 112 focused Phase 6/startup/compatibility tests, 26 changed-file primary LSP checks clean, clean typecheck/lint/depcruise/build/package smoke/check/pack dry-run/diff gates, no full-Lens errors, and real Pi JSON/print headless smokes exiting 0. Phase 5 remains separately accepted for its exact certified subset. This disposition does not claim release, platform, performance, or terminal-matrix completion.
 
 ### Deliverables
 
@@ -481,6 +480,8 @@ Phases 1–5.
 
 ## Phase 7 — Hardening, platform validation, and v1 release
 
+**Status:** Verified. The phase-7 evidence (performance/resource audits, render bounds, runtime lifecycle, boxed tools/special blocks, startup logo/resources) passes the full `npm run check` gate. Terminal-global background synchronization remains unsupported/off for technical v1; physical terminal/platform/color fidelity stays unclaimed.
+
 ### Objective
 
 Prove the complete product under performance, terminal, lifecycle, packaging, and release constraints.
@@ -504,7 +505,7 @@ Prove the complete product under performance, terminal, lifecycle, packaging, an
 - Nerd, normal Unicode, and ASCII fonts.
 - truecolor, 256-color approximation, and `NO_COLOR`.
 - widths 40/60/80/120/160 and short heights.
-- optional OSC 11 validation and restoration policy.
+- terminal-global background synchronization remains unsupported/off for technical v1 unless mandatory platform evidence changes this decision.
 
 #### Pi compatibility matrix
 
@@ -570,7 +571,7 @@ These items are not silently included in v1. Each requires a new product contrac
 
 | Phase | Product/architecture | Primary UI contract | Compatibility | Required proof |
 | --- | --- | --- | --- | --- |
-| 0 | Product, architecture, references, ADRs | All contracts drafted | Tier policy defined | Scaffold and architecture gates |
+| 0 | Product, architecture, ADRs | All contracts drafted | Tier policy defined | Scaffold and architecture gates |
 | 1 | Config, runtime, lifecycle | Theming | Capabilities/headless | Unit and lifecycle integration |
 | 2 | Snapshot/providers | Status line | Widget/footer composition | Status/render/provider tests |
 | 3 | Metadata ownership | Editor | Existing editor composition | Alignment/render/lifecycle tests |
@@ -584,5 +585,5 @@ These items are not silently included in v1. Each requires a new product contrac
 - Moving a deliverable between phases is allowed when dependencies change, but does not remove it from v1.
 - Removing a v1 deliverable requires updating `PRODUCT.md`, its UI contract, and an accepted ADR when architectural.
 - A phase is not complete with failing required tests or unresolved cleanup/compatibility errors.
-- New reference-derived ideas first update `REFERENCE-ADOPTION.md` and are assigned a phase or post-v1 lane.
+- New ideas first update the product contract and owning UI contract, then are assigned a phase or post-v1 lane.
 - Release notes should identify which requirement IDs and roadmap deliverables changed.

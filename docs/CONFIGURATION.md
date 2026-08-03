@@ -1,95 +1,58 @@
 # Configuration
 
-> Status: **Phase 6 accepted after independent Peer acceptance and Root validation; Phase 7 remains blocked/not started pending Supervisor/program acceptance**
+> Status: **Phase 7 verified**
 
 ## Goals
 
-Configuration must support a simple zero-config default and a complete product without creating an arbitrary rendering language. Users select known presets and override documented values; they do not inject executable code.
+Configuration must support a simple zero-config default and a complete product without creating an arbitrary rendering language. Users select known presets and override documented values; they never inject executable code.
 
 ## Storage and precedence
 
-The preferred configuration namespace is `piStyle` inside Pi settings files:
+The namespace is `piStyle` inside Pi settings files:
 
 ```text
 built-in defaults
-  < global $PI_CODING_AGENT_DIR/settings.json
-  < project <cwd>/.pi/settings.json
+  < global  $PI_CODING_AGENT_DIR/settings.json
+  < project <cwd>/.pi/settings.json        (trusted projects only)
   < supported environment overrides
-  < current-session command overrides
+  < current-session command overrides      (session-only unless persisted)
 ```
 
-Project settings are honored only for trusted projects. The implementation uses Pi's exported `getAgentDir()` and `CONFIG_DIR_NAME` when constructing global/project paths. Project configuration is read and written only for trusted projects; malformed or future-schema documents are preserved without rewrite.
+Global/project paths use Pi's exported `getAgentDir()` and `CONFIG_DIR_NAME`. Project configuration is read/written only for trusted projects; malformed or future-schema documents are preserved without rewrite.
 
-Session command overrides are temporary unless the command explicitly persists to global or project scope.
-
-## Proposed schema
+## Schema
 
 ```json
 {
   "piStyle": {
     "enabled": true,
     "preset": "default",
-    "placement": "above",
-    "startup": {
-      "mode": "compact",
-      "showResources": true,
-      "showModel": true
-    },
+    "placement": "below",
+    "startup": { "mode": "compact", "showResources": false, "alwaysExpanded": false },
     "statusLine": {
       "enabled": true,
       "separator": "powerline-thin",
-      "layout": {
-        "left": ["model", "thinking", "path", "git"],
-        "right": ["context_pct", "cost"],
-        "secondary": ["extension_statuses"]
-      },
+      "layout": { "left": ["model", "thinking", "path", "git"], "right": ["context_pct", "cost"], "secondary": ["extension_statuses"] },
       "disabledSegments": [],
       "customItems": []
     },
-    "editor": {
-      "enabled": true,
-      "style": "compact",
-      "frame": "auto",
-      "showMetadata": true
-    },
-    "messages": {
-      "enabled": true,
-      "userPrefix": true,
-      "assistantPrefix": true,
-      "specialBlocks": true
-    },
-    "tools": {
-      "enabled": true,
-      "style": "compact-box",
-      "maxCollapsedLines": 10,
-      "showElapsed": true
-    },
-    "theme": {
-      "nerdFonts": "auto",
-      "terminalBackgroundSync": "auto",
-      "colors": {},
-      "glyphs": {}
-    },
-    "compatibility": {
-      "allowSafePatches": true,
-      "allowCorePatches": false,
-      "preferExistingEditor": true,
-      "preferExistingFooter": true
-    },
+    "editor": { "enabled": true, "style": "compact", "frame": "auto", "showMetadata": true },
+    "messages": { "enabled": true, "userPrefix": true, "assistantPrefix": true, "specialBlocks": true },
+    "tools": { "enabled": true, "style": "compact-box", "maxCollapsedLines": 10, "maxExpandedLines": 50, "dimOutput": false, "showElapsed": true },
+    "theme": { "nerdFonts": "auto", "terminalBackgroundSync": "auto", "colors": {}, "glyphs": {} },
+    "compatibility": { "allowSafePatches": true, "allowCorePatches": false, "preferExistingEditor": true, "preferExistingFooter": true },
     "debug": false
   }
 }
 ```
 
-This is the target shape; fields may be introduced by phase. The implementation must not silently implement undocumented fields.
-
 ## Top-level fields
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `enabled` | boolean | `true` | Master switch. Cleanup and restore owned surfaces when disabled. |
+| `enabled` | boolean | `true` | Master switch; disabling cleans up and restores owned surfaces. |
 | `preset` | string | `default` | Coordinated UI preset. |
-| `placement` | `above \| below` | `above` | Primary status-line placement. |
+| `placement` | `above \| below` | `below` | Primary status-line placement (input stays pinned to the bottom; status row renders beneath it). |
 | `startup` | object | compact defaults | Startup/header behavior. |
 | `statusLine` | object | enabled defaults | Segment layout and options. |
 | `editor` | object | compact defaults | Editor style and frame. |
@@ -99,95 +62,86 @@ This is the target shape; fields may be introduced by phase. The implementation 
 | `compatibility` | object | conservative | Conflict and patch policy. |
 | `debug` | boolean | `false` | Bounded diagnostics; never raw terminal spam. |
 
+## Startup options
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `startup.mode` | `off \| compact \| overlay` | `compact` | `compact` renders the gradient Pi logo header through the header/widget surface; `overlay` adds the centered overlay with System & Context / Available Tools panels; `off` installs nothing. |
+| `startup.showResources` | boolean | `false` | Show the `◆ Resources` chip summary (and panels when expanded). |
+| `startup.alwaysExpanded` | boolean | `false` | Render the System & Context / Available Tools panels in `compact` mode without the overlay. |
+
 ## Presets
 
-Presets coordinate defaults across surfaces. Planned presets:
+A preset establishes defaults; explicit nested settings override it.
 
-- `default` — balanced status line, compact editor, compact startup, restrained message/tool styling.
-- `minimal` — path/Git/context essentials, native-like editor, no startup overlay, low decoration.
-- `compact` — high information density for medium terminals.
-- `full` — broad status data and all compatible visual surfaces.
-- `ascii` — no Nerd Font assumptions and conservative separators.
-- `native` — active Pi theme plus only low-risk status enhancements.
-
-A preset establishes defaults. Explicit nested settings override it.
+| Preset | Behavior |
+| --- | --- |
+| `default` | Balanced status line, compact editor, compact startup, restrained message/tool styling. |
+| `minimal` | Path/Git/context essentials, native-like editor, no startup overlay, low decoration. |
+| `compact` | High information density for medium terminals. |
+| `full` | Broad status data and all compatible visual surfaces. |
+| `ascii` | No Nerd Font assumptions and conservative separators. |
+| `native` | Active Pi theme plus only low-risk status enhancements. |
 
 ## Status-line layout semantics
 
 ```json
 {
   "statusLine": {
-    "layout": {
-      "left": ["model", "thinking", "path"],
-      "right": ["context_pct"],
-      "secondary": ["git", "extension_statuses"]
-    }
+    "layout": { "left": ["model", "thinking", "path"], "right": ["context_pct"], "secondary": ["git", "extension_statuses"] }
   }
 }
 ```
 
 Rules:
 
-- an omitted group inherits the preset group;
-- an explicitly empty group clears that group;
+- an omitted group inherits the preset group; an explicitly empty group clears it;
 - a segment explicitly placed in one group is removed from inherited groups;
 - unknown segment identifiers are ignored and reported once;
 - `disabledSegments` wins over layout placement;
-- duplicate segment identifiers render once.
+- duplicate segment identifiers render once;
+- `statusLine.bottomMargin` reserves blank rows below the primary status row (default `1`, `0` disables);
+- `statusLine.contextBarWidth` sets the context progress-bar cell count (default `10`, range 4–40).
 
-“Right” is a logical trailing group, not a guarantee of terminal right-edge alignment unless the renderer can prove stable alignment at the current width.
+"Right" is a right-aligned trailing group; the model row renders flush to the right edge with a minimum two-space gap.
 
 ## Custom status items
-
-Custom items expose selected extension statuses with presentation metadata:
 
 ```json
 {
   "statusLine": {
-    "customItems": [
-      {
-        "id": "tasks",
-        "statusKey": "pi-tasks",
-        "label": "tasks",
-        "priority": 40,
-        "placement": "secondary",
-        "color": "accent"
-      }
-    ]
+    "customItems": [{ "id": "tasks", "statusKey": "pi-tasks", "label": "tasks", "priority": 40, "placement": "secondary", "color": "accent" }]
   }
 }
 ```
 
-Config values cannot execute commands or import code. They only select an existing extension status and presentation options.
+Values only select an existing extension status and presentation options; they cannot execute commands or import code.
+
+## Messages and tool presentation options
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `messages.specialBlocks` | boolean | `true` | Boxed presentation for compaction, skill, branch, and custom (MCP) message blocks. Requires `--pi-style-message-special-blocks` plus `--pi-style-core-patches`. |
+| `tools.style` | `marker \| compact-box` | `compact-box` | `marker` prefixes tool lines (`[tool]`, `[tool:result]`); `compact-box` renders boxed call headers and compact/expanded result boxes for read, write, edit, bash, ls, find, grep, quick-edit, substitute-edit, target-edit, and a boxed generic fallback. |
+| `tools.maxCollapsedLines` | number | `10` | Line budget for collapsed tool results (head/tail). |
+| `tools.maxExpandedLines` | number | `50` | Maximum body lines for expanded results (read/bash/grep/fallback). |
+| `tools.dimOutput` | boolean | `false` | Render tool output lines in the dim semantic color instead of `toolOutput`. |
+| `tools.showElapsed` | boolean | `true` | Include wall-clock elapsed time in tool result footers. |
+
+The boxed tool and special-block adapters are fingerprint-certified against Pi `0.83.0` and install through the same reversible, generation-tracked compatibility wrapper as message prefixes and tool markers; shutdown restores the native identities exactly.
 
 ## Theme configuration
 
-### Font mode
+**Font mode** — `theme.nerdFonts`: `auto` (conservative detection), `on`, `off`. Env override: `PI_STYLE_NERD_FONTS=1|0`.
 
-`theme.nerdFonts` accepts:
+**Background sync** — `terminalBackgroundSync`: `auto`, `on`, `off`. `auto` follows the platform policy in `ui/THEMING.md` and `COMPATIBILITY.md`; terminal-global synchronization remains unsupported/off for technical v1.
 
-- `auto` — detect conservatively;
-- `on` — force Nerd glyphs;
-- `off` — force Unicode/ASCII fallback.
-
-Environment override:
-
-```text
-PI_STYLE_NERD_FONTS=1|0
-```
-
-### Background synchronization
-
-`terminalBackgroundSync` accepts `auto`, `on`, or `off`. `auto` follows the platform policy in `ui/THEMING.md` and `COMPATIBILITY.md`.
-
-### Color and glyph overrides
-
-Overrides are maps of known semantic keys. Unknown keys are ignored with a diagnostic. Empty strings are valid for icons that should be hidden.
+**Color/glyph overrides** — maps of known semantic keys. Unknown keys are ignored with a diagnostic; empty strings hide icons.
 
 ## Normalization rules
 
 - **CFG-001:** Missing values use defaults.
-- **CFG-002:** Nested objects merge recursively; arrays replace according to their documented semantics.
+- **CFG-002:** Nested objects merge recursively; arrays replace per their documented semantics.
 - **CFG-003:** Invalid enum values fall back to defaults and record one warning.
 - **CFG-004:** Wrong-type objects are ignored rather than causing startup failure.
 - **CFG-005:** Unknown fields are preserved only if migration needs them; otherwise ignored.
@@ -195,44 +149,40 @@ Overrides are maps of known semantic keys. Unknown keys are ignored with a diagn
 - **CFG-007:** Project configuration is ignored for untrusted projects.
 - **CFG-008:** Environment variables are narrow, documented, and never replace the full schema.
 
-## Phase 5 public session flags
+## Session flags (Tier C authorization)
 
-The extension registers these public boolean flags for the current session:
+Registered public boolean flags for the current session; immutable, session-only, never persisted:
 
-| Flag | Authorization | Effect |
-| --- | --- | --- |
-| `--pi-style-core-patches` | immutable session authorization | permits Tier C consideration; never becomes product configuration or persistence data |
-| `--pi-style-message-user` | immutable core + surface authorization | authorizes the certified user-message prefix; not a product-config override |
-| `--pi-style-message-assistant` | immutable core + surface authorization | authorizes the certified assistant-message prefix; not a product-config override |
-| `--pi-style-tools` | immutable core + surface authorization | authorizes certified tool call/result selectors; not a product-config override |
-| `--pi-style-ascii` | immutable marker authorization | selects ASCII Tier C markers only; public product preset remains separately configurable |
+| Flag | Effect |
+| --- | --- |
+| `--pi-style-core-patches` | Permits Tier C consideration. |
+| `--pi-style-message-user` | Authorizes the certified user-message prefix. |
+| `--pi-style-message-assistant` | Authorizes the certified assistant-message prefix. |
+| `--pi-style-message-special-blocks` | Authorizes boxed special message blocks. |
+| `--pi-style-tools` | Authorizes certified tool call/result selectors. |
+| `--pi-style-ascii` | Selects ASCII Tier C markers only. |
 
-Tier C is explicit default-deny: core alone, surface-only flags, and ordinary product defaults install nothing. These flags are session-only and are not persisted. Product `compatibility.allowCorePatches` is deny-only: an explicit literal `false` in any accepted global, trusted-project, or raw-session layer blocks Tier C; literal `true` never grants authorization. Invalid leaves are diagnosed and ignored. Phase 6 control-plane behavior is accepted after independent Peer acceptance and Root validation.
+Tier C is default-deny: core alone, surface-only flags, and ordinary product defaults install nothing. The product gate `compatibility.allowCorePatches` is deny-only — an explicit literal `false` in any accepted layer blocks Tier C; literal `true` never grants authorization.
 
 ## Commands
-
-The session command adapter supports `/pi-style`, `on|off`, `preset`, `placement`, `editor <style> [frame]`, `startup <off|compact|overlay>`, `surface <name> on|off`, `set <allowlisted.path> <JSON-value>`, `reload`, and `doctor`. Ordinary mutations are session-only; persistence requires explicit `persist global|project` scope and trusted projects. `set` is a finite recursive allowlist, not an executable DSL; unknown paths and malformed values are rejected. Writes recursively merge the validated `piStyle` namespace and preserve unrelated settings. Phase 6 persistence and command behavior is accepted after independent Peer acceptance and Root validation.
-
-Command forms still requiring additional acceptance coverage:
 
 | Command | Behavior |
 | --- | --- |
 | `/pi-style` | Show active preset, surfaces, placement, glyph mode, and compatibility summary. |
-| `/pi-style on` / `off` | Toggle the package for the current session or selected persistence scope. |
+| `/pi-style on\|off` | Toggle the package for the session or selected persistence scope. |
 | `/pi-style preset <name>` | Apply a named preset. |
 | `/pi-style placement above\|below` | Move the primary status row. |
-| `/pi-style editor <style>` | Select compact, boxed, dock, or native editor. |
+| `/pi-style editor <style> [frame]` | Select compact, boxed, dock, or native editor. |
+| `/pi-style startup <off\|compact\|overlay>` | Select startup mode. |
 | `/pi-style surface <name> on\|off` | Toggle startup/status/editor/messages/tools. |
+| `/pi-style set <path> <JSON>` | Set one documented leaf/array/map/custom item after validation, e.g. `set statusLine.layout.left ["model","git"]`. |
+| `/pi-style persist global\|project set <path> <JSON>` | Persist the same validated mutation to the selected durable scope. |
 | `/pi-style reload` | Re-read configuration and reinstall affected surfaces. |
-| `/pi-style set <path> <JSON>` | Set one documented leaf, array, map, or custom-item value after validation; for example `set statusLine.layout.left ["model","git"]` or `set theme.glyphs {"branch":""}`. |
-| `/pi-style persist global|project set <path> <JSON>` | Persist the same validated mutation only to the selected durable scope. |
 | `/pi-style doctor` | Show capability/conflict/fallback diagnostics. |
 
-Commands without a required argument should use Pi selection/settings components where appropriate. Persistence scope must be explicit (`session`, `global`, or `project`) before writing settings.
+Ordinary mutations are session-only; persistence requires an explicit `global` or `project` scope and trusted projects. `set` is a finite recursive allowlist, not an executable DSL; unknown paths and malformed values are rejected. Writes recursively merge the validated `piStyle` namespace and preserve unrelated settings.
 
 ## Environment variables
-
-Planned narrow overrides:
 
 | Variable | Meaning |
 | --- | --- |
@@ -245,15 +195,14 @@ Planned narrow overrides:
 
 ## Persistence and migration
 
-- Config writes must preserve unrelated Pi settings.
+- Writes preserve unrelated Pi settings.
 - Project writes require trust and explicit user intent.
-- Schema migrations are pure transformations with versioned tests.
-- Missing `schemaVersion` is accepted as bounded-warning v1-shaped input; v1 is identity. Future versions fail closed/read-only and are never downgraded or overwritten.
-- No historical v0 aliases are invented.
+- Migrations are pure, versioned transformations with tests.
+- Missing `schemaVersion` is accepted as bounded-warning v1-shaped input; v1 is identity. Future versions fail closed/read-only and are never downgraded or overwritten. No historical v0 aliases are invented.
 
 ## Example configurations
 
-### Conservative/native
+**Conservative/native**
 
 ```json
 {
@@ -267,7 +216,7 @@ Planned narrow overrides:
 }
 ```
 
-### Full visual treatment
+**Full visual treatment**
 
 ```json
 {
@@ -281,7 +230,7 @@ Planned narrow overrides:
 }
 ```
 
-### ASCII-safe remote session
+**ASCII-safe remote session**
 
 ```json
 {
@@ -295,7 +244,7 @@ Planned narrow overrides:
 
 ## Editor configuration
 
-The editor accepts the code-defined styles `compact`, `boxed`, `dock`, and `native`, and frame modes `auto`, `halfblock`, `line`, `solid`, `outline`, and `native`. Unknown values normalize to the safe defaults (`compact` and `auto`). `native` and narrow-width fallback preserve Pi's native editor semantics before applying decoration. The editor does not execute configuration values.
+Styles: `compact`, `boxed`, `dock`, `native`. Frames: `auto`, `halfblock`, `line`, `solid`, `outline`, `native`. Unknown values normalize to the safe defaults (`compact`/`auto`). `native` and narrow-width fallback preserve Pi's editor semantics before decoration. The editor never executes configuration values.
 
 ## Acceptance criteria
 
@@ -310,5 +259,5 @@ The editor accepts the code-defined styles `compact`, `boxed`, `dock`, and `nati
 - Schema foundation: Phase 1.
 - Status/editor/startup fields: Phases 2–4.
 - Message/tool fields: Phase 5.
-- Persistence, migrations, explicit-scope commands, and bounded diagnostics: Phase 6 (accepted after independent Peer acceptance and Root validation).
+- Persistence, migrations, explicit-scope commands, diagnostics: Phase 6.
 - Requirement IDs: `CFG-001` through `CFG-008`.

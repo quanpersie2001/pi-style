@@ -10,6 +10,7 @@ export interface SessionAuthorization {
 	core: boolean;
 	user: boolean;
 	assistant: boolean;
+	specialBlocks: boolean;
 	tools: boolean;
 	ascii: boolean;
 }
@@ -60,6 +61,7 @@ export function readSessionAuthorization(pi: SessionFlagReader): SessionAuthoriz
 		core: pi.getFlag("pi-style-core-patches") === true,
 		user: pi.getFlag("pi-style-message-user") === true,
 		assistant: pi.getFlag("pi-style-message-assistant") === true,
+		specialBlocks: pi.getFlag("pi-style-message-special-blocks") === true,
 		tools: pi.getFlag("pi-style-tools") === true,
 		ascii: pi.getFlag("pi-style-ascii") === true,
 	};
@@ -68,7 +70,7 @@ export function readSessionAuthorization(pi: SessionFlagReader): SessionAuthoriz
 export function createConfigSourceAdapter(
 	pi: SessionFlagReader,
 	port: ConfigFilePort,
-	paths: () => { globalPath: string; projectPath: string },
+	paths: (cwd: string) => { globalPath: string; projectPath: string },
 ): ConfigSourceAdapter {
 	let trusted = true;
 	let currentCwd = process.cwd();
@@ -78,8 +80,7 @@ export function createConfigSourceAdapter(
 			trusted = nextTrusted;
 		},
 		async load() {
-			const storage = paths();
-			void currentCwd;
+			const storage = paths(currentCwd);
 			const global = await readScopedConfig(port, storage.globalPath);
 			const project = trusted ? await readScopedConfig(port, storage.projectPath) : undefined;
 			const resolved = resolveConfigDetailed({

@@ -11,6 +11,7 @@ import {
 	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { decorateMessageRender, type MessageDecorationSnapshot } from "../features/messages/index.js";
+import { renderSpecialMessageBlock, type SpecialBlockSubtype } from "../features/messages/special-blocks.js";
 import { createToolDecorationOwner } from "../features/tools/index.js";
 import {
 	type CompatibilityRecord,
@@ -101,9 +102,8 @@ export const CERTIFICATION_TABLE = Object.freeze({
 			method: "updateDisplay",
 			writable: true,
 			configurable: true,
-			adapterId: "none",
-			status: "native-fallback" as const,
-			fallbackReason: "no certified subtype-specific private-layout adapter",
+			adapterId: "message-block-boxed-v1",
+			status: "certified" as const,
 		}),
 		"native-branch-message:updateDisplay": Object.freeze({
 			feature: "messages",
@@ -112,9 +112,8 @@ export const CERTIFICATION_TABLE = Object.freeze({
 			method: "updateDisplay",
 			writable: true,
 			configurable: true,
-			adapterId: "none",
-			status: "native-fallback" as const,
-			fallbackReason: "no certified subtype-specific private-layout adapter",
+			adapterId: "message-block-boxed-v1",
+			status: "certified" as const,
 		}),
 		"native-skill-message:updateDisplay": Object.freeze({
 			feature: "messages",
@@ -123,9 +122,8 @@ export const CERTIFICATION_TABLE = Object.freeze({
 			method: "updateDisplay",
 			writable: true,
 			configurable: true,
-			adapterId: "none",
-			status: "native-fallback" as const,
-			fallbackReason: "no certified subtype-specific private-layout adapter",
+			adapterId: "message-block-boxed-v1",
+			status: "certified" as const,
 		}),
 		"native-custom-message:rebuild": Object.freeze({
 			feature: "messages",
@@ -134,9 +132,8 @@ export const CERTIFICATION_TABLE = Object.freeze({
 			method: "rebuild",
 			writable: true,
 			configurable: true,
-			adapterId: "none",
-			status: "native-fallback" as const,
-			fallbackReason: "no certified subtype-specific private-layout adapter",
+			adapterId: "message-block-boxed-v1",
+			status: "certified" as const,
 		}),
 	}),
 });
@@ -256,36 +253,32 @@ export const targetSpecs: readonly TargetSpec[] = [
 		subtype: "native-compaction-message",
 		target: CompactionSummaryMessageComponent.prototype,
 		method: "updateDisplay",
-		adapterId: "none",
-		status: "native-fallback",
-		fallbackReason: "no certified subtype-specific private-layout adapter",
+		adapterId: "message-block-boxed-v1",
+		status: "certified",
 	},
 	{
 		feature: "messages",
 		subtype: "native-branch-message",
 		target: BranchSummaryMessageComponent.prototype,
 		method: "updateDisplay",
-		adapterId: "none",
-		status: "native-fallback",
-		fallbackReason: "no certified subtype-specific private-layout adapter",
+		adapterId: "message-block-boxed-v1",
+		status: "certified",
 	},
 	{
 		feature: "messages",
 		subtype: "native-skill-message",
 		target: SkillInvocationMessageComponent.prototype,
 		method: "updateDisplay",
-		adapterId: "none",
-		status: "native-fallback",
-		fallbackReason: "no certified subtype-specific private-layout adapter",
+		adapterId: "message-block-boxed-v1",
+		status: "certified",
 	},
 	{
 		feature: "messages",
 		subtype: "native-custom-message",
 		target: CustomMessageComponent.prototype,
 		method: "rebuild",
-		adapterId: "none",
-		status: "native-fallback",
-		fallbackReason: "no certified subtype-specific private-layout adapter",
+		adapterId: "message-block-boxed-v1",
+		status: "certified",
 	},
 	{
 		feature: "tools",
@@ -411,16 +404,16 @@ function shape(target: object, method: string): boolean {
 export interface CompatibilityProbeOptions {
 	markers?: Set<string>;
 	config?: Readonly<{
-		messages: { enabled: boolean; userPrefix: boolean; assistantPrefix: boolean };
-		tools: { enabled: boolean };
+		messages: { enabled: boolean; userPrefix: boolean; assistantPrefix: boolean; specialBlocks: boolean };
+		tools: { enabled: boolean; style: string; maxCollapsedLines: number; maxExpandedLines: number; dimOutput: boolean };
 		preset: string;
 	}>;
-	toolSnapshot?: Readonly<{ callMarker?: string; resultMarker?: string }>;
+	toolSnapshot?: Readonly<{ callMarker?: string; resultMarker?: string; style?: "marker" | "compact-box" }>;
 	messageSnapshot?: MessageDecorationSnapshot;
 }
 
-function isSpecialFallback(spec: TargetSpec): boolean {
-	return spec.feature === "messages" && spec.status === "native-fallback";
+function isSpecialBlock(spec: TargetSpec): boolean {
+	return spec.feature === "messages" && spec.status === "certified" && spec.adapterId === "message-block-boxed-v1";
 }
 
 function createFallbackRecord(
@@ -459,6 +452,7 @@ function surfaceDisabled(spec: TargetSpec, config: CompatibilityProbeOptions["co
 	if (!config.messages.enabled) return true;
 	if (spec.subtype === "native-user-message") return !config.messages.userPrefix;
 	if (spec.subtype === "native-assistant-message") return !config.messages.assistantPrefix;
+	if (isSpecialBlock(spec)) return !config.messages.specialBlocks;
 	return true;
 }
 
@@ -477,12 +471,6 @@ function probeSpec(options: {
 	const disabled = surfaceDisabled(spec, config);
 	if (disabled) {
 		const reason = "native fallback: surface disabled by normalized configuration";
-		return { record: createFallbackRecord(spec, piVersion, generation, reason), reason, fallback: true };
-	}
-	if (isSpecialFallback(spec)) {
-		const reason =
-			spec.fallbackReason ||
-			"native fallback: no certified subtype-specific adapter; prototype identity left untouched";
 		return { record: createFallbackRecord(spec, piVersion, generation, reason), reason, fallback: true };
 	}
 	const result = installDelegatingPatch({
@@ -508,13 +496,15 @@ function probeSpec(options: {
 						args,
 					) ?? Reflect.apply(original as (...values: unknown[]) => unknown, target, args)
 				);
-			return decorateMessageRender(
-				spec.subtype as "native-user-message" | "native-assistant-message",
-				original,
-				target,
-				args,
-				messageSnapshot,
-			);
+			if (spec.subtype === "native-user-message" || spec.subtype === "native-assistant-message")
+				return decorateMessageRender(
+					spec.subtype as "native-user-message" | "native-assistant-message",
+					original,
+					target,
+					args,
+					messageSnapshot,
+				);
+			return renderSpecialMessageBlock(spec.subtype as SpecialBlockSubtype, original, target, args);
 		},
 	});
 	return {

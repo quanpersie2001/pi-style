@@ -2,7 +2,9 @@ import type { PiStyleConfig, PresetName } from "./config-types.js";
 
 /** Code-defined coordinated defaults. Explicit fields are merged after these values. */
 export const CONFIG_PRESETS: Readonly<Record<PresetName, Readonly<PiStyleConfig>>> = Object.freeze({
-	default: Object.freeze({}),
+	default: Object.freeze({
+		startup: { mode: "compact" },
+	}),
 	minimal: Object.freeze({
 		statusLine: { layout: { left: ["path", "git"], right: ["context_pct"], secondary: [] } },
 		editor: { style: "native", frame: "native", showMetadata: false },
@@ -27,7 +29,7 @@ export const CONFIG_PRESETS: Readonly<Record<PresetName, Readonly<PiStyleConfig>
 			},
 		},
 		editor: { style: "boxed", frame: "outline", showMetadata: true },
-		startup: { mode: "overlay" },
+		startup: { mode: "overlay", showResources: true },
 	}),
 	ascii: Object.freeze({
 		editor: { style: "compact", frame: "auto" },

@@ -7,7 +7,7 @@ export interface GitCommandResult {
 }
 
 export interface GitCommandRunner {
-	run(args: readonly string[], cwd: string, timeoutMs: number): Promise<GitCommandResult>;
+	run(args: readonly string[], cwd: string, timeoutMs: number, signal?: AbortSignal): Promise<GitCommandResult>;
 }
 
 export interface GitProvider {

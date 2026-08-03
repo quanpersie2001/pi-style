@@ -8,6 +8,7 @@ import {
 } from "../../extension-src/pi-style/pi/compatibility-registry.js";
 import piStyleExtension from "../../extension-src/pi-style/pi/index.js";
 import { createPiStyleSessionCoordinator } from "../../extension-src/pi-style/pi/session-coordinator.js";
+import { visibleWidth } from "../../extension-src/pi-style/shared/ansi.js";
 import { FakePiHost } from "../helpers/fake-pi-host.js";
 import { expectNoTerminalUi } from "../helpers/render-assertions.js";
 
@@ -120,7 +121,7 @@ describe("pi-style extension lifecycle foundation", () => {
 		expect(second).toBeDefined();
 		expect(second).not.toBe(first);
 		expect(second?.generation).toBeGreaterThan(first?.generation ?? 0);
-		await coordinator.shutdown();
+		coordinator.shutdown();
 	});
 
 	it("disposes old runtime and starts fresh runtime after incomplete cleanup retry", async () => {
@@ -136,9 +137,12 @@ describe("pi-style extension lifecycle foundation", () => {
 		await coordinator.start({ reason: "startup" }, host.extensionContext);
 		const first = coordinator.app.runtime.current;
 		await coordinator.start({ reason: "reload" }, host.extensionContext);
-		expect(first?.disposed).toBe(true);
-		expect(coordinator.app.runtime.current).toBeUndefined();
+		// Failure-atomic replacement retains the old runtime when compatibility cleanup
+		// is incomplete; no candidate or runtime is committed on this attempt.
+		expect(first?.disposed).toBe(false);
+		expect(coordinator.app.runtime.current).toBe(first);
 		await coordinator.start({ reason: "reload" }, host.extensionContext);
+		expect(first?.disposed).toBe(true);
 		expect(coordinator.app.runtime.current).toBeDefined();
 		expect(coordinator.app.runtime.current).not.toBe(first);
 		coordinator.shutdown();
@@ -302,14 +306,19 @@ describe("pi-style extension lifecycle foundation", () => {
 		coordinator.shutdown();
 	});
 
-	it("denies product-only and surface-only compatibility authorization", async () => {
+	it("denies core patches through the config product gate", async () => {
 		const native = Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value;
-		for (const flags of [{}, { "pi-style-message-user": true }]) {
-			const host = new FakePiHost({ flags });
-			piStyleExtension(host.extensionApi);
-			await host.sessionStart();
+		for (const config of [{ compatibility: { allowCorePatches: false } }, { messages: { enabled: false } }]) {
+			const host = new FakePiHost();
+			const settings = injectedSettings(config);
+			const coordinator = createPiStyleSessionCoordinator(host.extensionApi, {
+				filePort: settings.port,
+				paths: settings.paths,
+			});
+			await coordinator.start({ reason: "startup" }, host.extensionContext);
 			expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(native);
-			await host.sessionShutdown();
+			coordinator.shutdown();
+			expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(native);
 		}
 	});
 
@@ -371,6 +380,21 @@ describe("pi-style extension lifecycle foundation", () => {
 		await host.sessionShutdown();
 	});
 
+	it("consumes the thinking-cycle key and re-issues it without Pi's status toast", async () => {
+		const host = new FakePiHost();
+		piStyleExtension(host.extensionApi);
+		await host.sessionStart();
+		// Startup dismissal (compact default) plus the thinking-cycle key share the raw input hook.
+		expect(host.terminalInputSubscriptions).toBeGreaterThanOrEqual(1);
+		const before = host.thinkingLevel;
+		const consumed = host.emitTerminalInput("\x1b[Z"); // shift+tab
+		expect(consumed).toBe(true);
+		expect(host.thinkingLevel).not.toBe(before);
+		expect(host.emitTerminalInput("a")).toBe(false);
+		await host.sessionShutdown();
+		expect(host.terminalInputSubscriptions).toBe(0);
+	});
+
 	it("preserves provider identity across config-only reconciliation", async () => {
 		const host = new FakePiHost();
 		piStyleExtension(host.extensionApi);
@@ -379,10 +403,12 @@ describe("pi-style extension lifecycle foundation", () => {
 		const command = host.commands.get("pi-style") as {
 			handler(args: string, context: typeof host.extensionContext): Promise<void>;
 		};
-		await command.handler("placement below", host.extensionContext);
+		await command.handler("placement above", host.extensionContext);
 		expect(host.componentFactories.get("pi-style.status.primary")).not.toBe(before);
-		expect(host.ownership.footer.current).toBe(false);
+		expect(host.ownership.footer.current).toBe(true);
+		expect(host.ownership.footer.restores).toBe(1);
 		await host.sessionShutdown();
+		expect(host.ownership.footer.current).toBe(false);
 	});
 
 	it("exposes live doctor state after session start and command reload", async () => {
@@ -402,8 +428,8 @@ describe("pi-style extension lifecycle foundation", () => {
 		expect(state.operational.provider).toBeDefined();
 		expect(state.operational.compatibility).toMatchObject({
 			configuredByProduct: true,
-			authorized: false,
-			installed: false,
+			authorized: true,
+			installed: true,
 		});
 		expect(state.operational.installations).toBeDefined();
 		await host.sessionShutdown();
@@ -426,7 +452,7 @@ describe("pi-style extension lifecycle foundation", () => {
 		expect(primary).toBeDefined();
 		const component = primary?.({ requestRender: () => host.requestRender() }, host.theme);
 		const lines = component?.render(40) ?? [];
-		expect(lines.every((line) => line.length <= 40)).toBe(true);
+		expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
 		component?.invalidate();
 		expect(host.renderRequests).toContain("tui");
 		await host.sessionShutdown();
@@ -436,7 +462,7 @@ describe("pi-style extension lifecycle foundation", () => {
 		const host = new FakePiHost();
 		piStyleExtension(host.extensionApi);
 		await host.sessionStart();
-		expect(host.widgets.get("pi-style.status.primary")?.placement).toBe("aboveEditor");
+		expect(host.widgets.get("pi-style.status.primary")?.placement).toBe("belowEditor");
 		await host.emit("tool_result", {
 			type: "tool_result",
 			toolCallId: "x",
@@ -483,13 +509,21 @@ describe("pi-style extension lifecycle foundation", () => {
 		coordinator.shutdown();
 	});
 
-	it("leaves the native prototype untouched for persisted ASCII without original authorization", async () => {
+	it("keeps unicode markers when the ascii flag was not authorized", async () => {
 		const native = Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value;
-		const host = new FakePiHost({ flags: {} });
-		const coordinator = createPiStyleSessionCoordinator(host.extensionApi, injectedSettings({ preset: "ascii" }));
+		const host = new FakePiHost({ flags: { "pi-style-core-patches": true, "pi-style-message-user": true } });
+		const coordinator = createPiStyleSessionCoordinator(host.extensionApi, {
+			filePort: injectedSettings({ preset: "ascii" }).port,
+			paths: injectedSettings({ preset: "ascii" }).paths,
+		});
 		await coordinator.start({ reason: "startup" }, host.extensionContext);
-		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(native);
+		initTheme("dark", false);
+		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).not.toBe(native);
+		const output = new UserMessageComponent("ascii preset sentinel").render(120).join("\n");
+		expect(output).toContain("❯ ");
+		expect(output).not.toContain("[user] ");
 		coordinator.shutdown();
+		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(native);
 	});
 
 	it("reports cleanup pending through command off/on and reinstalls only after restoration", async () => {
@@ -556,24 +590,26 @@ describe("pi-style extension lifecycle foundation", () => {
 		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(denyNative);
 
 		const awaitingNative = Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value;
-		const awaitingHost = new FakePiHost({ flags: {} });
+		const awaitingHost = new FakePiHost({ flags: { "pi-style-core-patches": true, "pi-style-message-user": true } });
 		const awaitingInjected = injectedSettings({ messages: { enabled: true } });
 		const awaitingCoordinator = createPiStyleSessionCoordinator(awaitingHost.extensionApi, {
 			filePort: awaitingInjected.port,
 			paths: awaitingInjected.paths,
 		});
 		await awaitingCoordinator.start({ reason: "startup" }, awaitingHost.extensionContext);
-		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(awaitingNative);
+		// Default-on authorization installs the certified user-message adapter.
+		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).not.toBe(awaitingNative);
 		const awaitingDoctor = awaitingCoordinator.app.doctor() as {
 			operational: { compatibility: Record<string, unknown> };
 		};
 		expect(awaitingDoctor.operational.compatibility.userMessage).toMatchObject({
 			configured: true,
-			authorized: false,
-			installed: false,
-			awaitingAuthorization: true,
+			authorized: true,
+			installed: true,
 		});
+		expect(awaitingDoctor.operational.compatibility.userMessage).not.toHaveProperty("awaitingAuthorization");
 		awaitingCoordinator.shutdown();
+		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(awaitingNative);
 		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(awaitingNative);
 
 		const authorizedNative = Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value;

@@ -4,7 +4,7 @@ export interface TierCAuthorizationInput {
 	readonly certifiedHost: boolean;
 	readonly coreFlag: boolean;
 	readonly surfaceFlag: boolean;
-	readonly surface: "messages" | "tools" | "userMessage" | "assistantMessage";
+	readonly surface: "messages" | "tools" | "userMessage" | "assistantMessage" | "specialBlocks";
 	readonly config: NormalizedPiStyleConfig;
 }
 
@@ -15,5 +15,6 @@ export function isTierCAuthorized(input: TierCAuthorizationInput): boolean {
 	if (input.surface === "userMessage") return input.config.messages.enabled && input.config.messages.userPrefix;
 	if (input.surface === "assistantMessage")
 		return input.config.messages.enabled && input.config.messages.assistantPrefix;
+	if (input.surface === "specialBlocks") return input.config.messages.enabled && input.config.messages.specialBlocks;
 	return input.config.messages.enabled;
 }

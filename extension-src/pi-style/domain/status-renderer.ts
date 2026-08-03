@@ -104,7 +104,27 @@ export function renderStatus(
 	}
 	for (const candidate of [...overflow].sort((a, b) => b.segment.defaultPriority - a.segment.defaultPriority))
 		secondary.push(candidate);
-	let primaryText = renderGroup(visible, separator, padding);
+	// Right-aligned trailing group: layout.right candidates render flush to the
+	// right edge, mirroring Pi's native footer (model • effort on the far right).
+	// Group order follows the layout declaration; the priority sort above only
+	// decides what drops on overflow.
+	const visibleIds = new Set(visible.map((candidate) => candidate.id));
+	const groupOf = (group: readonly StatusSegmentId[]) =>
+		group
+			.map((id) => candidates.get(id))
+			.filter((candidate): candidate is Candidate => candidate !== undefined && visibleIds.has(candidate.id));
+	const leftVisible = groupOf(normalized.left);
+	const rightVisible = groupOf(normalized.right);
+	const leftText = renderGroup(leftVisible, separator, padding);
+	const rightText = renderGroup(rightVisible, separator, padding);
+	let primaryText: string;
+	if (!rightText) {
+		primaryText = leftText;
+	} else {
+		const core = leftText ? `${leftText}${padding}${separator}${padding}` : "";
+		const gap = Math.max(2, width - visibleWidth(core) - visibleWidth(rightText));
+		primaryText = `${core}${" ".repeat(gap)}${rightText}`;
+	}
 	if (visibleWidth(primaryText) > width) primaryText = truncateAnsi(primaryText, width);
 	const secondaryVisible: Candidate[] = [];
 	for (const candidate of [...secondary].sort((a, b) => b.segment.defaultPriority - a.segment.defaultPriority)) {

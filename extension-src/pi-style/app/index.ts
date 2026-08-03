@@ -1,7 +1,7 @@
 import { boundedDiagnostics } from "../domain/config-diagnostics.js";
 import { DEFAULT_CONFIG, normalizeConfig, resolveConfigDetailed } from "../domain/config-normalization.js";
 import type { NormalizedPiStyleConfig } from "../domain/config-types.js";
-import type { StartupReason } from "../features/startup/index.js";
+import type { StartupDetailItem, StartupReason } from "../features/startup/index.js";
 import { createDoctor, type DoctorOperationalState } from "./doctor.js";
 import { PiStyleRuntimeController } from "./runtime.js";
 
@@ -9,13 +9,46 @@ export interface StartupResourceDiscovery {
 	readonly skillPaths?: readonly string[];
 	readonly promptPaths?: readonly string[];
 	readonly themePaths?: readonly string[];
+	/** Raw system prompt text; word/line counts are computed outside render. */
+	readonly systemPrompt?: string;
+	/** Context files with pre-computed word/line counts (discovery outside render). */
+	readonly contextDetails?: readonly { path: string; words: number; lines: number }[];
+	/** Active tools with compact source labels (discovery outside render). */
+	readonly toolDetails?: readonly { source: string; name: string }[];
+	readonly models?: number;
+}
+
+function countWords(text: string): number {
+	return text.match(/[\p{L}\p{N}_]+/gu)?.length ?? 0;
+}
+
+function countLines(text: string): number {
+	if (text.length === 0) return 0;
+	const lines = text.split(/\r\n|\r|\n/).length;
+	return /\r\n$|\r$|\n$/.test(text) ? lines - 1 : lines;
 }
 
 function toStartupResources(resources: StartupResourceDiscovery) {
+	const details: StartupDetailItem[] = [];
+	if (resources.systemPrompt) {
+		const words = countWords(resources.systemPrompt);
+		const lines = countLines(resources.systemPrompt);
+		if (words > 0 && lines > 0) details.push({ kind: "system", path: "system prompt", words, lines });
+	}
+	for (const file of resources.contextDetails ?? []) {
+		if (file.words > 0 && file.lines > 0) {
+			details.push({ kind: "context", path: file.path, words: file.words, lines: file.lines });
+		}
+	}
 	return {
 		...(resources.promptPaths ? { contextFiles: resources.promptPaths.length } : {}),
 		...(resources.themePaths ? { extensions: resources.themePaths.length } : {}),
 		...(resources.skillPaths ? { skills: resources.skillPaths.length } : {}),
+		...(resources.models !== undefined ? { models: resources.models } : {}),
+		...(resources.toolDetails && resources.toolDetails.length > 0
+			? { tools: resources.toolDetails.length, toolDetails: resources.toolDetails }
+			: {}),
+		...(details.length > 0 ? { details } : {}),
 	};
 }
 
@@ -39,11 +72,12 @@ export interface AppHost {
 	readonly hasUI: boolean;
 	readonly ui?: Parameters<PiStyleRuntimeController["start"]>[0]["ui"];
 	readonly cwd?: string;
-	readonly model?: { id?: string; name?: string };
+	readonly model?: { id?: string; name?: string; provider?: string; reasoning?: boolean };
 	readonly thinkingLevel?: string;
 	readonly getContextUsage?: () => { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
 	readonly projectTrusted?: boolean;
 	readonly extensionStatusProvider?: () => readonly import("../domain/status.js").ExtensionStatus[] | undefined;
+	readonly gitRunner?: import("../domain/providers.js").GitCommandRunner;
 }
 
 export interface PiStyleApp {
@@ -192,6 +226,7 @@ export function createPiStyleApp(
 				...(resources ? { resources: toStartupResources(resources) } : {}),
 				...(ctx.getContextUsage ? { getContextUsage: ctx.getContextUsage } : {}),
 				...(ctx.projectTrusted !== undefined ? { projectTrusted: ctx.projectTrusted } : {}),
+				...(ctx.gitRunner ? { gitRunner: ctx.gitRunner } : {}),
 				...(statusProvider ? { extensionStatusProvider: statusProvider } : {}),
 			});
 		},
@@ -278,6 +313,7 @@ export function createPiStyleApp(
 					startup: operational.installations?.startup ?? "unknown",
 					userMessage: operational.compatibility?.userMessage ?? "unknown",
 					assistantMessage: operational.compatibility?.assistantMessage ?? "unknown",
+					specialBlocks: operational.compatibility?.specialBlocks ?? "unknown",
 					tools: operational.compatibility?.tools ?? "unknown",
 				},
 			});

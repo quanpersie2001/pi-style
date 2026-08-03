@@ -5,7 +5,7 @@
 
 ## Context
 
-The references combine layout and color in different ways. Powerline presets define segment groups and colors. Droid user-zone styles define layout, glyphs, padding, frame, and semantic token names in code. Pi also has a complete active theme system.
+UI styling can be split in two directions: preset-driven layouts that define segment groups and colors, and code-defined styles that define layout, glyphs, padding, frame, and semantic token names. Pi also has a complete active theme system.
 
 If users can define arbitrary render structures in JSON, validation, migrations, and compatibility become difficult. If colors are hardcoded in each feature, the product will not work coherently with custom Pi themes.
 
@@ -41,7 +41,7 @@ No configuration field accepts executable render code.
 
 ## Alternatives considered
 
-### Hardcode one Droid palette and layout
+### Hardcode one palette and layout
 
 Rejected. It would fight user themes and make light/no-color modes poor.
 
