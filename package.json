@@ -1,6 +1,6 @@
 {
   "name": "@quandev104/pi-style",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A native-layout, cohesive visual style package for Pi.",
   "license": "MIT",
   "type": "module",

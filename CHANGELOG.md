@@ -1,22 +1,35 @@
 # Changelog
 
-## 0.1.0 - Unreleased
+## [0.1.1] - 2026-08-03
 
-- Added the boxed **tool presentation**: boxed tool call headers and compact/expanded result boxes for read, write, edit, bash, ls, find, grep, quick-edit, substitute-edit, target-edit, plus a boxed generic fallback for other tools, when `tools.style: "compact-box"` (the default). Elapsed time and output-size metrics come from renderer-state wall-clock tracking (no tool re-registration). New `tools.maxExpandedLines` (default 50) and `tools.dimOutput` (default false) options.
-- Added the boxed **special message blocks**: compaction, skill, branch, and extension custom (MCP) messages now render as `⊟`-labeled boxed blocks with expand hints when `messages.specialBlocks` is enabled, via new certified fingerprint-gated adapters (`message-block-boxed-v1`) over the native `updateDisplay`/`rebuild` identities; they fall back to native layout when no session theme is cached. Requires the new `pi-style-message-special-blocks` surface flag plus `pi-style-core-patches`.
-- Added shared rendering primitives under `shared/` (box, render-budget, elapsed, split-diff, theme-extras) so message and tool features share one visual system without cross-feature imports.
-- **Surfaces are now default-on.** The core/message/tool surface flags register with `default: true`, so the certified UI (prefixes, boxed tools, special blocks) activates without CLI flags; the OFF switch is `compatibility.allowCorePatches: false` in config. The `pi-style-ascii` flag stays opt-in.
-- **Extension tools without renderers (TaskCreate/TaskUpdate/TaskList, etc.) now render boxed.** These tools register no `renderCall`/`renderResult`, so Pi's `getCallRenderer` returned `undefined` and the native plain-text fallback (`createCallFallback`) was shown. In `compact-box` style the tool-decoration owner now substitutes a boxed fallback renderer (generic call/result boxes with param lines, pending state, elapsed footer) whenever the native renderer is missing — same certified `getCallRenderer`/`getResultRenderer` surface, no new prototype patch.
-- **Long tool lines no longer break multi-byte characters.** `clampRenderLine`/`clampLineLength` truncated with a plain `slice(0, max)` — a cut inside an emoji/supplementary-plane char produced a lone surrogate that rendered as `� (truncated)`. New `truncateAtCodePointBoundary` steps back to the surrogate-pair boundary before appending the truncation suffix.
-- **Boxed surfaces no longer paint a background slab.** The native `toolPendingBg`/`toolErrorBg`/`toolSuccessBg` container fill (tools) and `customMessageBg` fill (skill/compaction/branch/custom blocks) are neutralized to transparent for boxed rendering — the boxes sit directly on the terminal background.
-- **Runtime fix — extension entry is now TypeScript source.** Pi loads extensions through its jiti loader, which aliases `@earendil-works/*` to the runtime's own module copies. A prebuilt `.js` bundle is native-imported (no alias), so its `@earendil-works/pi-coding-agent` resolved to a second copy and every prototype patch (tool renderers, message prefixes, special blocks) targeted classes Pi never renders — the status line worked because it uses UI widget APIs, but all decoration was silently inert. The manifest now points at `extension-src/pi-style/pi/index.ts`; `dist/extensions/pi-style.js` remains as a compile check. Verified in a real `pi` TUI session: `❯`/`│` prefixes, boxed `➔ Read/Bash ✓` call/result boxes with pending states and metrics footers all render.
+### Documentation
 
-- The primary status line now defaults to **below the editor**: the bottom of the screen reads editor frame → `❯` input → editor frame → status row. `placement: "above"` restores the previous behavior.
-- The `default`/`ascii` status layouts now render `path │ git │ ctx (1M): █████████░░░░░░░░░░░ 47% │ $0.015` on the left with the model right-aligned (`(deepseek) deepseek-v4-flash • high`) via new `context_bar` and `model_effort` segments; the model provider and reasoning capability flow from the active `Model` into the status snapshot. The trailing layout group is now right-aligned, and the context bar is colored green <50%, yellow 50–70%, red >70%.
+- Add demo screenshot to README
 
-- Completed Phase 0 package foundation and lifecycle validation.
-- Added a minimal inert Pi extension entrypoint at `dist/extensions/pi-style.js` after build.
-- Added package-load smoke validation and bounded Pi peer dependency ranges.
-- UI features remain planned for Phase 1 and later.
-- Added the compact startup presentation: gradient Pi logo header, `◆ Resources` chip summary, and boxed System & Context / Available Tools panels (overlay or `startup.alwaysExpanded`). Resource collection (system prompt, active tools, scoped models) happens at session start outside render.
-- Compact startup is now the default (`startup.mode: "compact"`); previously the default preset left startup disabled. The default view is the gradient logo block only, with two-row margins above and below — no model/context text and resource chips are opt-in via `startup.showResources` (the `full` preset enables the rich overlay with chips and panels). The former `startup.showModel` option was removed.
+### Features
+
+- Implement phase 1A foundation
+- Implement phase 2 status line foundation
+- Complete phase 2 status line
+- Complete phase 3 styled editor
+- Complete phase 4 startup presentation
+- Complete phase 5 messages and tools
+- Complete phase 6 configuration and composition
+- Boxed tool/message presentation ported from pi-droid-styling
+
+### Miscellaneous Tasks
+
+- Complete phase 0 foundation
+- Add CI and release workflows with git-cliff changelog
+- Point changelog repo links at quanpersie2001/pi-style
+- Use npm ci for deterministic installs
+- Use npm install like pi-rules to tolerate cross-platform lockfile gaps
+
+### Styling
+
+- More breathing room inside boxed surfaces
+
+### Testing
+
+- Close phase 2 status line gaps
+
