@@ -90,7 +90,7 @@ The panel has **no surrounding box and never collapses** — the tree stays open
 - **Running** header `◌ Read (N) · k/N`; tree shows `✓`/`◌` per member.
 - **Done** header ` Read (N) · 0.08s` (open-tree glyph; `●` unicode fallback, nerd `\u{F111}`); tree keeps the first 5 members and a `└─ N more` row.
 - **Per-file color**: files read successfully render in the primary (accent) color; failed members render in the error color with the error text indented beneath, and the header becomes `✗ Read (N) · 1 failed`. Errors stay open.
-- **Lone calls are unchanged**: a single read/list/find renders exactly the pre-batch boxed single box.
+- **Lone calls use the same tree**: a single read/list/find is just a batch of one — ` Read (1) · 0.08s` with a single `└─ path` row. No boxed special case.
 
 Header requirements: stable human-readable tool label (`formatToolName`); concise primary argument; pending/success/error via `✓`/`✗` (the native `toolPendingBg`/`toolErrorBg`/`toolSuccessBg` container fill is neutralized for boxed rendering); no leaking of hidden/sensitive values beyond native Pi behavior; incomplete streaming arguments render safely; labels and glyphs remain meaningful in ASCII/no-color mode.
 

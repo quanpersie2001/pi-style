@@ -15,8 +15,8 @@
 // - Batch boundaries: a new batch starts when the active batch is closed. The
 //   active batch closes when a non-batchable tool call is dispatched
 //   (boxed/index.ts), when a new message starts (pi/index.ts), and on session
-//   reset (session-coordinator.ts). A batch with a single member renders
-//   exactly like the pre-batch single-call UI (zero regression).
+//   reset (session-coordinator.ts). Lone calls render the same boxless tree
+//   (a batch of one) — there is no boxed single-call special case.
 // - No surrounding box: indentation and tree glyphs (├─/└─) carry the
 //   hierarchy; the header line is the summary (` Read (N) · 0.08s`).
 // - Errors stay visible: failed members are always rendered inline (even in the
@@ -271,41 +271,37 @@ function renderBatchTree(theme: BoxTheme, batch: BatchState, status: BatchStatus
 }
 
 function renderBatchPanelLines(theme: BoxTheme, batch: BatchState, status: BatchStatus, width: number): string[] {
-	// The tree stays open in every state: no collapsed single-line summary.
-	const lines = [formatBatchHeader(theme, batch, status)];
+	// The tree stays open in every state, including for a lone call: no boxed
+	// single-call special case, no collapsed single-line summary.
+	const header = safeTruncateToWidth(formatBatchHeader(theme, batch, status), Math.max(1, width), "…");
+	const lines = [header];
 	lines.push(...renderBatchTree(theme, batch, status, width));
 	return lines;
 }
 
 /**
- * Leader call component: delegates to the single-call UI while the batch has a
- * single member (no behavior change for lone calls), otherwise renders the live
- * batch panel.
+ * Leader call component: renders the live batch panel (header + tree) reading
+ * the registry on every render pass. Members render EMPTY_BATCH_COMPONENT.
  */
-export function renderBatchAwareCall(theme: BoxTheme, batch: BatchState, single: Component): Component {
+export function renderBatchAwareCall(theme: BoxTheme, batch: BatchState): Component {
 	return {
-		invalidate() {
-			single.invalidate?.();
-		},
+		invalidate() {},
 		render(width: number): string[] {
-			if (batch.members.length <= 1) return single.render(width);
 			return renderBatchPanelLines(theme, batch, batchStatus(batch), width);
 		},
 	};
 }
 
 /**
- * Leader result component: delegates to the single-result UI for lone calls;
- * for real batches the panel lives in the call component, so the result adds
- * nothing.
+ * Empty result component for the batch leader. The panel lives in the call
+ * component; the result adds nothing. Deliberately NOT the shared member
+ * singleton, so the decoration's hideBatchMember (identity-compared to
+ * EMPTY_BATCH_COMPONENT) never hides the leader.
  */
-export function renderBatchAwareResult(batch: BatchState, single: Component): Component {
+export function emptyBatchResult(): Component {
 	return {
-		invalidate() {
-			single.invalidate?.();
-		},
-		render(width: number): string[] {
-			if (batch.members.length <= 1) return single.render(width);
+		invalidate() {},
+		render() {
 			return [];
 		},
 	};
