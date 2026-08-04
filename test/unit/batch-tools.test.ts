@@ -104,7 +104,8 @@ describe("batch grouping for quiet tools", () => {
 		readResult("r2", "b.ts", "some more words here");
 		joined = plain(r1.component.render(80)).join("\n");
 		expect(joined).toContain("● Read (2)");
-		expect(joined).toContain("0.00s");
+		// Elapsed is real wall time (performance.now), so only the format is asserted.
+		expect(joined).toMatch(/● Read \(2\) · \d+\.\d{2}s/);
 		expect(joined).toContain("├─ a.ts"); // tree kept open after completion
 		expect(joined).toContain("└─ b.ts");
 	});
