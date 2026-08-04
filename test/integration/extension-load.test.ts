@@ -1,10 +1,11 @@
 import { initTheme, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executePiStyleCommand } from "../../extension-src/pi-style/app/command-service.js";
-import { disposePiCompatibilityProbe } from "../../extension-src/pi-style/pi/compatibility-probe.js";
+import { disposePiCompatibilityProbe, targetSpecs } from "../../extension-src/pi-style/pi/compatibility-probe.js";
 import {
 	__setCompatibilityRegistryTestHooks,
 	currentGeneration,
+	getCompatibilityRecords,
 } from "../../extension-src/pi-style/pi/compatibility-registry.js";
 import piStyleExtension from "../../extension-src/pi-style/pi/index.js";
 import { createPiStyleSessionCoordinator } from "../../extension-src/pi-style/pi/session-coordinator.js";
@@ -27,7 +28,15 @@ function injectedSettings(config: unknown) {
 
 describe("pi-style extension lifecycle foundation", () => {
 	beforeEach(() => vi.useFakeTimers());
-	afterEach(() => vi.useRealTimers());
+	afterEach(() => {
+		vi.useRealTimers();
+		// Session switches retain Tier C patches across session_shutdown, so each
+		// test restores every registered wrapper explicitly to keep the shared
+		// prototype registry clean for the next test.
+		for (const spec of targetSpecs) {
+			for (const record of getCompatibilityRecords(spec.target)) record.disposer();
+		}
+	});
 
 	it("loads and registers lifecycle handlers without pre-session resources or UI", () => {
 		const host = new FakePiHost();
@@ -90,20 +99,35 @@ describe("pi-style extension lifecycle foundation", () => {
 			const generation = currentGeneration();
 			expect(installed?.value).not.toBe(native?.value);
 			await host.sessionShutdown();
-			expect(restoreAttempts).toBe(1);
+			// Session switches retain the Tier C patches so Pi's renderBeforeBind
+			// (restored-chat render before the next session_start) stays decorated;
+			// shutdown therefore does not attempt a restore.
+			expect(restoreAttempts).toBe(0);
 			expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(installed?.value);
 			await host.sessionStart();
-			// Incomplete cleanup is retryable but must not create a new generation or install over the live owner.
+			// The retained report is restored at the next start; a rejected restore is
+			// retryable and must not create a new generation or install over the live owner.
+			expect(restoreAttempts).toBe(1);
 			expect(currentGeneration()).toBe(generation);
 			expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(installed?.value);
 			await host.sessionShutdown();
-			expect(restoreAttempts).toBe(3);
+			expect(restoreAttempts).toBe(1);
+			await host.sessionStart();
+			expect(restoreAttempts).toBe(2);
+			expect(currentGeneration()).toBe(generation);
+			expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(installed?.value);
 			blocked = false;
 			await host.sessionStart();
+			// Restore succeeded at the start boundary: native restored, then a fresh
+			// generation installed.
+			expect(restoreAttempts).toBe(3);
 			expect(currentGeneration()).toBe(generation + 1);
 			expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).not.toBe(native?.value);
+			expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).not.toBe(
+				installed?.value,
+			);
 			await host.sessionShutdown();
-			expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(native?.value);
+			expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).not.toBe(native?.value);
 		} finally {
 			resetRegistry();
 		}
@@ -523,7 +547,8 @@ describe("pi-style extension lifecycle foundation", () => {
 		expect(output).toContain("❯ ");
 		expect(output).not.toContain("[user] ");
 		coordinator.shutdown();
-		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(native);
+		// Retained across the session-switch gap (the next session_start restores).
+		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).not.toBe(native);
 	});
 
 	it("reports cleanup pending through command off/on and reinstalls only after restoration", async () => {
@@ -609,8 +634,13 @@ describe("pi-style extension lifecycle foundation", () => {
 		});
 		expect(awaitingDoctor.operational.compatibility.userMessage).not.toHaveProperty("awaitingAuthorization");
 		awaitingCoordinator.shutdown();
-		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(awaitingNative);
-		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(awaitingNative);
+		// Tier C patches are retained across shutdown (the restored-chat render happens
+		// before the next session_start, which performs the restore-and-reinstall).
+		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).not.toBe(awaitingNative);
+		// Restore the retained wrapper so the next coordinator in this test starts native.
+		for (const spec of targetSpecs) {
+			for (const record of getCompatibilityRecords(spec.target)) record.disposer();
+		}
 
 		const authorizedNative = Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value;
 		const authorizedHost = new FakePiHost({ flags: { "pi-style-core-patches": true, "pi-style-message-user": true } });
@@ -630,7 +660,8 @@ describe("pi-style extension lifecycle foundation", () => {
 			installed: true,
 		});
 		authorizedCoordinator.shutdown();
-		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).toBe(authorizedNative);
+		// Retained across the session-switch gap, as above.
+		expect(Object.getOwnPropertyDescriptor(UserMessageComponent.prototype, "render")?.value).not.toBe(authorizedNative);
 
 		const host = new FakePiHost({ flags: { "pi-style-core-patches": true, "pi-style-message-user": true } });
 		let source = { placement: "above", editor: { style: "compact" }, messages: { enabled: true }, schemaVersion: 1 };

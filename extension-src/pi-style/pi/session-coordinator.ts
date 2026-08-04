@@ -181,7 +181,15 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			terminalInputUnsubscribe?.();
 			terminalInputUnsubscribe = undefined;
 			app.sessionShutdown();
-			compatibility.dispose();
+			// Tier C prototype patches stay installed across session switches. Pi renders
+			// the restored chat (renderBeforeBind) AFTER session_shutdown but BEFORE the
+			// next session_start, so disposing here would rebuild the resumed tool and
+			// special-block surfaces with native prototypes and they would never be
+			// re-decorated (their boxed output is derived once at updateDisplay time and
+			// cached; a later frame render does not re-invoke the renderer selectors).
+			// The next start() disposes this report (restoring the native identities)
+			// and reinstalls before any new render. On process exit (reason "quit") the
+			// terminal is torn down immediately after, so retained patches are harmless.
 		},
 	};
 }

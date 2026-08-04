@@ -321,6 +321,50 @@ describe("Pi 0.83 compatibility probe", () => {
 		disposePiCompatibilityProbe(asciiReport);
 	});
 
+	it("prefixes single-line assistant messages whose only body line is the envelope last line", () => {
+		initTheme("dark", false);
+		const report = probePiCompatibility("0.83.0", {
+			messageSnapshot: {
+				userPrefix: "[user] ",
+				assistantPrefix: "[assistant] ",
+				userEnabled: true,
+				assistantEnabled: true,
+			},
+		});
+		const stripAnsi = (value: string) => {
+			let output = "";
+			for (let index = 0; index < value.length; index++) {
+				if (value[index] !== "\x1b") {
+					output += value[index];
+					continue;
+				}
+				if (value[index + 1] === "]") {
+					index += 2;
+					while (index < value.length && value.charCodeAt(index) !== 7) index++;
+					continue;
+				}
+				if (value[index + 1] === "[") {
+					index += 2;
+					while (index < value.length && (value.charCodeAt(index) < 64 || value.charCodeAt(index) > 126)) index++;
+				}
+			}
+			return output;
+		};
+		const assistant = new AssistantMessageComponent(assistantMessage([{ type: "text", text: "done" }]));
+		const lines = assistant.render(120);
+		const contentLine = lines.find((line) => stripAnsi(line).includes("done"));
+		expect(contentLine).toBeDefined();
+		// The native multiline OSC133 envelope puts the only body on the final line;
+		// the prefix must still be attached to it (the body keeps its native leading
+		// output padding space).
+		expect(stripAnsi(contentLine ?? "")).toMatch(/^\[assistant\] .*done/);
+		// OSC envelope markers stay balanced and the decorated output fits the width.
+		expect(count(lines.join("\n"), "\x1b]133;A\x07")).toBe(1);
+		expect(count(lines.join("\n"), "\x1b]133;B\x07\x1b]133;C\x07")).toBe(1);
+		expect(lines.every((line) => visibleWidth(line) <= 120)).toBe(true);
+		disposePiCompatibilityProbe(report);
+	});
+
 	it("proves one native call and exact OSC/width behavior for real messages", () => {
 		initTheme("dark", false);
 		const report = probePiCompatibility("0.83.0");
@@ -451,7 +495,15 @@ describe("Pi 0.83 compatibility probe", () => {
 			targetSpecs.filter((spec) => getCompatibilityRecords(spec.target).some((record) => !record.disposed)).length,
 		).toBe(8);
 		await host.sessionShutdown();
-		expect(targetSpecs.every((spec) => getCompatibilityRecords(spec.target).length === 0)).toBe(true);
+		// Tier C patches are retained across session switches (Pi renders the restored
+		// chat with renderBeforeBind before the next session_start, which restores and
+		// reinstalls them), so the registry is not emptied at shutdown.
+		expect(targetSpecs.every((spec) => getCompatibilityRecords(spec.target).length > 0)).toBe(true);
+		await host.sessionStart();
+		expect(
+			targetSpecs.filter((spec) => getCompatibilityRecords(spec.target).some((record) => !record.disposed)).length,
+		).toBe(8);
+		await host.sessionShutdown();
 
 		// OFF switch: `compatibility.allowCorePatches: false` in config denies all core patches.
 		let document = JSON.stringify({
@@ -1035,8 +1087,10 @@ describe("Pi 0.83 compatibility probe", () => {
 			expect(getCompatibilityRecords(UserMessageComponent.prototype).length).toBe(1);
 			expect(getCompatibilityRecords(ToolExecutionComponent.prototype).length).toBe(2);
 			await host.sessionShutdown();
-			expect(descriptors()).toEqual(baseline);
-			expect(targetSpecs.every((spec) => getCompatibilityRecords(spec.target).length === 0)).toBe(true);
+			// Patches are retained across the session-switch gap (renderBeforeBind), and
+			// the next session_start restores the previous generation and reinstalls.
+			expect(descriptors()).not.toEqual(baseline);
+			expect(targetSpecs.every((spec) => getCompatibilityRecords(spec.target).length > 0)).toBe(true);
 			expect(host.handlers.get("session_start")?.length).toBe(counts.handlers.get("session_start"));
 			expect(host.widgets.size).toBe(0);
 			expect(host.componentFactories.size).toBe(0);
@@ -1089,9 +1143,11 @@ describe("Pi 0.83 compatibility probe", () => {
 			}
 			expect(getCompatibilityRecords(UserMessageComponent.prototype).length).toBe(1);
 			await host.sessionShutdown();
-			// …and every wrapper is restored exactly on shutdown.
-			expect(descriptors()).toEqual(baseline);
-			expect(targetSpecs.reduce((count, spec) => count + getCompatibilityRecords(spec.target).length, 0)).toBe(0);
+			// Retained across the switch gap; restoration happens at the next start.
+			expect(descriptors()).not.toEqual(baseline);
+			expect(
+				targetSpecs.reduce((count, spec) => count + getCompatibilityRecords(spec.target).length, 0),
+			).toBeGreaterThan(0);
 			expect(host.componentFactories.size).toBe(baselineFactories);
 			expect(host.widgets.size).toBe(baselineWidgets);
 			expect(host.terminalInputSubscriptions).toBe(baselineTerminalSubscriptions);

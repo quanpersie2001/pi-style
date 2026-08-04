@@ -50,6 +50,13 @@ function decorateMessageLine(
 		return `${OSC133_ZONE_START}${prefix}${line.slice(OSC133_ZONE_START.length)}`;
 	if (index === lastIndex && multilineEnvelope && index !== contentIndex)
 		return `${OSC133_ZONE_END}${OSC133_ZONE_FINAL}${line.slice((OSC133_ZONE_END + OSC133_ZONE_FINAL).length)}`;
+	if (
+		index === contentIndex &&
+		index === lastIndex &&
+		multilineEnvelope &&
+		line.startsWith(OSC133_ZONE_END + OSC133_ZONE_FINAL)
+	)
+		return `${OSC133_ZONE_END}${OSC133_ZONE_FINAL}${prefix}${line.slice((OSC133_ZONE_END + OSC133_ZONE_FINAL).length)}`;
 	if (index === contentIndex) return `${prefix}${line}`;
 	return index > contentIndex ? `${" ".repeat(prefixWidth)}${line}` : line;
 }
@@ -88,9 +95,15 @@ function prefixNative(lines: unknown, width: number, prefix: string): string[] |
 	const first = nativeLines[0] ?? "";
 	const last = nativeLines.at(-1) ?? "";
 	const multilineEnvelope = nativeLines.length > 1 && last.startsWith(OSC133_ZONE_END + OSC133_ZONE_FINAL);
-	const firstContentIndex = nativeLines.findIndex((line, index) =>
-		index !== nativeLines.length - 1 || !multilineEnvelope ? hasContent(line) : false,
-	);
+	// The last line is a content-start candidate only when the envelope is
+	// single-line, or when no earlier line carries content. Assistant messages
+	// with a single content line render as a multiline envelope whose only body
+	// sits on the final line ([OSC133_A, OSC133_END+FINAL+body]); excluding it
+	// would drop the prefix for every short assistant reply.
+	const firstContentIndex = nativeLines.findIndex((line, index) => {
+		if (index !== nativeLines.length - 1 || !multilineEnvelope) return hasContent(line);
+		return !nativeLines.slice(0, index).some((earlier) => hasContent(earlier)) && hasContent(line);
+	});
 	if (firstContentIndex < 0) return nativeLines;
 	const firstEnvelope = firstContentIndex === 0 ? extractOscEnvelope(first) : undefined;
 	const firstHasStart = firstContentIndex === 0 && first.startsWith(OSC133_ZONE_START);

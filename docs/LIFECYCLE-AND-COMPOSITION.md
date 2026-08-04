@@ -41,8 +41,8 @@ The factory must not create timers, watchers, child processes, sockets, or termi
 
 | Event | State/UI effect |
 | --- | --- |
-| `session_start` | Build and install a fresh runtime. |
-| `session_shutdown` | Dispose runtime, restore owned surfaces, cancel work. |
+| `session_start` | Build and install a fresh runtime; restore the retained previous-generation patches, then reinstall. |
+| `session_shutdown` | Dispose runtime, restore owned surfaces, cancel work; Tier C prototype patches stay installed across the session-switch gap (see below). |
 | `model_select` / `thinking_level_select` | Update snapshot; request immediate render (thinking bypasses typing deferral). |
 | `session_info_changed` | Refresh session/name segment if enabled. |
 | `before_agent_start` / `agent_start` | Capture dismissal state; mark streaming; dismiss startup; increase refresh cadence. |
@@ -101,6 +101,8 @@ interface PatchRecord {
 ```
 
 Rules: never wrap the same target twice; restore only if `target.method === installed`; do not overwrite a later extension's replacement during cleanup; catch capability/shape errors and disable the feature; include patch state in doctor output. Phase 5 message/tool patches are session-only, exact-Pi-gated, renderer-only, and default-deny. A failed exact restoration retains the probe for retry before a new generation; a later owner is preserved.
+
+**Retention across session switches.** Pi's in-app resume/new/fork flow renders the restored chat (`renderBeforeBind`) *after* `session_shutdown` and *before* the next `session_start`. Tool boxes and special-block boxes are derived once at `updateDisplay`/construction time and cached, so disposing the prototype patches at `session_shutdown` would leave the restored chat permanently native. Instead the coordinator retains the installed patches through `session_shutdown`; the next `session_start` restores the previous generation's exact native identities and reinstalls before any new chat render. On process exit the terminal is torn down immediately after `session_shutdown`, so retained patches are harmless.
 
 ## Render scheduling
 
