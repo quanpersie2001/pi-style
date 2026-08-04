@@ -1,5 +1,10 @@
 // Boxed read tool renderer
 // (renderCall/renderResult only; no tool re-registration).
+//
+// Consecutive read calls in one assistant turn group into a single collapsible
+// batch panel (see batch.ts): the first read is the batch leader and renders
+// the whole panel; later reads render zero lines. A lone read renders exactly
+// like the pre-batch boxed UI.
 
 import { getLanguageFromPath, highlightCode } from "@earendil-works/pi-coding-agent";
 import { stripAnsi } from "../../../shared/ansi.js";
@@ -13,8 +18,17 @@ import {
 	stripTrailingNotice,
 } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
+import {
+	type BatchToolMeta,
+	EMPTY_BATCH_COMPONENT,
+	registerBatchCall,
+	registerBatchResult,
+	renderBatchAwareCall,
+	renderBatchAwareResult,
+} from "./batch.js";
 import { getToolsRenderConfig } from "./session-config.js";
 import {
+	type BoxedToolContext,
 	type BoxedToolDefinition,
 	clearFooterState,
 	compactCall,
@@ -22,11 +36,16 @@ import {
 	noteExecutionStart,
 	pathRangeDetail,
 	resultFooterLines,
-	truncationOutputLines,
 } from "./shared.js";
 
 const MAX_HIGHLIGHT_OUTPUT_CHARS = 12000;
 const MAX_HIGHLIGHT_OUTPUT_LINES = 300;
+
+const READ_META: BatchToolMeta = Object.freeze({
+	toolName: "read",
+	label: "Read",
+	summaryKind: "words",
+});
 
 type NumberedReadLine = {
 	lineNumber: string;
@@ -148,57 +167,77 @@ function renderReadBody(
 	};
 }
 
+function readResultDetail(context: BoxedToolContext): string {
+	const rawPath = String(context?.args?.path ?? context?.args?.file_path ?? "");
+	return pathRangeDetail(rawPath, context?.args?.offset, context?.args?.limit, context);
+}
+
 export const readTool: BoxedToolDefinition = {
 	call(args, theme, context) {
 		noteExecutionStart(context);
 		const rawPath = String(args?.path ?? args?.file_path ?? "");
 		const detail = pathRangeDetail(rawPath, args?.offset, args?.limit, context);
-		return compactCall(theme, "Read", `${theme.fg("dim", "Path: ")}${detail}`, {
+		const { isLeader, batch } = registerBatchCall(READ_META, detail, context);
+		if (!isLeader) return EMPTY_BATCH_COMPONENT;
+		const single = compactCall(theme, "Read", `${theme.fg("dim", "Path: ")}${detail}`, {
 			detailKey: detail,
 			context,
 		});
+		return renderBatchAwareCall(theme, batch, single);
 	},
 	result(result, options, theme, context) {
-		clearFooterState(context);
 		const output = stripAnsi(getTextOutput(result)).trimEnd();
-		const rawPath = String(context?.args?.path ?? context?.args?.file_path ?? "");
-		const detail = pathRangeDetail(rawPath, context?.args?.offset, context?.args?.limit, context);
+		const detail = readResultDetail(context);
+		const { isLeader, batch } = registerBatchResult(
+			READ_META,
+			{
+				isPartial: Boolean(options.isPartial),
+				isError: Boolean(context.isError),
+				errorText: context.isError ? output || undefined : undefined,
+			},
+			context,
+		);
+		if (!isLeader || !batch) return EMPTY_BATCH_COMPONENT;
+		clearFooterState(context);
 		const widthKey = boxedToolWidthKey("Read", detail);
 
+		let single: ReturnType<typeof renderBoxedToolResult> | ReturnType<typeof compactFooterWithState>;
 		if (context.isError) {
-			return renderBoxedToolResult(theme, () => [theme.fg("error", output || "Error")], {
+			single = renderBoxedToolResult(theme, () => [theme.fg("error", output || "Error")], {
 				widthKey,
 				footerLines: resultFooterLines(theme, result, context),
 				isError: true,
 			});
+		} else {
+			const imageCount = Array.isArray(result.content)
+				? result.content.filter((contentBlock) => {
+						if (!contentBlock || typeof contentBlock !== "object") return false;
+						return (contentBlock as { type?: unknown }).type === "image";
+					}).length
+				: 0;
+			if (imageCount > 0) {
+				if (!options.expanded) {
+					single = compactFooterWithState(theme, result, context);
+				} else {
+					const summary = `↳ Read ${imageCount} ${imageCount === 1 ? "image" : "images"}.`;
+					single = renderBoxedToolResult(theme, () => [theme.fg("dim", summary)], {
+						widthKey,
+						footerLines: resultFooterLines(theme, result, context),
+					});
+				}
+			} else if (!options.expanded) {
+				single = compactFooterWithState(theme, result, context);
+			} else {
+				const stripped = stripTrailingNotice(output);
+				const parsed = parseReadOutput(stripped);
+				const truncationNotice = extractTrailingNotice(output);
+				const body = renderReadBody(theme, options, parsed, output, truncationNotice);
+				single = renderBoxedToolResult(theme, body, {
+					widthKey,
+					footerLines: resultFooterLines(theme, result, context),
+				});
+			}
 		}
-
-		const imageCount = Array.isArray(result.content)
-			? result.content.filter((contentBlock) => {
-					if (!contentBlock || typeof contentBlock !== "object") return false;
-					return (contentBlock as { type?: unknown }).type === "image";
-				}).length
-			: 0;
-		if (imageCount > 0) {
-			if (!options.expanded) return compactFooterWithState(theme, result, context);
-			const summary = `↳ Read ${imageCount} ${imageCount === 1 ? "image" : "images"}.`;
-			return renderBoxedToolResult(theme, () => [theme.fg("dim", summary)], {
-				widthKey,
-				footerLines: resultFooterLines(theme, result, context),
-			});
-		}
-
-		const stripped = stripTrailingNotice(output);
-		const parsed = parseReadOutput(stripped);
-		const truncationNotice = extractTrailingNotice(output);
-		const _linesRead = truncationOutputLines(result) ?? parsed.numberedLines?.length ?? countLines(parsed.body);
-
-		if (!options.expanded) return compactFooterWithState(theme, result, context);
-
-		const body = renderReadBody(theme, options, parsed, output, truncationNotice);
-		return renderBoxedToolResult(theme, body, {
-			widthKey,
-			footerLines: resultFooterLines(theme, result, context),
-		});
+		return renderBatchAwareResult(batch, single);
 	},
 };

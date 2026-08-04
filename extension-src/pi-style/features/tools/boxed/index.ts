@@ -7,6 +7,7 @@
 import type { Component } from "@earendil-works/pi-tui";
 import type { BoxTheme } from "../../../shared/box.js";
 import { bashTool } from "./bash.js";
+import { closeActiveBatch, isBatchableTool } from "./batch.js";
 import { editTool } from "./edit.js";
 import { renderFallbackCall, renderFallbackResult } from "./fallback.js";
 import { findTool } from "./find.js";
@@ -46,6 +47,9 @@ export function renderBoxedToolCall(
 	theme: BoxTheme,
 	context: BoxedToolContext,
 ): Component {
+	// Any non-batchable tool call is a batch boundary: the next quiet call starts
+	// a fresh batch instead of joining the previous one.
+	if (!isBatchableTool(toolName)) closeActiveBatch();
 	const tool = typeof toolName === "string" ? REGISTRY[toolName] : undefined;
 	if (tool) return tool.call(args, theme, context);
 	return renderFallbackCall(toolName, args, theme, context);

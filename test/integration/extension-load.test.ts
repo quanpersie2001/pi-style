@@ -1,6 +1,9 @@
 import { initTheme, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executePiStyleCommand } from "../../extension-src/pi-style/app/command-service.js";
+import { resetBatchRegistry } from "../../extension-src/pi-style/features/tools/boxed/batch.js";
+import { renderBoxedToolCall as dispatchCall } from "../../extension-src/pi-style/features/tools/boxed/index.js";
+import type { BoxedToolContext } from "../../extension-src/pi-style/features/tools/boxed/shared.js";
 import { disposePiCompatibilityProbe, targetSpecs } from "../../extension-src/pi-style/pi/compatibility-probe.js";
 import {
 	__setCompatibilityRegistryTestHooks,
@@ -9,8 +12,9 @@ import {
 } from "../../extension-src/pi-style/pi/compatibility-registry.js";
 import piStyleExtension from "../../extension-src/pi-style/pi/index.js";
 import { createPiStyleSessionCoordinator } from "../../extension-src/pi-style/pi/session-coordinator.js";
-import { visibleWidth } from "../../extension-src/pi-style/shared/ansi.js";
+import { stripAnsi, visibleWidth } from "../../extension-src/pi-style/shared/ansi.js";
 import { FakePiHost } from "../helpers/fake-pi-host.js";
+import { createFakeTheme } from "../helpers/fake-theme.js";
 import { expectNoTerminalUi } from "../helpers/render-assertions.js";
 
 function injectedSettings(config: unknown) {
@@ -43,12 +47,48 @@ describe("pi-style extension lifecycle foundation", () => {
 		expect(() => piStyleExtension(host.extensionApi)).not.toThrow();
 		expect(host.handlers.has("session_start")).toBe(true);
 		expect(host.handlers.has("session_shutdown")).toBe(true);
+		expect(host.handlers.has("message_start")).toBe(true); // quiet-tool batch boundary
 		expect(host.commands.has("pi-style")).toBe(true);
 		expect(host.registeredTools).toHaveLength(0);
 		expect(host.registeredMessageRenderers.size).toBe(0);
 		expect(host.registeredEntryRenderers.size).toBe(0);
 		expect(host.widgets.size).toBe(0);
 		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("message_start closes the active quiet-tool batch", async () => {
+		const host = new FakePiHost();
+		piStyleExtension(host.extensionApi);
+		await host.sessionStart();
+
+		const theme = createFakeTheme();
+		const boxed = (id: string, path: string): BoxedToolContext => ({
+			args: { path },
+			toolCallId: id,
+			invalidate: () => {},
+			state: {},
+			cwd: "/fake",
+			executionStarted: true,
+			argsComplete: true,
+			isPartial: false,
+			expanded: false,
+			showImages: true,
+			isError: false,
+			lastComponent: undefined,
+		});
+
+		// Two reads form one batch; the leader renders the batch panel.
+		const leader = dispatchCall("read", { path: "a.ts" }, theme as never, boxed("r1", "a.ts"));
+		dispatchCall("read", { path: "b.ts" }, theme as never, boxed("r2", "b.ts"));
+		expect(leader.render(80).join("")).toContain("Read (2)");
+
+		// A new message boundary closes the batch: the next read starts fresh.
+		await host.emit("message_start", { type: "message_start", message: { role: "assistant", content: [] } });
+		const next = dispatchCall("read", { path: "c.ts" }, theme as never, boxed("r3", "c.ts"));
+		const joined = stripAnsi(next.render(80).join(""));
+		expect(joined).toContain("Read ✓"); // lone call, not part of the previous batch
+		expect(joined).not.toContain("Read (2)");
+		resetBatchRegistry();
 	});
 
 	it("starts and cleans a minimal runtime idempotently", async () => {

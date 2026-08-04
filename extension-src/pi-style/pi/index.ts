@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { StatusSnapshot } from "../domain/status.js";
+import { closeActiveBatch } from "../features/tools/boxed/batch.js";
 import { registerPiStyleCommand } from "./commands.js";
 import { type CompatibilityTestHooks, createPiStyleSessionCoordinator } from "./session-coordinator.js";
 import { usageFromSession } from "./session-usage.js";
@@ -54,6 +55,11 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	);
 	pi.on("thinking_level_select", (event) => coordinator.app.update({ thinkingLevel: event.level }, "immediate"));
 	pi.on("session_info_changed", (event) => coordinator.app.update({ sessionName: event.name }, "coalesced"));
+	pi.on("message_start", () => {
+		// A new message is a batch boundary: quiet-tool (read/ls/find) calls of the
+		// new message start a fresh batch instead of joining the previous one.
+		closeActiveBatch();
+	});
 	pi.on("message_update", () => coordinator.app.update({}, "coalesced"));
 	// Usage (tokens + cost) is aggregated from finalized session entries at
 	// message/turn boundaries, mirroring Pi's native footer; per-chunk updates

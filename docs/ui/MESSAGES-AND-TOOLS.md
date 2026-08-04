@@ -73,6 +73,25 @@ Full boxed shape (bash/edit/quick-edit/fallback), with the title in the top bord
 
 Compact (summary) tools render `➔ <Tool> ✓ · <detail>` with the footer in the bottom border; bash renders a full call box with the command, a `Response` divider, and the expand hint on the bottom border when output is truncated. Edit/quick-edit render the path in the header and the diff under a `Diff · +N -M` divider. `tools.style: "marker"` keeps the marker style (`[read] src/index.ts`).
 
+### Quiet-tool batching
+
+Consecutive calls of the same quiet tool (`read`, `ls`, `find`) inside one assistant turn collapse into a **single boxless tree panel** instead of one box per call. Grouping is always on. The first call becomes the batch leader and renders the whole panel; later calls render zero lines, so N boxes become one. Batching is per turn and per tool: a non-batchable call (bash/edit/write/…) or the next message closes the batch, so reads separated by an edit never merge, and session history is not re-grouped.
+
+The panel has **no surrounding box and never collapses** — the tree stays open in every state (one box per call is exactly the noise this feature removes). States:
+
+```text
+◌ Read (3) · 1/3
+  ├─ ✓ backend/api/.../entities.py
+  ├─ ◌ backend/api/.../dto.py
+  └─ ◌ backend/api/.../ports.py
+```
+
+- **Pending** header `➔ Read (N)`.
+- **Running** header `◌ Read (N) · k/N`; tree shows `✓`/`◌` per member.
+- **Done** header ` Read (N) · 0.08s` (open-tree glyph; `●` unicode fallback, nerd `\u{F111}`); tree keeps the first 5 members and a `└─ N more` row.
+- **Per-file color**: files read successfully render in the primary (accent) color; failed members render in the error color with the error text indented beneath, and the header becomes `✗ Read (N) · 1 failed`. Errors stay open.
+- **Lone calls are unchanged**: a single read/list/find renders exactly the pre-batch boxed single box.
+
 Header requirements: stable human-readable tool label (`formatToolName`); concise primary argument; pending/success/error via `✓`/`✗` (the native `toolPendingBg`/`toolErrorBg`/`toolSuccessBg` container fill is neutralized for boxed rendering); no leaking of hidden/sensitive values beyond native Pi behavior; incomplete streaming arguments render safely; labels and glyphs remain meaningful in ASCII/no-color mode.
 
 ## Tool result body
@@ -98,10 +117,10 @@ Edit, quick-edit, substitute-edit, and target-edit render their diff **adaptivel
 
 | Tool | Presentation |
 | --- | --- |
-| Read | Badge + normalized path, optional line range; native syntax-highlighted content when possible; truncation notice preserved. |
+| Read | Badge + normalized path, optional line range; native syntax-highlighted content when possible; truncation notice preserved. Consecutive reads batch into one boxless tree panel. |
 | Write | Path and created/overwritten state; concise success/error; no duplicate full file content unless native result provides it. |
 | Edit | Path in the header; adaptive diff (unified/split) with collapsed unchanged context; failed unique-match errors prominent. |
-| Find/list/grep | Query/path summary, result count/truncation status, compact file/result rows; expansion preserves full native details. |
+| Find/list/grep | Query/path summary, result count/truncation status, compact file/result rows; expansion preserves full native details. `ls`/`find` batch like reads; `grep` stays unbatched so match previews are never hidden. |
 | Bash | Concise command header, running/exit status, stdout/stderr distinction where host data supports it; long output uses native truncation/expansion; execution, environment, timeout, and shell behavior are never changed. |
 
 ## Expansion and collapse

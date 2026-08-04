@@ -107,6 +107,7 @@ const GLYPHS = {
 		powerlineRight: "\uE0B2",
 		powerlineThinLeft: "\uE0B1",
 		powerlineThinRight: "\uE0B3",
+		batchOpen: "\u{F111}",
 	},
 	unicode: {
 		pi: "π",
@@ -118,6 +119,7 @@ const GLYPHS = {
 		powerlineRight: "‹",
 		powerlineThinLeft: "│",
 		powerlineThinRight: "│",
+		batchOpen: "●",
 	},
 	ascii: {
 		pi: "pi",
@@ -129,6 +131,7 @@ const GLYPHS = {
 		powerlineRight: "<",
 		powerlineThinLeft: "|",
 		powerlineThinRight: "|",
+		batchOpen: "v",
 	},
 } as const;
 

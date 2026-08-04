@@ -133,7 +133,7 @@ export function countWords(text: string): number {
 	return count;
 }
 
-function formatCompactCount(value: number): string {
+export function formatCompactCount(value: number): string {
 	if (value < 1000) return `${Math.round(value)}`;
 	if (value < 10000) return `${(value / 1000).toFixed(1)}k`;
 	if (value < 1000000) return `${Math.round(value / 1000)}k`;
@@ -323,14 +323,21 @@ function formatBoxedStatusIcon(theme: BoxTheme, isError?: boolean): string {
 	return theme.fg(isError ? "error" : "success", icon);
 }
 
+/**
+ * Colored `➔ Name` prefix for tool titles (identity color). The status glyph
+ * (✓/✗) is appended separately by formatBoxedToolTitle.
+ */
+export function formatToolTitlePrefix(theme: BoxTheme, name: string): string {
+	return colorFromExtra(theme, "bashPromptColor", "bashMode", `➔ ${name}`);
+}
+
 export function formatBoxedToolTitle(theme: BoxTheme, name: string, isError?: boolean): string {
-	const rawTitle = `➔ ${name}`;
 	// On failure the whole title turns error-colored (not just the ✗) so a failed
 	// tool reads instantly; on success the tool keeps its identity color and only
 	// the ✓ carries the success color.
 	const coloredTitle = isError
-		? theme.fg("error", `${rawTitle} ✗`)
-		: `${colorFromExtra(theme, "bashPromptColor", "bashMode", rawTitle)} ${formatBoxedStatusIcon(theme, false)}`;
+		? theme.fg("error", `➔ ${name} ✗`)
+		: `${formatToolTitlePrefix(theme, name)} ${formatBoxedStatusIcon(theme, false)}`;
 	return typeof theme?.bold === "function" ? theme.bold(coloredTitle) : coloredTitle;
 }
 
@@ -421,6 +428,22 @@ export function boxBlankLine(theme: BoxTheme, width: number): string {
 	const contentWidth = boxInnerWidth(renderedWidth);
 	const sidePad = " ".repeat(BOX_SIDE_PADDING);
 	return `${boxFrameText(theme, BOX_VERTICAL)}${sidePad}${" ".repeat(contentWidth)}${sidePad}${boxFrameText(theme, BOX_VERTICAL)}`;
+}
+
+export function boxLineAligned(theme: BoxTheme, left: string, right: string, width: number): string {
+	const renderedWidth = boxWidth(width);
+	const contentWidth = boxInnerWidth(renderedWidth);
+	const rightWidth = safeVisibleWidth(right);
+	const sidePad = " ".repeat(BOX_SIDE_PADDING);
+
+	if (!right || rightWidth >= contentWidth) {
+		return boxLine(theme, right || left, renderedWidth);
+	}
+
+	const maxLeftWidth = Math.max(1, contentWidth - rightWidth - 1);
+	const truncatedLeft = safeTruncateToWidth(left, maxLeftWidth, "…");
+	const gap = " ".repeat(Math.max(1, contentWidth - safeVisibleWidth(truncatedLeft) - rightWidth));
+	return `${boxFrameText(theme, BOX_VERTICAL)}${sidePad}${truncatedLeft}${gap}${right}${sidePad}${boxFrameText(theme, BOX_VERTICAL)}`;
 }
 
 export function boxLineWithRight(theme: BoxTheme, left: string, right: string, width: number): string {

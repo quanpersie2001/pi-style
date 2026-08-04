@@ -2,8 +2,10 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { type KeyId, matchesKey } from "@earendil-works/pi-tui";
 import type { ConfigFilePort } from "../app/config-storage.js";
 import { createPiStyleApp, type PiStyleApp } from "../app/index.js";
+import { resolveTheme } from "../domain/theme.js";
 import { setSpecialBlockTheme } from "../features/messages/special-blocks.js";
-import { setToolsRenderConfig } from "../features/tools/boxed/session-config.js";
+import { resetBatchRegistry } from "../features/tools/boxed/batch.js";
+import { setToolsRenderConfig, type ToolsRenderConfig } from "../features/tools/boxed/session-config.js";
 import { createCompatibilityCoordinator } from "./compatibility-coordinator.js";
 import {
 	type CompatibilityCleanupResult,
@@ -45,6 +47,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 	let active = false;
 	let tuiSession = false;
 	let terminalInputUnsubscribe: (() => void) | undefined;
+	let sessionTheme: unknown;
 	const source = createConfigSourceAdapter(
 		pi,
 		filePort,
@@ -68,6 +71,13 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			),
 		);
 	};
+	/** Render-scoped tool config: line budgets + the resolved open-tree glyph. */
+	const applyToolsRenderConfig = (config: import("../domain/config-types.js").NormalizedPiStyleConfig) => {
+		setToolsRenderConfig({
+			...config.tools,
+			batchOpenGlyph: resolveTheme(sessionTheme as never, config, process.env).glyph("batchOpen"),
+		} satisfies ToolsRenderConfig);
+	};
 	const app: PiStyleApp = createPiStyleApp(
 		undefined,
 		{
@@ -79,6 +89,9 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 		(config) => {
 			productGate = app.productPolicy.corePatchGate;
 			if (!active) return;
+			// Apply render-scoped tool config live so `/pi-style set tools.*` takes
+			// effect immediately (line budgets, dimOutput, open-tree glyph, …).
+			applyToolsRenderConfig(config);
 			if (compatibility.report) {
 				const cleanup = compatibility.dispose();
 				if (!cleanup.complete) {
@@ -120,6 +133,9 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			tuiSession = ctx.mode === "tui";
 			app.setProjectTrusted(ctx.isProjectTrusted());
 			source.setSession(cwd, ctx.isProjectTrusted());
+			// Drop any batch state carried over from the previous session (Pi renders
+			// the restored chat between session_shutdown and the next session_start).
+			resetBatchRegistry();
 			active = false;
 			await app.reload();
 			productGate = app.productPolicy.corePatchGate;
@@ -127,7 +143,8 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			compatibility.install(app.config, ctx.mode === "tui", productGate);
 			// Session-scoped render configuration for the boxed tool/message surfaces.
 			// Populated once per session (never inside render).
-			setToolsRenderConfig(app.config.tools);
+			sessionTheme = ctx.ui?.theme as never;
+			applyToolsRenderConfig(app.config);
 			if (ctx.ui?.theme) setSpecialBlockTheme(ctx.ui.theme as never);
 			const toolDetails = collectToolDetails(pi.getActiveTools?.(), pi.getAllTools?.());
 			app.sessionStart(
@@ -180,6 +197,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			tuiSession = false;
 			terminalInputUnsubscribe?.();
 			terminalInputUnsubscribe = undefined;
+			resetBatchRegistry();
 			app.sessionShutdown();
 			// Tier C prototype patches stay installed across session switches. Pi renders
 			// the restored chat (renderBeforeBind) AFTER session_shutdown but BEFORE the

@@ -1,5 +1,18 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { EMPTY_BATCH_COMPONENT } from "./boxed/batch.js";
 import { renderBoxedToolCall, renderBoxedToolResult } from "./boxed/index.js";
+
+/**
+ * Batch members render zero lines. Pi's ToolExecutionComponent always adds a
+ * built-in Spacer child (one blank line) and only sets hideComponent when
+ * hasContent is false — but adding an empty renderer still marks hasContent
+ * true. Mark the instance hidden so members contribute zero lines (no stray
+ * blank margin after the batch panel). updateDisplay resets hideComponent on
+ * every pass; the wrapper re-applies it on each dispatch.
+ */
+function hideBatchMember(instance: object): void {
+	(instance as { hideComponent?: boolean }).hideComponent = true;
+}
 
 /**
  * Neutralize the native ToolExecutionComponent status background for boxed
@@ -434,6 +447,7 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 									);
 								})();
 					neutralizeToolContainerBackground(instance);
+					if (component === EMPTY_BATCH_COMPONENT) hideBatchMember(instance);
 					return component;
 				};
 			}

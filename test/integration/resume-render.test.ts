@@ -6,9 +6,16 @@ import {
 	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
-import { targetSpecs } from "../../extension-src/pi-style/pi/compatibility-probe.js";
+import { resetBatchRegistry } from "../../extension-src/pi-style/features/tools/boxed/batch.js";
+import {
+	type CompatibilityProbeReport,
+	disposePiCompatibilityProbe,
+	probePiCompatibility,
+	targetSpecs,
+} from "../../extension-src/pi-style/pi/compatibility-probe.js";
 import { getCompatibilityRecords } from "../../extension-src/pi-style/pi/compatibility-registry.js";
 import piStyleExtension from "../../extension-src/pi-style/pi/index.js";
+import { stripAnsi } from "../../extension-src/pi-style/shared/ansi.js";
 import { FakePiHost } from "../helpers/fake-pi-host.js";
 import { createFakeTheme } from "../helpers/fake-theme.js";
 
@@ -48,7 +55,13 @@ const hasPrefixMark = (lines: string[]) =>
 	lines.some((line) => line.includes("❯") || line.includes("│ ") || line.includes("[user]"));
 
 describe("resumed-session rendering (renderBeforeBind ordering)", () => {
+	let batchReport: CompatibilityProbeReport | undefined;
 	afterEach(() => {
+		resetBatchRegistry();
+		if (batchReport) {
+			disposePiCompatibilityProbe(batchReport);
+			batchReport = undefined;
+		}
 		// Session switches retain Tier C patches across session_shutdown; restore the
 		// shared prototype registry so the next test starts from native identities.
 		for (const spec of targetSpecs) {
@@ -94,5 +107,36 @@ describe("resumed-session rendering (renderBeforeBind ordering)", () => {
 		expect(hasBoxedMark(linesOf(afterReinstall.compaction))).toBe(true);
 
 		await host.sessionShutdown();
+	});
+
+	it("batch members render zero lines through real ToolExecutionComponents (no blank margin)", () => {
+		batchReport = probePiCompatibility("0.83.0", { toolSnapshot: { style: "compact-box" } });
+		const tools: ToolExecutionComponent[] = [];
+		for (let i = 1; i <= 10; i++) {
+			tools.push(
+				new ToolExecutionComponent("read", `call_${i}`, { path: `file${i}.ts` }, {}, undefined, undefined, "/fake"),
+			);
+		}
+		for (let i = 1; i <= 10; i++) {
+			tools[i - 1]!.updateResult({ content: [{ type: "text", text: "ok" }], details: {}, isError: false });
+		}
+
+		const stacked: string[] = [];
+		for (const tool of tools) stacked.push(...linesOf(tool));
+		// Pi adds a hardcoded Spacer child to every ToolExecutionComponent; hidden
+		// batch members must still contribute zero lines (leader keeps its spacer).
+		let trailingBlanks = 0;
+		for (let i = stacked.length - 1; i >= 0; i--) {
+			if (stripAnsi(stacked[i] ?? "").trim() === "") trailingBlanks++;
+			else break;
+		}
+		const joined = stripAnsi(stacked.join("\n"));
+		expect(joined).toContain("Read (10)");
+		expect(joined).toContain("└─ 5 more");
+		expect(trailingBlanks).toBeLessThan(3);
+		// The panel is a single boxless block: header + 5 members + "5 more".
+		expect(tools[1]!.render(80)).toHaveLength(0); // second member: fully hidden
+		expect(tools[9]!.render(80)).toHaveLength(0); // last member: fully hidden
+		expect(tools[0]!.render(80)).toHaveLength(8); // leader: spacer + header + 5 + more
 	});
 });

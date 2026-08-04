@@ -8,6 +8,8 @@ export interface ToolsRenderConfig {
 	maxExpandedLines: number;
 	dimOutput: boolean;
 	showElapsed: boolean;
+	/** Open-tree glyph for the done batch header (nerd `\u{F111}` / unicode `●`). */
+	batchOpenGlyph: string;
 }
 
 let sessionToolsConfig: ToolsRenderConfig = {
@@ -15,6 +17,7 @@ let sessionToolsConfig: ToolsRenderConfig = {
 	maxExpandedLines: 50,
 	dimOutput: false,
 	showElapsed: true,
+	batchOpenGlyph: "●",
 };
 
 export function setToolsRenderConfig(config: Partial<ToolsRenderConfig>): void {
