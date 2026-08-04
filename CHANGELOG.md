@@ -1,10 +1,19 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.3] - 2026-08-04
 
-### Changed
+### Bug Fixes
 
-- Removed the user-message `❯` prefix and its `messages.userPrefix` option entirely. The editor prompt glyph is also `❯`, so prefixing sent user messages made them look identical to the live input box. The `native-user-message` certified surface was removed (user messages render native and are never patched); the `--pi-style-message-user` flag and `messages.userPrefix` config leaf are gone. Assistant prefix is unchanged.
+- *(test)* Drop timing-dependent 0.00s assertion in batch header
+
+### Features
+
+- Group consecutive quiet-tool calls into a boxless batch panel
+
+### Refactor
+
+- Render lone read/ls/find calls with the same boxless tree
+- Boxless output trees, readonly tool activation, drop user prefix
 
 ## [0.1.2] - 2026-08-04
 
