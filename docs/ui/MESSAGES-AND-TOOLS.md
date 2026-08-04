@@ -40,24 +40,38 @@ Certified presentation: user/assistant prefixes; tool call/result selectors with
 
 When `messages.specialBlocks` is enabled and authorized:
 
-- compaction summaries — `⊟ Compaction | 12,345 tokens`;
-- skill invocations — `⊟ Skill | <name>`;
+- compaction summaries — `⊟ Compaction · 12,345 tokens`;
+- skill invocations — `⊟ Skill · <name>`;
 - branch summaries — `⊟ Branch`;
-- extension custom (MCP) messages — `⊟ Custom | <customType>`, preserving a provided `customRenderer` inside the boxed shell.
+- extension custom (MCP) messages — `⊟ Custom · <customType>`, preserving a provided `customRenderer` inside the boxed shell.
 
-Each block has a semantic label/title, a compact single-line body with an expand hint (`Ctrl+O to expand`), optional expanded detail, a width-safe border/background (the native `customMessageBg` background is kept — no double-background), and native fallback when no session theme is cached, the shape is unsupported, or the surface is unauthorized. Message content sent to the model is never altered; this is presentation only.
+Each block embeds its title in a rounded top border, shows a compact single-line body with an expand hint (`Ctrl+O to expand`) at the right end of the bottom border, and falls back to native layout when no session theme is cached, the shape is unsupported, or the surface is unauthorized.
 
 ## Tool call header
 
 Compact boxed shape (`tools.style: "compact-box"`):
 
 ```text
-┌──────────────────────────────────────────────────────┐
-│  ➔ Read ✓ | Path: src/index.ts      ◷ 1.2s · ✎ ~10k words │
-└──────────────────────────────────────────────────────┘
+╭─ ➔ Read ✓ · Path: src/index.ts ──────────────────────╮
+│                                                      │
+╰─ 1.2s · ~10k words ──────────────────────────────────╯
 ```
 
-Compact (summary) tools render `➔ <Tool> ✓ | <detail>` in a tight box; bash/edit/quick-edit render a full call box with command/params. `tools.style: "marker"` keeps the marker style (`[read] src/index.ts`).
+Full boxed shape (bash/edit/quick-edit/fallback), with the title in the top border, a single labeled divider before the result, and the metrics footer embedded in the bottom border:
+
+```text
+╭─ ➔ Bash ✓ ──────────────────────────────────────────╮
+│                                                      │
+│  $ npm test                                          │
+│                                                      │
+├─ Response ──────────────────────────────────────────┤
+│                                                      │
+│  ✓ tests passed                                      │
+│                                                      │
+╰─ 1.2s · timeout 300s · ~45 words ── Ctrl+O for more ─╯
+```
+
+Compact (summary) tools render `➔ <Tool> ✓ · <detail>` with the footer in the bottom border; bash renders a full call box with the command, a `Response` divider, and the expand hint on the bottom border when output is truncated. Edit/quick-edit render the path in the header and the diff under a `Diff · +N -M` divider. `tools.style: "marker"` keeps the marker style (`[read] src/index.ts`).
 
 Header requirements: stable human-readable tool label (`formatToolName`); concise primary argument; pending/success/error via `✓`/`✗` (the native `toolPendingBg`/`toolErrorBg`/`toolSuccessBg` container fill is neutralized for boxed rendering); no leaking of hidden/sensitive values beyond native Pi behavior; incomplete streaming arguments render safely; labels and glyphs remain meaningful in ASCII/no-color mode.
 
@@ -65,13 +79,28 @@ Header requirements: stable human-readable tool label (`formatToolName`); concis
 
 Default body is compact when settled and supports native expansion. pi-style never suppresses information the user or model needs. States: pending/partial, success, error, cancelled, truncated, empty. `MetricsLine` can show elapsed time, result count, bytes/lines, or expansion hints when reliably available.
 
+### Edit / quick-edit diffs
+
+Edit, quick-edit, substitute-edit, and target-edit render their diff **adaptively**: split (side-by-side `old │ new`) only for short corresponding changes on a wide terminal, unified otherwise — additions/removals-only diffs, narrow terminals, and lines that would wrap badly in a half pane always render unified. Long runs of unchanged context collapse into a single `⋯ N unchanged lines hidden` row instead of arbitrary truncation; when the diff still exceeds the row budget a `⋯ N lines omitted · Ctrl+O to show full diff` row is shown, and a `Ctrl+O more` hint sits on the divider's right side. The divider carries the change stats (`Diff · +3 -0`), and the footer shows `1 file · +3 -0` (elapsed time first when known):
+
+```text
+╭─ ➔ Edit ✓ · CHANGELOG.md ─────────────────────╮
+├─ Diff · +3 -0 ───────────────── Ctrl+O more ───┤
+│                                                │
+│     1  # Changelog                             │
+│  +  5  - **Fixed: ...                          │
+│  ⋯ 23 unchanged lines hidden                   │
+│                                                │
+╰─ 1 file · +3 -0 ──────────────────────────────╯
+```
+
 ## Tool-specific presentation
 
 | Tool | Presentation |
 | --- | --- |
 | Read | Badge + normalized path, optional line range; native syntax-highlighted content when possible; truncation notice preserved. |
 | Write | Path and created/overwritten state; concise success/error; no duplicate full file content unless native result provides it. |
-| Edit | Path and replacement count; native diff semantics/colors preserved; failed unique-match errors prominent. |
+| Edit | Path in the header; adaptive diff (unified/split) with collapsed unchanged context; failed unique-match errors prominent. |
 | Find/list/grep | Query/path summary, result count/truncation status, compact file/result rows; expansion preserves full native details. |
 | Bash | Concise command header, running/exit status, stdout/stderr distinction where host data supports it; long output uses native truncation/expansion; execution, environment, timeout, and shell behavior are never changed. |
 

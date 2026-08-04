@@ -84,6 +84,9 @@ export function stripAnsi(value: string): string {
 					break;
 				}
 			}
+			// Consume the OSC terminator (BEL, or the ESC\\ already consumed above)
+			// so it is not emitted as a visible character.
+			if (i + 1 < value.length && value.charCodeAt(i + 1) === 7) i++;
 		}
 	}
 	return output;

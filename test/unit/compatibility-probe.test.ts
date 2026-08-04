@@ -135,13 +135,17 @@ describe("Pi 0.83 compatibility probe", () => {
 		const output = decorateMessageRender("native-user-message", native, {}, [30]);
 		expect(calls).toBe(1);
 		expect(width).toBe(28);
-		expect(output).toEqual(["  ", "❯   text", "    continuation"]);
+		expect(output).toEqual([" ".repeat(30), `❯   text${" ".repeat(22)}`, `    continuation${" ".repeat(14)}`]);
 	});
 
 	it("preserves OSC control-only lines and prefixes OSC content exactly once", () => {
 		const native = () => ["  ", "\x1b]133;A\x07text\x1b]133;B\x07", "\x1b]133;B\x07\x1b]133;C\x07"];
 		const output = decorateMessageRender("native-assistant-message", native, {}, [40]);
-		expect(output).toEqual(["  ", "│ \x1b]133;A\x07text\x1b]133;B\x07", "\x1b]133;B\x07\x1b]133;C\x07"]);
+		expect(output).toEqual([
+			" ".repeat(40),
+			`│ \x1b]133;A\x07text\x1b]133;B\x07${" ".repeat(34)}`,
+			`\x1b]133;B\x07\x1b]133;C\x07${" ".repeat(40)}`,
+		]);
 	});
 	it.each([
 		// Core/message/tool surfaces are default-on (fingerprint-certified, fail-closed,
@@ -284,7 +288,7 @@ describe("Pi 0.83 compatibility probe", () => {
 				userEnabled: true,
 				assistantEnabled: true,
 			}),
-		).toEqual(["[user] content sentinel"]);
+		).toEqual([`[user] content sentinel${" ".repeat(57)}`]);
 		expect(userLines.some((line) => line.includes("  user installed sentinel"))).toBe(true);
 		expect(userLines.every((line) => visibleWidth(line) <= 160)).toBe(true);
 		expect(assistantLines.every((line) => visibleWidth(line) <= 160)).toBe(true);

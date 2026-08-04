@@ -193,7 +193,7 @@ function renderSystemContextPanel(
 		"─".repeat(pathWidth),
 	)}${divider}${resolved.apply("dim", "─".repeat(metricWidth))}`;
 	const lines = [
-		renderPanelBorder(resolved, "┌", "┐", panelWidth),
+		renderPanelBorder(resolved, "╭", "╮", panelWidth),
 		renderPanelLine(resolved, titleLine, panelWidth),
 		renderPanelLine(resolved, header, panelWidth),
 		renderPanelLine(resolved, separator, panelWidth),
@@ -215,7 +215,7 @@ function renderSystemContextPanel(
 			),
 		);
 	}
-	lines.push(renderPanelBorder(resolved, "└", "┘", panelWidth));
+	lines.push(renderPanelBorder(resolved, "╰", "╯", panelWidth));
 	return lines;
 }
 
@@ -269,7 +269,7 @@ function renderToolsPanel(resolved: ResolvedTheme, tools: readonly StartupToolIt
 		"─".repeat(countWidth),
 	)}${divider}${resolved.apply("dim", "─".repeat(toolsWidth))}`;
 	const lines = [
-		renderPanelBorder(resolved, "┌", "┐", panelWidth),
+		renderPanelBorder(resolved, "╭", "╮", panelWidth),
 		renderPanelLine(resolved, titleLine, panelWidth),
 		renderPanelLine(resolved, header, panelWidth),
 		renderPanelLine(resolved, separator, panelWidth),
@@ -291,7 +291,7 @@ function renderToolsPanel(resolved: ResolvedTheme, tools: readonly StartupToolIt
 			),
 		);
 	}
-	lines.push(renderPanelBorder(resolved, "└", "┘", panelWidth));
+	lines.push(renderPanelBorder(resolved, "╰", "╯", panelWidth));
 	return lines;
 }
 

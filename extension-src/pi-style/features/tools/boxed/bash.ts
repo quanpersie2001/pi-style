@@ -18,7 +18,6 @@ import { safeTruncateToWidth, truncateAtCodePointBoundary } from "../../../share
 import { getStateElapsedMs, getToolsRenderConfig } from "./session-config.js";
 import { type BoxedToolContext, type BoxedToolDefinition, noteExecutionStart } from "./shared.js";
 
-const MAX_BASH_PREVIEW_LINES = 5;
 const MAX_LINE_CHARS = 2000;
 const ESC = "\x1b";
 const BASH_TOOL_NOTICE_PATTERN = /^\[Showing (?:last|lines)\b.*\. Full output: .+\]$/;
@@ -186,13 +185,17 @@ function renderBoxedBashResult(
 	inner: Component,
 	result: unknown,
 	context: BoxedToolContext,
+	expandHint?: string,
 ): Component {
 	const rawCommand = String(context?.args?.command ?? "...");
 	const referenceLines = rawCommand.split("\n").map((line, index) => `${index === 0 ? "$ " : "> "}${line}`);
 	return renderBoxedToolResult(theme, inner, {
 		widthKey: bashWidthKey(rawCommand, context?.args?.timeout),
 		referenceLines,
-		footerLines: [formatBoxedFooter(theme, result as never, [`⏹ ${formatTimeout(context)}`], getElapsed(context))],
+		footerLines: [
+			formatBoxedFooter(theme, result as never, [`timeout ${formatTimeout(context)}`], getElapsed(context)),
+		],
+		...(expandHint ? { expandHint } : {}),
 		isError: context.isError,
 		isPartial: Boolean(context.isPartial),
 	});
@@ -207,7 +210,6 @@ function createBashResultPreview(
 	text: string,
 	options: { expanded: boolean },
 	color: "toolOutput" | "error",
-	extraLinesBefore: number = 0,
 ): Component {
 	let cacheKey = "";
 	let cacheLines: string[] | null = null;
@@ -226,7 +228,7 @@ function createBashResultPreview(
 
 			if (!expanded) {
 				// Collapsed: only process the tail of the output
-				const needed = MAX_BASH_PREVIEW_LINES;
+				const needed = cfg.maxCollapsedLines;
 				let totalNewlines = 0;
 				let scanFrom = 0; // default: take full text if fewer than needed newlines
 				for (let i = text.length - 1; i >= 0; i--) {
@@ -262,18 +264,8 @@ function createBashResultPreview(
 						: formatToolOutputLine(theme, truncated, "text");
 				});
 
-				// Count remaining lines (lines before scanFrom)
-				const remaining = extraLinesBefore + (scanFrom > 0 ? countNewlines(text, 0, scanFrom) : 0);
-
-				if (remaining <= 0) {
-					cacheKey = cacheId;
-					cacheLines = truncatedShown;
-					return cacheLines;
-				}
-
-				const hint = safeTruncateToWidth(`... ${remaining} more lines, press Ctrl+o to expand`, bodyWidth, "…");
 				cacheKey = cacheId;
-				cacheLines = [...truncatedShown, "", theme.fg("muted", hint)];
+				cacheLines = truncatedShown;
 				return cacheLines;
 			}
 
@@ -323,7 +315,7 @@ export const bashTool: BoxedToolDefinition = {
 		const outputColor = context.isError ? "error" : "toolOutput";
 
 		if (!options.expanded) {
-			const scanLines = MAX_BASH_PREVIEW_LINES + 10;
+			const scanLines = getToolsRenderConfig().maxCollapsedLines + 10;
 			let nlCount = 0;
 			let tailStart = 0;
 			for (let i = raw.length - 1; i >= 0; i--) {
@@ -337,11 +329,11 @@ export const bashTool: BoxedToolDefinition = {
 			}
 			const tail = stripBashToolNoticeLines(stripAnsi(raw.slice(tailStart)));
 			const totalLinesBefore = tailStart > 0 ? countNewlines(raw, 0, tailStart) : 0;
-			const inner = createBashResultPreview(theme, tail, options, outputColor, totalLinesBefore);
-			return renderBoxedBashResult(theme, inner, result, context);
+			const inner = createBashResultPreview(theme, tail, options, outputColor);
+			return renderBoxedBashResult(theme, inner, result, context, totalLinesBefore > 0 ? "Ctrl+O for more" : undefined);
 		}
 		const output = stripBashToolNoticeLines(stripAnsi(raw));
-		const inner = createBashResultPreview(theme, output, options, outputColor, 0);
+		const inner = createBashResultPreview(theme, output, options, outputColor);
 		return renderBoxedBashResult(theme, inner, result, context);
 	},
 };

@@ -6,11 +6,12 @@ import type { BoxTheme, MetricResultLike } from "../../../shared/box.js";
 import {
 	formatBoxedFooter,
 	formatToolName,
+	formatToolOutputLine,
 	formatToolParamLines,
 	getTextOutput,
 	renderBoxedToolCall,
 	renderBoxedToolResult,
-	renderLines,
+	selectRenderLines,
 } from "../../../shared/box.js";
 import { getStateElapsedMs, getToolsRenderConfig } from "./session-config.js";
 import { type BoxedToolContext, noteExecutionStart } from "./shared.js";
@@ -43,20 +44,21 @@ export function renderFallbackResult(
 	const maxLines = expanded ? getToolsRenderConfig().maxExpandedLines : MAX_FALLBACK_PREVIEW_LINES;
 	const output = getTextOutput(result);
 	const elapsedMs = getStateElapsedMs(context.state);
+	const { lines, omitted } = selectRenderLines(output, maxLines);
 
 	return renderBoxedToolResult(
 		theme,
-		(contentWidth) => {
-			const body = renderLines(theme, output, options, {
-				maxLines,
-				color: isError ? "error" : "toolOutput",
-				width: contentWidth,
-			});
-			return body ? body.split("\n") : [];
+		() => {
+			const body = lines.map((line) => formatToolOutputLine(theme, line, isError ? "error" : "toolOutput"));
+			if (expanded && omitted > 0) {
+				body.push(theme.fg("muted", `… ${omitted} more lines omitted by render budget`));
+			}
+			return body;
 		},
 		{
 			footerLines: [formatBoxedFooter(theme, result, [], elapsedMs)],
 			renderLineBudget: maxLines,
+			...(expanded || omitted <= 0 ? {} : { expandHint: "Ctrl+O for more" }),
 			isError,
 			isPartial: Boolean(options.isPartial),
 		},

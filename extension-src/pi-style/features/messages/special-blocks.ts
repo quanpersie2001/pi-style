@@ -106,7 +106,7 @@ function patchCompaction(instance: MessageBlockInstance, _original: () => void, 
 	const block = renderBoxedMessageBlock(theme, {
 		kind: "Compaction",
 		title: `${tokenStr} tokens`,
-		...(expanded ? {} : { right: `(${expandHint()})` }),
+		...(expanded ? {} : { right: expandHint() }),
 		body,
 		icon: "⊟",
 		hasDivider: expanded,
@@ -132,7 +132,7 @@ function patchSkill(instance: MessageBlockInstance, _original: () => void, theme
 	const block = renderBoxedMessageBlock(theme, {
 		kind: "Skill",
 		title: skillName,
-		...(expanded ? {} : { right: `(${expandHint()})` }),
+		...(expanded ? {} : { right: expandHint() }),
 		body,
 		icon: "⊟",
 		hasDivider: expanded,
@@ -156,7 +156,7 @@ function patchBranch(instance: MessageBlockInstance, _original: () => void, them
 
 	const block = renderBoxedMessageBlock(theme, {
 		kind: "Branch",
-		...(expanded ? {} : { right: `(${expandHint()})` }),
+		...(expanded ? {} : { right: expandHint() }),
 		body,
 		icon: "⊟",
 		hasDivider: expanded,

@@ -2,16 +2,15 @@
 // (renderCall/renderResult only; no edit-core re-registration).
 
 import { getLanguageFromPath } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
-import { getTextOutput, renderBoxedToolCall, renderBoxedToolResult } from "../../../shared/box.js";
+import { type BoxTheme, getTextOutput, renderBoxedToolCall, renderBoxedToolResult } from "../../../shared/box.js";
+import { formatElapsedMs, getElapsedMs } from "../../../shared/elapsed.js";
 import {
+	AdaptiveDiffComponent,
 	buildSplitRows,
 	countDiffStats,
 	extractEditedPath,
 	firstText,
-	renderDiffMeter,
-	SplitDiffComponent,
 } from "../../../shared/split-diff.js";
 import {
 	type BoxedToolContext,
@@ -19,6 +18,7 @@ import {
 	displayPath,
 	noteExecutionStart,
 	resultFooterLines,
+	stateElapsedMs,
 } from "./shared.js";
 
 const MAX_HIGHLIGHT_DIFF_CHARS = 12000;
@@ -26,11 +26,35 @@ const MAX_HIGHLIGHT_DIFF_ROWS = 120;
 
 type EditResultDetails = { diff?: string; path?: string } | undefined;
 
+/** `Diff · +3 -0` divider label. */
+function diffDividerLabel(theme: BoxTheme, stats: { additions: number; removals: number }): string {
+	const plus = stats.additions > 0 ? theme.fg("toolDiffAdded", `+${stats.additions}`) : theme.fg("dim", "+0");
+	const minus = stats.removals > 0 ? theme.fg("toolDiffRemoved", `-${stats.removals}`) : theme.fg("dim", "-0");
+	return `Diff · ${plus} ${minus}`;
+}
+
+/** Edit footer: `1 file · +3 -0`, prefixed with elapsed time when known. */
+function editDiffFooter(
+	theme: BoxTheme,
+	result: { content?: readonly unknown[]; details?: unknown },
+	context: BoxedToolContext,
+	stats: { additions: number; removals: number },
+): string {
+	const elapsedMs = getElapsedMs(result) ?? stateElapsedMs(context);
+	const parts: string[] = [];
+	if (elapsedMs !== undefined) parts.push(theme.fg("text", formatElapsedMs(elapsedMs)));
+	const plus = stats.additions > 0 ? theme.fg("toolDiffAdded", `+${stats.additions}`) : theme.fg("dim", "+0");
+	const minus = stats.removals > 0 ? theme.fg("toolDiffRemoved", `-${stats.removals}`) : theme.fg("dim", "-0");
+	parts.push(theme.fg("dim", "1 file"), `${plus} ${minus}`);
+	return parts.join(theme.fg("dim", " · "));
+}
+
 export const editTool: BoxedToolDefinition = {
 	call(args, theme, context) {
 		noteExecutionStart(context);
 		const detail = displayPath(String(args?.path ?? args?.file_path ?? ""), context);
-		return renderBoxedToolCall(theme, "Edit", [`${theme.fg("dim", "Path: ")}${detail}`], {
+		return renderBoxedToolCall(theme, "Edit", [], {
+			headerDetail: detail,
 			isError: Boolean(context.isError),
 			isPartial: Boolean(context.isPartial),
 			isPending: Boolean(context.isPartial),
@@ -71,40 +95,32 @@ export const editTool: BoxedToolDefinition = {
 		const sourcePath = details?.path ?? (argPath || extractEditedPath(message));
 		const language = sourcePath ? getLanguageFromPath(sourcePath) : undefined;
 
-		// Build split-diff rows
+		// Build diff rows + adaptive layout
 		const rows = buildSplitRows(diff);
 		const expanded = options.expanded;
 		const shouldHighlight =
 			Boolean(language) && diff.length <= MAX_HIGHLIGHT_DIFF_CHARS && rows.length <= MAX_HIGHLIGHT_DIFF_ROWS;
+		const stats = countDiffStats(diff);
 
-		// Build summary header with diff stats and meter
-		const { additions, removals } = countDiffStats(diff);
-		const meter = renderDiffMeter(theme, additions, removals);
-		const summary =
-			`${theme.fg("dim", "↳")} ${theme.fg("muted", "diff")}` +
-			` ${theme.fg("toolDiffAdded", `+${additions}`)}` +
-			` ${theme.fg("toolDiffRemoved", `-${removals}`)}` +
-			` ${theme.fg("muted", "split")}` +
-			(meter ? ` ${meter}` : "");
-
-		// Render split-diff with syntax colors for small outputs.
+		// Render adaptive diff (unified/split per width) with syntax colors for small outputs.
 		const maxRows = expanded ? 160 : 36;
-		const split = new SplitDiffComponent(theme, rows, maxRows, shouldHighlight ? language : undefined);
+		const diffView = new AdaptiveDiffComponent(theme, rows, maxRows, shouldHighlight ? language : undefined);
+		const expandHint = !expanded && diffView.hasCollapsed() ? "Ctrl+O more" : undefined;
 
 		return renderBoxedToolResult(
 			theme,
 			{
 				render(width: number): string[] {
-					const safeWidth = Math.max(20, width);
-					const headerLines = new Text(summary, 0, 0).render(safeWidth);
-					return [...headerLines, ...split.render(safeWidth)];
+					return diffView.render(width);
 				},
 				invalidate(): void {
-					split.invalidate();
+					diffView.invalidate();
 				},
 			},
 			{
-				footerLines: resultFooterLines(theme, result, context),
+				dividerLabel: diffDividerLabel(theme, stats),
+				...(expandHint ? { dividerRightLabel: expandHint } : {}),
+				footerLines: [editDiffFooter(theme, result, context, stats)],
 			},
 		);
 	},

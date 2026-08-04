@@ -1,16 +1,16 @@
 // Boxed quick-edit / substitute-edit / target-edit renderer.
 
 import { getLanguageFromPath } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
-import type { BoxTheme } from "../../../shared/box.js";
 import {
-	formatBoxedFooterFromValues,
+	type BoxTheme,
+	boxInnerWidth,
 	getTextOutput,
 	renderBoxedToolCall,
 	renderBoxedToolResult,
 } from "../../../shared/box.js";
-import { buildSplitRows, countDiffStats, renderDiffMeter, SplitDiffComponent } from "../../../shared/split-diff.js";
+import { formatElapsedMs, getElapsedMs } from "../../../shared/elapsed.js";
+import { AdaptiveDiffComponent, buildSplitRows, countDiffStats } from "../../../shared/split-diff.js";
 import { getStateElapsedMs } from "./session-config.js";
 import { type BoxedToolContext, type BoxedToolDefinition, displayPath, noteExecutionStart } from "./shared.js";
 
@@ -99,8 +99,27 @@ function extractQuickEditDiff(text: string): string | undefined {
 	return diffLines.length > 0 ? diffLines.join("\n") : undefined;
 }
 
-function quickEditFooter(theme: BoxTheme, context: BoxedToolContext, output = ""): string {
-	return formatBoxedFooterFromValues(theme, getStateElapsedMs(context.state), output);
+/** `Diff · +3 -0` divider label. */
+function quickEditDividerLabel(theme: BoxTheme, stats: { additions: number; removals: number }): string {
+	const plus = stats.additions > 0 ? theme.fg("toolDiffAdded", `+${stats.additions}`) : theme.fg("dim", "+0");
+	const minus = stats.removals > 0 ? theme.fg("toolDiffRemoved", `-${stats.removals}`) : theme.fg("dim", "-0");
+	return `Diff · ${plus} ${minus}`;
+}
+
+/** Quick-edit footer: `1 file · +3 -0`, prefixed with elapsed time when known. */
+function quickEditDiffFooter(
+	theme: BoxTheme,
+	result: { content?: readonly unknown[]; details?: unknown },
+	context: BoxedToolContext,
+	stats: { additions: number; removals: number },
+): string {
+	const elapsedMs = getElapsedMs(result) ?? getStateElapsedMs(context.state);
+	const parts: string[] = [];
+	if (elapsedMs !== undefined) parts.push(theme.fg("text", formatElapsedMs(elapsedMs)));
+	const plus = stats.additions > 0 ? theme.fg("toolDiffAdded", `+${stats.additions}`) : theme.fg("dim", "+0");
+	const minus = stats.removals > 0 ? theme.fg("toolDiffRemoved", `-${stats.removals}`) : theme.fg("dim", "-0");
+	parts.push(theme.fg("dim", "1 file"), `${plus} ${minus}`);
+	return parts.join(theme.fg("dim", " · "));
 }
 
 function renderQuickEditResult(
@@ -122,7 +141,7 @@ function renderQuickEditResult(
 	const output = getTextOutput(result);
 	if (context.isError) {
 		return renderBoxedToolResult(theme, () => [theme.fg("error", stripAnsi(output).trim() || "Error")], {
-			footerLines: [quickEditFooter(theme, context, output)],
+			footerLines: [quickEditFooter(theme, context)],
 			isError: true,
 		});
 	}
@@ -131,7 +150,7 @@ function renderQuickEditResult(
 	if (!diff) {
 		const fallback = stripAnsi(output).trim() || config.fallbackLabel;
 		return renderBoxedToolResult(theme, () => [`${theme.fg("dim", "↳")} ${theme.fg("muted", fallback)}`], {
-			footerLines: [quickEditFooter(theme, context, output)],
+			footerLines: [quickEditFooter(theme, context)],
 		});
 	}
 
@@ -141,35 +160,36 @@ function renderQuickEditResult(
 	const language = argPath ? getLanguageFromPath(argPath) : undefined;
 	const shouldHighlight =
 		Boolean(language) && diff.length <= MAX_HIGHLIGHT_DIFF_CHARS && rows.length <= MAX_HIGHLIGHT_DIFF_ROWS;
-
-	const { additions, removals } = countDiffStats(diff);
-	const meter = renderDiffMeter(theme, additions, removals);
-	const summary =
-		`${theme.fg("dim", "↳")} ${theme.fg("muted", "diff")}` +
-		` ${theme.fg("toolDiffAdded", `+${additions}`)}` +
-		` ${theme.fg("toolDiffRemoved", `-${removals}`)}` +
-		` ${theme.fg("muted", "split")}` +
-		(meter ? ` ${meter}` : "");
+	const stats = countDiffStats(diff);
 
 	const maxRows = expanded ? 160 : 36;
-	const split = new SplitDiffComponent(theme, rows, maxRows, shouldHighlight ? language : undefined);
+	const diffView = new AdaptiveDiffComponent(theme, rows, maxRows, shouldHighlight ? language : undefined);
+	const expandHint = !expanded && diffView.hasCollapsed() ? "Ctrl+O more" : undefined;
 
 	return renderBoxedToolResult(
 		theme,
 		{
 			render(width: number): string[] {
-				const safeWidth = Math.max(20, width);
-				const headerLines = new Text(summary, 0, 0).render(safeWidth);
-				return [...headerLines, ...split.render(safeWidth)];
+				return diffView.render(width);
 			},
 			invalidate(): void {
-				split.invalidate();
+				diffView.invalidate();
 			},
 		},
 		{
-			footerLines: [quickEditFooter(theme, context, output)],
+			dividerLabel: quickEditDividerLabel(theme, stats),
+			...(expandHint ? { dividerRightLabel: expandHint } : {}),
+			footerLines: [quickEditDiffFooter(theme, result, context, stats)],
 		},
 	);
+}
+
+function quickEditFooter(theme: BoxTheme, context: BoxedToolContext): string {
+	const elapsedMs = getStateElapsedMs(context.state);
+	const parts: string[] = [];
+	if (elapsedMs !== undefined) parts.push(theme.fg("text", formatElapsedMs(elapsedMs)));
+	parts.push(theme.fg("dim", "1 file"));
+	return parts.join(theme.fg("dim", " · "));
 }
 
 export function quickEditTool(config: QuickEditToolConfig): BoxedToolDefinition {
@@ -177,7 +197,8 @@ export function quickEditTool(config: QuickEditToolConfig): BoxedToolDefinition 
 		call(args, theme, context) {
 			noteExecutionStart(context);
 			const detail = displayPath(String(args?.path ?? ""), context);
-			return renderBoxedToolCall(theme, config.toolLabel, [`${theme.fg("dim", "Path: ")}${detail}`], {
+			return renderBoxedToolCall(theme, config.toolLabel, [], {
+				headerDetail: detail,
 				isError: Boolean(context.isError),
 				isPartial: Boolean(context.isPartial),
 				isPending: Boolean(context.isPartial),

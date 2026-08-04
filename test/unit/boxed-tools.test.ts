@@ -20,7 +20,7 @@ import {
 	disposePiCompatibilityProbe,
 	probePiCompatibility,
 } from "../../extension-src/pi-style/pi/compatibility-probe.js";
-import { visibleWidth } from "../../extension-src/pi-style/shared/ansi.js";
+import { stripAnsi, visibleWidth } from "../../extension-src/pi-style/shared/ansi.js";
 import {
 	boxBorder,
 	boxInnerWidth,
@@ -101,7 +101,7 @@ describe("box primitives", () => {
 			expect(boxInnerWidth(width)).toBeGreaterThanOrEqual(1);
 			const line = boxLine(theme, "a very long content string that must truncate cleanly", width);
 			expect(visibleWidth(line)).toBeLessThanOrEqual(Math.max(12, width));
-			const bordered = boxBorder(theme, "┌", "┐", width);
+			const bordered = boxBorder(theme, "╭", "╮", width);
 			assertFit([bordered], Math.max(12, width));
 			const right = boxLineWithRight(theme, "left content", "right", width);
 			assertFit([right], Math.max(12, width));
@@ -120,8 +120,9 @@ describe("box primitives", () => {
 		expect(formatOutputChars(2400)).toBe("2.4k chars");
 		expect(formatToolMetricsFromValues(2500, 2400)).toBe("2.5s · 2.4k chars");
 		const footer = formatBoxedFooterFromValues(theme, 1500, "some output text");
-		expect(footer).toContain("◷");
+		expect(footer).toContain("1.50s");
 		expect(footer).toContain("words");
+		expect(footer).not.toContain("◷");
 	});
 
 	it("annotates metrics into result details only when absent", () => {
@@ -179,7 +180,7 @@ describe("boxed tool renderers", () => {
 		const call = dispatchCall("read", { path: "/fake/src/index.ts" }, theme, ctx);
 		for (const width of [40, 80, 120]) {
 			const lines = call.render(width);
-			expect(lines[0]).toContain("┌");
+			expect(lines[0]).toContain("╭");
 			expect(lines.join("\n")).toContain("Read");
 			expect(lines.join("\n")).toContain("Path:");
 			assertFit(lines, Math.max(12, width));
@@ -195,7 +196,7 @@ describe("boxed tool renderers", () => {
 		// the call box renders it on its next pass (matching the native flow).
 		expect(result.render(80)).toEqual([]);
 		const refreshedCall = dispatchCall("read", { path: "/fake/src/index.ts" }, theme, ctx).render(80);
-		expect(refreshedCall.join("\n")).toContain("◷");
+		expect(refreshedCall.join("\n")).toContain("words");
 		assertFit(refreshedCall, 80);
 	});
 
@@ -215,11 +216,11 @@ describe("boxed tool renderers", () => {
 		);
 		const lines = result.render(80);
 		expect(lines.join("\n")).toContain("line-39");
-		expect(lines.join("\n")).toContain("more lines");
+		expect(lines.join("\n")).toContain("Ctrl+O for more");
 		assertFit(lines, 80);
 	});
 
-	it("renders an expanded edit result with a split diff and stats", () => {
+	it("renders an expanded edit result with an adaptive diff and stats", () => {
 		const diff = "- 1 old line\n+ 1 new line";
 		const ctx = context({ args: { path: "/fake/src/a.ts" } });
 		const result = dispatchResult(
@@ -230,9 +231,96 @@ describe("boxed tool renderers", () => {
 			ctx,
 		);
 		const lines = result.render(120);
-		expect(lines.join("\n")).toContain("diff");
-		expect(lines.join("\n")).toContain("+1");
+		// Short corresponding change at a wide width: split side-by-side layout.
+		expect(stripAnsi(lines.join("\n"))).toContain("Diff · +1 -1");
+		expect(stripAnsi(lines.join("\n"))).toContain("1 file · +1 -1");
+		expect(stripAnsi(lines.join("\n"))).toContain("old"); // split column header
 		assertFit(lines, 120);
+	});
+
+	it("renders additions-only edit diffs as unified and collapses unchanged context", () => {
+		const diff = [
+			" 1 # Changelog",
+			" 2",
+			" 3 ## 0.1.0 - Unreleased",
+			" 4",
+			"+ 5 - **Fixed: boxed tool/message surfaces now survive session switches",
+			"+ 6 - **Fixed: single-line replies keep their `|` prefix**",
+			" 7",
+			" 8 - Added the boxed **tool presentation**",
+			" 9",
+			" 10",
+			" 11",
+			" 12",
+			" 13",
+			" 14",
+			" 15",
+			" 16",
+		].join("\n");
+		const ctx = context({ args: { path: "/fake/CHANGELOG.md" } });
+		const result = dispatchResult(
+			"edit",
+			{ content: [], details: { diff, path: "/fake/CHANGELOG.md" } },
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		);
+		const lines = result.render(120);
+		const text = stripAnsi(lines.join("\n"));
+		// Additions-only: unified layout, stats in the divider, no progress meter.
+		expect(text).toContain("Diff · +2 -0");
+		expect(text).toContain("1 file · +2 -0");
+		expect(text).not.toContain("━━");
+		// Long trailing context is collapsed into a single row.
+		expect(text).toContain("⋯ 8 unchanged lines hidden");
+		expect(text).toContain("- **Fixed: boxed tool/message surfaces");
+		assertFit(lines, 120);
+	});
+
+	it("forces unified diff on narrow terminals even for paired changes", () => {
+		const diff = "- 14 const timeout = 300;\n+ 14 const timeout = 60;";
+		const ctx = context({ args: { path: "/fake/src/config.ts" } });
+		for (const width of [40, 80]) {
+			const lines = dispatchResult(
+				"edit",
+				{ content: [], details: { diff, path: "/fake/src/config.ts" } },
+				{ expanded: false, isPartial: false },
+				theme,
+				ctx,
+			).render(width);
+			const text = stripAnsi(lines.join("\n"));
+			expect(text).toContain("Diff · +1 -1");
+			expect(text).toContain("const timeout = 300;");
+			expect(text).toContain("const timeout = 60;");
+			assertFit(lines, Math.max(12, width));
+		}
+	});
+
+	it("shows a Ctrl+O omission hint when a huge diff exceeds the row budget", () => {
+		const pairs = Array.from({ length: 45 }, (_, i) => `- ${i + 1} line ${i + 1}\n+ ${i + 1} line ${i + 1} EDITED`);
+		const diff = pairs.join("\n");
+		const ctx = context({ args: { path: "/fake/huge.txt" } });
+		const lines = dispatchResult(
+			"edit",
+			{ content: [], details: { diff, path: "/fake/huge.txt" } },
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		).render(120);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).toContain("lines omitted · Ctrl+O to show full diff");
+		expect(text).toContain("Ctrl+O more"); // divider-right expand hint
+		expect(text).not.toContain("rendered output truncated");
+		assertFit(lines, 120);
+	});
+
+	it("puts the edit path in the header instead of a body line", () => {
+		const ctx = context({ args: { path: "/fake/src/a.ts" } });
+		const lines = dispatchCall("edit", { path: "/fake/src/a.ts" }, theme, ctx).render(80);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).toContain("Edit ✓ · src/a.ts");
+		expect(text).not.toContain("Path:");
+		assertFit(lines, 80);
 	});
 
 	it("renders a quick-edit call with its label", () => {
@@ -247,7 +335,7 @@ describe("boxed tool renderers", () => {
 		(toolName) => {
 			const ctx = context({ args: { key: "value" } });
 			const call = dispatchCall(toolName, { key: "value" }, theme, ctx).render(80);
-			expect(call.join("\n")).toContain("┌");
+			expect(call.join("\n")).toContain("╭");
 			expect(call.join("\n")).toContain("➔");
 			assertFit(call, 80);
 			const result = dispatchResult(
@@ -357,7 +445,7 @@ describe("boxed tool decoration owner", () => {
 			context(),
 		);
 		const lines = component.render(80);
-		expect(lines[0]).toContain("┌");
+		expect(lines[0]).toContain("╭");
 		expect(lines.join("\n")).toContain("Read");
 		assertFit(lines, 80);
 	});
@@ -391,7 +479,7 @@ describe("special message blocks", () => {
 		const expectations = ["Compaction", "Branch", "Skill", "mcp_tool"];
 		for (const [index, component] of components.entries()) {
 			const lines = component.render(80);
-			expect(lines.join("\n")).toContain("┌");
+			expect(lines.join("\n")).toContain("╭");
 			expect(lines.join("\n")).toContain(expectations[index] ?? "");
 			assertFit(lines, 80);
 		}
@@ -403,7 +491,7 @@ describe("special message blocks", () => {
 		if (!skillBlock) throw new Error("skill fixture failed to parse");
 		const component = new SkillInvocationMessageComponent(skillBlock);
 		const native = component.render(80);
-		expect(native.join("\n")).not.toContain("┌");
+		expect(native.join("\n")).not.toContain("╭");
 	});
 
 	it("keeps a custom renderer when provided", () => {
@@ -415,13 +503,45 @@ describe("special message blocks", () => {
 				({ render: () => [`renderer:${String(message.content)}`], invalidate() {} }) as never,
 		);
 		const lines = component.render(80);
-		expect(lines.join("\n")).toContain("┌");
+		expect(lines.join("\n")).toContain("╭");
 		expect(lines.join("\n")).toContain("renderer:ignored");
 		assertFit(lines, 80);
 	});
 });
 
 describe("renderBoxedToolCall/renderBoxedToolResult direct primitives", () => {
+	it("colors the whole tool title with the error color on failure", () => {
+		const rich = createFakeTheme({
+			colors: { border: "#888888", error: "#ff4444", success: "#22dd44", bashMode: "#ffcc66" },
+		});
+		const ok = renderBoxedToolCall(rich, "Tool", ["detail"], {}).render(40)[0];
+		const err = renderBoxedToolCall(rich, "Tool", ["detail"], { isError: true }).render(40)[0];
+		// Success: the tool keeps its identity color and only the ✓ is success-colored.
+		expect(ok ?? "").toContain("\x1b[38;2;255;204;102m➔ Tool");
+		expect(ok ?? "").toContain("\x1b[38;2;34;221;68m✓");
+		expect(ok ?? "").not.toContain("\x1b[38;2;255;68;68m");
+		// Error: the whole "➔ Tool ✗" span is wrapped in the error color.
+		expect(err ?? "").toContain("\x1b[38;2;255;68;68m➔ Tool ✗");
+	});
+
+	it("keeps every border glyph in the border color around embedded labels", () => {
+		// Embedded labels (title/divider/footer) wrap their text in foreground
+		// escapes that end with \x1b[39m (reset to the terminal default). The border
+		// must re-apply its color per segment, otherwise every dash after a label
+		// renders in the default foreground and the box looks faint/bold in parts.
+		const rich = createFakeTheme({ colors: { border: "#888888" } });
+		const borderAnsi = "\x1b[38;2;136;136;136m";
+		const call = renderBoxedToolCall(rich, "Tool", ["detail"], {}).render(40);
+		expect(call[0] ?? "").toContain(`${borderAnsi}╭`);
+		expect(call[0] ?? "").toContain(`${borderAnsi}╮`);
+		const result = renderBoxedToolResult(rich, () => ["out"], { footerLines: ["0.00s · ~2 words"] }).render(40);
+		expect(result[0] ?? "").toContain(`${borderAnsi}├`);
+		expect(result[0] ?? "").toContain(`${borderAnsi}┤`);
+		const bottom = result[result.length - 1] ?? "";
+		expect(bottom).toContain(`${borderAnsi}╰`);
+		expect(bottom).toContain(`${borderAnsi}╯`);
+	});
+
 	it("renders pending and error states", () => {
 		const pending = renderBoxedToolCall(theme, "Tool", ["detail"], { isPending: true }).render(80);
 		expect(pending.join("\n")).toContain("Waiting for output");

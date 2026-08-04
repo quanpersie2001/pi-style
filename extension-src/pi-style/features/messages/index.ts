@@ -12,22 +12,66 @@ function extractOscEnvelope(line: string): OscParts | undefined {
 	return { start: OSC133_ZONE_START, body: line.slice(OSC133_ZONE_START.length, bodyEnd), end: line.slice(bodyEnd) };
 }
 
-function prefixAtFirstContent(line: string, prefix: string): string {
+const BG_RESET = "\x1b[49m";
+
+/** Leading zero-width OSC sequences (e.g. OSC133 markers) of a line. */
+function splitLeadingMarkers(line: string): { head: string; rest: string } {
 	let index = 0;
-	while (index < line.length) {
-		if (line[index] === "\x1b" && line[index + 1] === "[") {
-			index += 2;
-			while (index < line.length && (line.charCodeAt(index) < 64 || line.charCodeAt(index) > 126)) index++;
-			if (index < line.length) index++;
-			continue;
-		}
-		if (/\s/u.test(line[index] ?? "")) {
-			index++;
-			continue;
-		}
-		break;
+	while (line.startsWith("\x1b]", index)) {
+		const bel = line.indexOf("\x07", index + 2);
+		const st = line.indexOf("\x1b\\", index + 2);
+		const end = bel === -1 ? st : st === -1 ? bel : Math.min(bel, st);
+		if (end === -1) break;
+		index = end + 1;
 	}
-	return `${line.slice(0, index)}${prefix}${line.slice(index)}`;
+	return { head: line.slice(0, index), rest: line.slice(index) };
+}
+
+/** Leading SGR escape sequence of a line ("" when none). */
+function leadingSgr(line: string): string {
+	if (!line.startsWith("\x1b[")) return "";
+	let index = 2;
+	while (index < line.length) {
+		const code = line.charCodeAt(index);
+		if (code >= 64 && code <= 126) return line.slice(0, index + 1);
+		index++;
+	}
+	return "";
+}
+
+/** Whether an SGR sequence sets/resets the terminal background color. */
+function isBackgroundSgr(sequence: string): boolean {
+	if (!sequence.startsWith("\x1b[") || !sequence.endsWith("m")) return false;
+	for (const code of sequence.slice(2, -1).split(";")) {
+		const value = Number(code);
+		if (value === 48 || value === 49) return true;
+		if (value >= 40 && value <= 47) return true;
+		if (value >= 100 && value <= 107) return true;
+	}
+	return false;
+}
+
+/**
+ * Rebuild a native line so `lead` (prompt prefix / continuation indent) and the
+ * full target width are covered by the line's background.
+ *
+ * Native Box lines (user messages) are `bgAnsi + body + \x1b[49m`; prepending the
+ * prefix outside that wrap shifted the input row's background right by the
+ * prefix width while keeping the full container width, producing a staircase
+ * box (indented left, overflowing right). Rebuilding inside the wrap keeps the
+ * background flush across every row; plain (unwrapped) lines are padded to the
+ * target width instead so left/right edges stay aligned.
+ */
+function rebuildAtWidth(line: string, width: number, lead: string): string {
+	const { head, rest } = splitLeadingMarkers(line);
+	const bgAnsi = leadingSgr(rest);
+	if (bgAnsi && isBackgroundSgr(bgAnsi) && rest.endsWith(BG_RESET)) {
+		const body = rest.slice(bgAnsi.length, rest.length - BG_RESET.length);
+		const pad = " ".repeat(Math.max(0, width - visibleWidth(lead) - visibleWidth(body)));
+		return `${head}${bgAnsi}${lead}${body}${pad}${BG_RESET}`;
+	}
+	const padded = `${lead}${line}`;
+	return `${padded}${" ".repeat(Math.max(0, width - visibleWidth(padded)))}`;
 }
 
 function decorateMessageLine(
@@ -35,6 +79,7 @@ function decorateMessageLine(
 	index: number,
 	lastIndex: number,
 	contentIndex: number,
+	width: number,
 	options: {
 		firstEnvelope: OscParts | undefined;
 		firstHasStart: boolean;
@@ -44,21 +89,29 @@ function decorateMessageLine(
 ): string {
 	const { firstEnvelope, firstHasStart, multilineEnvelope, prefix } = options;
 	const prefixWidth = visibleWidth(prefix);
+	const lead = index === contentIndex ? prefix : index > contentIndex ? " ".repeat(prefixWidth) : "";
 	if (index === contentIndex && firstEnvelope)
-		return `${firstEnvelope.start}${prefixAtFirstContent(firstEnvelope.body, prefix)}${firstEnvelope.end}`;
+		return `${firstEnvelope.start}${rebuildAtWidth(firstEnvelope.body, width, prefix)}${firstEnvelope.end}`;
 	if (index === contentIndex && firstHasStart)
-		return `${OSC133_ZONE_START}${prefix}${line.slice(OSC133_ZONE_START.length)}`;
+		return `${OSC133_ZONE_START}${rebuildAtWidth(line.slice(OSC133_ZONE_START.length), width, prefix)}`;
 	if (index === lastIndex && multilineEnvelope && index !== contentIndex)
-		return `${OSC133_ZONE_END}${OSC133_ZONE_FINAL}${line.slice((OSC133_ZONE_END + OSC133_ZONE_FINAL).length)}`;
+		return `${OSC133_ZONE_END}${OSC133_ZONE_FINAL}${rebuildAtWidth(
+			line.slice((OSC133_ZONE_END + OSC133_ZONE_FINAL).length),
+			width,
+			lead,
+		)}`;
 	if (
 		index === contentIndex &&
 		index === lastIndex &&
 		multilineEnvelope &&
 		line.startsWith(OSC133_ZONE_END + OSC133_ZONE_FINAL)
 	)
-		return `${OSC133_ZONE_END}${OSC133_ZONE_FINAL}${prefix}${line.slice((OSC133_ZONE_END + OSC133_ZONE_FINAL).length)}`;
-	if (index === contentIndex) return `${prefix}${line}`;
-	return index > contentIndex ? `${" ".repeat(prefixWidth)}${line}` : line;
+		return `${OSC133_ZONE_END}${OSC133_ZONE_FINAL}${rebuildAtWidth(
+			line.slice((OSC133_ZONE_END + OSC133_ZONE_FINAL).length),
+			width,
+			prefix,
+		)}`;
+	return rebuildAtWidth(line, width, lead);
 }
 
 function contentText(line: string): string {
@@ -107,17 +160,14 @@ function prefixNative(lines: unknown, width: number, prefix: string): string[] |
 	if (firstContentIndex < 0) return nativeLines;
 	const firstEnvelope = firstContentIndex === 0 ? extractOscEnvelope(first) : undefined;
 	const firstHasStart = firstContentIndex === 0 && first.startsWith(OSC133_ZONE_START);
-	const decorated = nativeLines.map((line, index) => {
-		if (index === firstContentIndex)
-			return decorateMessageLine(line, index, nativeLines.length - 1, firstContentIndex, {
-				firstEnvelope,
-				firstHasStart,
-				multilineEnvelope,
-				prefix,
-			});
-		if (index > firstContentIndex && hasContent(line)) return `${" ".repeat(prefixWidth)}${line}`;
-		return line;
-	});
+	const decorated = nativeLines.map((line, index) =>
+		decorateMessageLine(line, index, nativeLines.length - 1, firstContentIndex, width, {
+			firstEnvelope,
+			firstHasStart,
+			multilineEnvelope,
+			prefix,
+		}),
+	);
 	if (!decorated.every((line) => visibleWidth(line) <= width)) return undefined;
 	if (!nativeLines.every((line) => visibleWidth(line) <= bodyWidth)) return undefined;
 	return decorated;

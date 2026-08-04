@@ -5,7 +5,7 @@
 
 import type { Component } from "@earendil-works/pi-tui";
 import type { BoxTheme } from "../../shared/box.js";
-import { boxBorder, boxInnerWidth, boxInsetDivider, boxLine, boxLineWithRight, boxWidth } from "../../shared/box.js";
+import { boxBlankLine, boxBorder, boxInnerWidth, boxLabeledBorder, boxLine, boxWidth } from "../../shared/box.js";
 
 export type MessageBlockOptions = {
 	kind: string;
@@ -18,7 +18,7 @@ export type MessageBlockOptions = {
 };
 
 function formatMessageBlockTitle(theme: BoxTheme, kind: string, title?: string, icon = "➔"): string {
-	const rawTitle = title ? `${icon} ${kind} | ${title}` : `${icon} ${kind}`;
+	const rawTitle = title ? `${icon} ${kind} · ${title}` : `${icon} ${kind}`;
 	const coloredTitle = theme.fg("accent", rawTitle);
 	return typeof theme?.bold === "function" ? theme.bold(coloredTitle) : coloredTitle;
 }
@@ -26,13 +26,17 @@ function formatMessageBlockTitle(theme: BoxTheme, kind: string, title?: string, 
 /**
  * Render a boxed message block.
  *
+ * The title is embedded in the rounded top border, the body sits between
+ * blank padding rows, and the expand hint (when present) is embedded at the
+ * right end of the bottom border — no inset dividers.
+ *
  * Returns only border/content lines with foreground styling. Background is
  * applied by the parent Box (all patched components extend Box with a
  * customMessageBg bgFn), so this helper must NOT apply background itself —
  * that would create a double-background conflict.
  */
 export function renderBoxedMessageBlock(theme: BoxTheme, options: MessageBlockOptions): Component {
-	const { kind, title, right, body, icon = "➔", hasDivider = true, cache: shouldCache = true } = options;
+	const { kind, title, right, body, icon = "➔", cache: shouldCache = true } = options;
 	let cache: { width: number; lines: string[] } | null = null;
 
 	return {
@@ -45,27 +49,19 @@ export function renderBoxedMessageBlock(theme: BoxTheme, options: MessageBlockOp
 			const renderedWidth = boxWidth(width);
 			const contentWidth = boxInnerWidth(renderedWidth);
 			const titleLine = formatMessageBlockTitle(theme, kind, title, icon);
-
-			const lines: string[] = [];
-			lines.push(boxBorder(theme, "┌", "┐", renderedWidth));
-
-			if (right) {
-				const rightStyled = theme.fg("dim", right);
-				lines.push(boxLineWithRight(theme, titleLine, rightStyled, renderedWidth));
-			} else {
-				lines.push(boxLine(theme, titleLine, renderedWidth));
-			}
-
 			const bodyLines = body(contentWidth);
-			const showDivider = hasDivider === "auto" ? bodyLines.length > 0 : hasDivider;
-			if (showDivider) {
-				lines.push(boxInsetDivider(theme, renderedWidth));
-			}
-			for (const line of bodyLines) {
-				lines.push(boxLine(theme, line, renderedWidth));
-			}
 
-			lines.push(boxBorder(theme, "└", "┘", renderedWidth));
+			const lines: string[] = [
+				boxLabeledBorder(theme, "╭", "╮", titleLine, undefined, renderedWidth),
+				boxBlankLine(theme, renderedWidth),
+				...bodyLines.map((line) => boxLine(theme, line, renderedWidth)),
+			];
+			if (bodyLines.length > 0) lines.push(boxBlankLine(theme, renderedWidth));
+			if (right) {
+				lines.push(boxLabeledBorder(theme, "╰", "╯", "", theme.fg("dim", right), renderedWidth));
+			} else {
+				lines.push(boxBorder(theme, "╰", "╯", renderedWidth));
+			}
 
 			if (shouldCache) cache = { width, lines };
 			return lines;
