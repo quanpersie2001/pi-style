@@ -88,7 +88,11 @@ describe("resumed-session rendering (renderBeforeBind ordering)", () => {
 		const toolLines = linesOf(renderedDuringGap.tool);
 		const compactionLines = linesOf(renderedDuringGap.compaction);
 
-		expect(hasPrefixMark(userLines)).toBe(true);
+		// The user-message `❯` prefix is off by default (it would duplicate the editor
+		// prompt glyph); the adapter still installs and survives the gap, rendering the
+		// message natively. Assistant prefix (`│`) below confirms message-prefix
+		// decoration survives the gap.
+		expect(stripAnsi(userLines.join("\n"))).toContain("hello");
 		// Single-line assistant replies previously lost their prefix: the native
 		// multiline OSC133 envelope puts the only body line last, which the old
 		// firstContentIndex logic excluded.
@@ -120,8 +124,8 @@ describe("resumed-session rendering (renderBeforeBind ordering)", () => {
 				new ToolExecutionComponent("read", `call_${i}`, { path: `file${i}.ts` }, {}, undefined, undefined, "/fake"),
 			);
 		}
-		for (let i = 1; i <= 10; i++) {
-			tools[i - 1]!.updateResult({ content: [{ type: "text", text: "ok" }], details: {}, isError: false });
+		for (const tool of tools) {
+			tool.updateResult({ content: [{ type: "text", text: "ok" }], details: {}, isError: false });
 		}
 
 		const stacked: string[] = [];
@@ -138,8 +142,9 @@ describe("resumed-session rendering (renderBeforeBind ordering)", () => {
 		expect(joined).toContain("└─ 5 more");
 		expect(trailingBlanks).toBeLessThan(3);
 		// The panel is a single boxless block: header + 5 members + "5 more".
-		expect(tools[1]!.render(80)).toHaveLength(0); // second member: fully hidden
-		expect(tools[9]!.render(80)).toHaveLength(0); // last member: fully hidden
-		expect(tools[0]!.render(80)).toHaveLength(8); // leader: spacer + header + 5 + more
+		const [, second, , , , , , , , last] = tools;
+		expect(second?.render(80)).toHaveLength(0); // second member: fully hidden
+		expect(last?.render(80)).toHaveLength(0); // last member: fully hidden
+		expect(tools[0]?.render(80)).toHaveLength(8); // leader: spacer + header + 5 + more
 	});
 });

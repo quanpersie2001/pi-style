@@ -125,7 +125,6 @@ describe("configuration control plane and composition", () => {
 			["editor.frame", "line", "bad"],
 			["editor.showMetadata", false, "bad"],
 			["messages.enabled", false, "bad"],
-			["messages.userPrefix", false, "bad"],
 			["messages.assistantPrefix", false, "bad"],
 			["messages.specialBlocks", false, "bad"],
 			["tools.enabled", false, "bad"],
@@ -377,7 +376,7 @@ describe("configuration control plane and composition", () => {
 	it("persists command mutations without leaking session authorization fields", async () => {
 		const app = createPiStyleApp({
 			compatibility: { allowCorePatches: true },
-			messages: { enabled: true, userPrefix: true },
+			messages: { enabled: true },
 			tools: { enabled: true },
 		});
 		const writes: string[] = [];
@@ -395,7 +394,6 @@ describe("configuration control plane and composition", () => {
 		const stored = JSON.parse(writes[0] ?? "{}").piStyle as Record<string, unknown>;
 		expect(stored).toEqual({ messages: { enabled: true } });
 		expect(stored).not.toHaveProperty("compatibility");
-		expect(stored.messages).not.toHaveProperty("userPrefix");
 	});
 
 	it("keeps selector commands session-only and blocks untrusted project persistence", async () => {

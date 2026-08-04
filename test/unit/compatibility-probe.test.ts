@@ -132,15 +132,15 @@ describe("Pi 0.83 compatibility probe", () => {
 			width = _width;
 			return ["  ", "  text", "  continuation"];
 		};
-		const output = decorateMessageRender("native-user-message", native, {}, [30]);
+		const output = decorateMessageRender(native, {}, [30]);
 		expect(calls).toBe(1);
 		expect(width).toBe(28);
-		expect(output).toEqual([" ".repeat(30), `❯   text${" ".repeat(22)}`, `    continuation${" ".repeat(14)}`]);
+		expect(output).toEqual([" ".repeat(30), `│   text${" ".repeat(22)}`, `    continuation${" ".repeat(14)}`]);
 	});
 
 	it("preserves OSC control-only lines and prefixes OSC content exactly once", () => {
 		const native = () => ["  ", "\x1b]133;A\x07text\x1b]133;B\x07", "\x1b]133;B\x07\x1b]133;C\x07"];
-		const output = decorateMessageRender("native-assistant-message", native, {}, [40]);
+		const output = decorateMessageRender(native, {}, [40]);
 		expect(output).toEqual([
 			" ".repeat(40),
 			`│ \x1b]133;A\x07text\x1b]133;B\x07${" ".repeat(34)}`,
@@ -150,11 +150,11 @@ describe("Pi 0.83 compatibility probe", () => {
 	it.each([
 		// Core/message/tool surfaces are default-on (fingerprint-certified, fail-closed,
 		// conflict-preserving); explicit flags and the ASCII override still work.
-		[{}, 8],
+		[{}, 7],
 		[{ "pi-style-core-patches": false }, 0],
-		[{ "pi-style-ascii": true }, 8],
-		[{ "pi-style-tools": false }, 6],
-		[{ "pi-style-message-special-blocks": false }, 4],
+		[{ "pi-style-ascii": true }, 7],
+		[{ "pi-style-tools": false }, 5],
+		[{ "pi-style-message-special-blocks": false }, 3],
 	] as const)("enables certified surfaces by default with explicit flag overrides %#", async (flags, expected) => {
 		const host = new FakePiHost({ flags });
 		piStyleExtension(host.extensionApi);
@@ -172,7 +172,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		initTheme("dark", false);
 		const markers = new Set<string>();
 		const report = probePiCompatibility("0.83.0", markers);
-		expect(report.recordSnapshots).toHaveLength(8);
+		expect(report.recordSnapshots).toHaveLength(7);
 		expect(report.recordSnapshots.every((record) => record.piVersion === "0.83.0")).toBe(true);
 		expect(report.recordSnapshots.every((record) => record.shape === "installed")).toBe(true);
 		expect(report.recordSnapshots.every((record) => record.disposed === false)).toBe(true);
@@ -220,7 +220,6 @@ describe("Pi 0.83 compatibility probe", () => {
 		expect(decoratedSpecial).toEqual(beforeSpecial);
 		expect(markers).toEqual(
 			new Set([
-				"native-user-message:delegated",
 				"native-assistant-message:delegated",
 				"native-compaction-message:delegated",
 				"native-branch-message:delegated",
@@ -240,9 +239,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		initTheme("dark", false);
 		const report = probePiCompatibility("0.83.0", {
 			messageSnapshot: {
-				userPrefix: "[user] ",
 				assistantPrefix: "[assistant] ",
-				userEnabled: true,
 				assistantEnabled: true,
 			},
 		});
@@ -277,18 +274,17 @@ describe("Pi 0.83 compatibility probe", () => {
 		);
 		expect(userContentLine).toBeDefined();
 		expect(assistantContentLine).toBeDefined();
-		expect(stripAnsi(userContentLine ?? "").indexOf("[user] ")).toBeGreaterThanOrEqual(0);
+		// The user-message `❯` prefix was removed: user messages render native (no marker).
+		expect(stripAnsi(userLines.join("\n"))).not.toContain("[user] ");
 		expect(stripAnsi(assistantLines.join("\n"))).toContain("assistant installed sentinel");
 		expect(stripAnsi(userLines.join("\n"))).toContain("user installed sentinel");
 		expect(stripAnsi(assistantLines.join("\n"))).toContain("assistant installed sentinel");
 		expect(
-			decorateMessageRender("native-user-message", () => ["content sentinel"], {}, [80], {
-				userPrefix: "[user] ",
+			decorateMessageRender(() => ["content sentinel"], {}, [80], {
 				assistantPrefix: "[assistant] ",
-				userEnabled: true,
 				assistantEnabled: true,
 			}),
-		).toEqual([`[user] content sentinel${" ".repeat(57)}`]);
+		).toEqual([`[assistant] content sentinel${" ".repeat(52)}`]);
 		expect(userLines.some((line) => line.includes("  user installed sentinel"))).toBe(true);
 		expect(userLines.every((line) => visibleWidth(line) <= 160)).toBe(true);
 		expect(assistantLines.every((line) => visibleWidth(line) <= 160)).toBe(true);
@@ -305,16 +301,15 @@ describe("Pi 0.83 compatibility probe", () => {
 		)
 			.render(160)
 			.find((line) => stripAnsi(line).includes("default assistant sentinel"));
-		expect(stripAnsi(defaultUserLine ?? "").indexOf("❯ ")).toBeGreaterThanOrEqual(0);
+		expect(stripAnsi(defaultUserLine ?? "")).toContain("default installed sentinel");
+		expect(stripAnsi(defaultUserLine ?? "")).not.toContain("❯");
 		expect(defaultAssistantLine).toContain("default assistant sentinel");
 		expect(defaultAssistantLine).toContain("default assistant sentinel");
 		disposePiCompatibilityProbe(defaultReport);
 
 		const asciiReport = probePiCompatibility("0.83.0", {
 			messageSnapshot: {
-				userPrefix: "[user] ",
 				assistantPrefix: "[assistant] ",
-				userEnabled: true,
 				assistantEnabled: true,
 			},
 		});
@@ -329,9 +324,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		initTheme("dark", false);
 		const report = probePiCompatibility("0.83.0", {
 			messageSnapshot: {
-				userPrefix: "[user] ",
 				assistantPrefix: "[assistant] ",
-				userEnabled: true,
 				assistantEnabled: true,
 			},
 		});
@@ -441,7 +434,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		});
 		const result = installDelegatingPatch({
 			feature: "messages",
-			subtype: "native-user-message",
+			subtype: "native-assistant-message",
 			target,
 			method: "method",
 			piVersion: "0.83.0",
@@ -470,11 +463,11 @@ describe("Pi 0.83 compatibility probe", () => {
 			if (calls === 1) return ["native"];
 			throw new Error("must not retry");
 		};
-		const first = targetSpecs.find((spec) => spec.subtype === "native-user-message");
+		const first = targetSpecs.find((spec) => spec.subtype === "native-assistant-message");
 		expect(first).toBeDefined();
 		const result = installDelegatingPatch({
 			feature: "messages",
-			subtype: "native-user-message",
+			subtype: "native-assistant-message",
 			target: {},
 			method: "render",
 			piVersion: "0.83.0",
@@ -497,7 +490,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		await host.sessionStart();
 		expect(
 			targetSpecs.filter((spec) => getCompatibilityRecords(spec.target).some((record) => !record.disposed)).length,
-		).toBe(8);
+		).toBe(7);
 		await host.sessionShutdown();
 		// Tier C patches are retained across session switches (Pi renders the restored
 		// chat with renderBeforeBind before the next session_start, which restores and
@@ -506,7 +499,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		await host.sessionStart();
 		expect(
 			targetSpecs.filter((spec) => getCompatibilityRecords(spec.target).some((record) => !record.disposed)).length,
-		).toBe(8);
+		).toBe(7);
 		await host.sessionShutdown();
 
 		// OFF switch: `compatibility.allowCorePatches: false` in config denies all core patches.
@@ -563,9 +556,9 @@ describe("Pi 0.83 compatibility probe", () => {
 		).toBeUndefined();
 		for (const version of [undefined, "0.84.0"]) {
 			const report = probePiCompatibility(version);
-			expect(report.recordSnapshots).toHaveLength(8);
+			expect(report.recordSnapshots).toHaveLength(7);
 			expect(report.recordSnapshots.every((record) => record.shape === "unsupported")).toBe(true);
-			expect(report.unsupported).toHaveLength(8);
+			expect(report.unsupported).toHaveLength(7);
 		}
 	});
 
@@ -580,7 +573,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		owners.add(target);
 		const result = installDelegatingPatch({
 			feature: "messages",
-			subtype: "native-user-message",
+			subtype: "native-assistant-message",
 			target,
 			method: "render",
 			piVersion: "0.83.0",
@@ -604,7 +597,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		owner.call = otherOwner;
 		const result = installDelegatingPatch({
 			feature: "messages",
-			subtype: "native-user-message",
+			subtype: "native-assistant-message",
 			target: owner,
 			method: "call",
 			piVersion: "0.83.0",
@@ -655,14 +648,14 @@ describe("Pi 0.83 compatibility probe", () => {
 		const beforeDescriptors = descriptors();
 		const markers = new Set<string>();
 		const report = probePiCompatibility("0.83.0", markers);
-		const captured = report.recordSnapshots.find((record) => record.subtype === "native-user-message");
+		const captured = report.recordSnapshots.find((record) => record.subtype === "native-assistant-message");
 		expect(captured?.shape).toBe("installed");
 		expect(captured?.shape).toBe("installed");
 		disposePiCompatibilityProbe(report);
 		expect(descriptors()).toEqual(beforeDescriptors);
 		const replacement = probePiCompatibility("0.83.0");
-		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(8);
-		expect(markers).not.toContain("native-user-message:delegated");
+		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(7);
+		expect(markers).not.toContain("native-assistant-message:delegated");
 		const snapshots: readonly CompatibilityRecordSnapshot[] = report.recordSnapshots;
 		expect(snapshots.every((record) => record.generation > 0)).toBe(true);
 		const markerCount = markers.size;
@@ -687,7 +680,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		owners.add(target);
 		const result = installDelegatingPatch({
 			feature: "messages",
-			subtype: "native-user-message",
+			subtype: "native-assistant-message",
 			target,
 			method: "method",
 			piVersion: "0.83.0",
@@ -888,7 +881,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		const report = probePiCompatibility("0.83.0", {
 			config: {
 				tools: { enabled: true },
-				messages: { enabled: false, userPrefix: false, assistantPrefix: false },
+				messages: { enabled: false, assistantPrefix: false },
 				preset: "default",
 			},
 		});
@@ -1045,7 +1038,6 @@ describe("Pi 0.83 compatibility probe", () => {
 			systemPrompt: "sentinel system prompt",
 			flags: {
 				"pi-style-core-patches": true,
-				"pi-style-message-user": true,
 				"pi-style-message-assistant": true,
 				"pi-style-tools": true,
 			},
@@ -1064,8 +1056,8 @@ describe("Pi 0.83 compatibility probe", () => {
 			const active = descriptors();
 			expect(active[0]?.value).not.toBe(baseline[0]?.value);
 			expect(active[1]?.value).not.toBe(baseline[1]?.value);
+			expect(active[5]?.value).not.toBe(baseline[5]?.value);
 			expect(active[6]?.value).not.toBe(baseline[6]?.value);
-			expect(active[7]?.value).not.toBe(baseline[7]?.value);
 			expect(
 				targetSpecs
 					.filter((spec) => spec.feature === "messages" && spec.status === "native-fallback")
@@ -1088,7 +1080,7 @@ describe("Pi 0.83 compatibility probe", () => {
 			);
 			tool.updateResult({ content: [{ type: "text", text: "cycle result" }], details: {}, isError: false }, true);
 			tool.render(80);
-			expect(getCompatibilityRecords(UserMessageComponent.prototype).length).toBe(1);
+			expect(getCompatibilityRecords(AssistantMessageComponent.prototype).length).toBe(1);
 			expect(getCompatibilityRecords(ToolExecutionComponent.prototype).length).toBe(2);
 			await host.sessionShutdown();
 			// Patches are retained across the session-switch gap (renderBeforeBind), and
@@ -1109,7 +1101,6 @@ describe("Pi 0.83 compatibility probe", () => {
 				systemPrompt: "sentinel system prompt",
 				flags: {
 					"pi-style-core-patches": true,
-					"pi-style-message-user": true,
 					"pi-style-message-assistant": true,
 					"pi-style-tools": true,
 				},
@@ -1145,7 +1136,7 @@ describe("Pi 0.83 compatibility probe", () => {
 			for (let index = 0; index < installed.length; index++) {
 				expect(installed[index]?.value).not.toBe(baseline[index]?.value);
 			}
-			expect(getCompatibilityRecords(UserMessageComponent.prototype).length).toBe(1);
+			expect(getCompatibilityRecords(AssistantMessageComponent.prototype).length).toBe(1);
 			await host.sessionShutdown();
 			// Retained across the switch gap; restoration happens at the next start.
 			expect(descriptors()).not.toEqual(baseline);

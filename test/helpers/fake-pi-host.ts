@@ -98,6 +98,8 @@ export class FakePiHost {
 	model: unknown;
 	thinkingLevel = "off";
 	private sessionStarted = false;
+	/** Last label passed to setHiddenThinkingLabel by the extension (undefined = untouched). */
+	hiddenThinkingLabel: string | undefined = undefined;
 	private readonly api: ExtensionAPI;
 	private readonly context: ExtensionContext;
 	private readonly sessionReason: NonNullable<FakePiHostOptions["sessionReason"]>;
@@ -202,7 +204,9 @@ export class FakePiHost {
 			}),
 			getActiveTools: () => [...this.activeTools],
 			getAllTools: () => [...this.allTools] as never,
-			setActiveTools: () => {},
+			setActiveTools: (toolNames) => {
+				this.activeTools = [...toolNames];
+			},
 			getCommands: () => [],
 			setModel: async () => false,
 			getThinkingLevel: () => this.thinkingLevel as never,
@@ -241,7 +245,9 @@ export class FakePiHost {
 						this.workingIndicatorChanges.push(options);
 					}
 				: () => {},
-			setHiddenThinkingLabel: () => {},
+			setHiddenThinkingLabel: (label) => {
+				this.hiddenThinkingLabel = label;
+			},
 			setWidget: this.capabilities.widgets
 				? (key, content, options) => {
 						if (content === undefined) {

@@ -21,13 +21,24 @@
 //   hierarchy; the header line is the summary (` Read (N) · 0.08s`).
 // - Errors stay visible: failed members are always rendered inline (even in the
 //   collapsed state), with their error text indented beneath the path.
-// - Per-file color: members read successfully use the primary (accent) color,
-//   failed members use the error color; no word-count metadata.
+// - read members render a single path row. ls/find members render their parsed
+//   output as a file subtree (flat for a lone call, nested per member when
+//   batched) — see renderOutputBatchPanel. Pending/failed members without output
+//   fall back to the path row.
 
 import type { Component } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
 import { type BoxTheme, formatToolTitlePrefix } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
+import {
+	fileIcon,
+	OUTPUT_TREE_HEAD_LIMIT,
+	pluralForm,
+	renderOutputTree,
+	SEARCH_ICON,
+	TREE_CHILD_INDENT,
+	TREE_INDENT,
+} from "./output-tree.js";
 import { getToolsRenderConfig } from "./session-config.js";
 import type { BoxedToolContext } from "./shared.js";
 
@@ -42,6 +53,8 @@ export interface BatchToolMeta {
 	readonly toolName: string;
 	/** Human label shown in the batch header (e.g. "Read", "List", "Find"). */
 	readonly label: string;
+	/** Header label for output-tree panels: "Glob" for find, "List" for ls. */
+	readonly headerLabel?: string;
 }
 
 export type BatchMemberStatus = "pending" | "running" | "done";
@@ -52,6 +65,14 @@ export interface BatchMember {
 	status: BatchMemberStatus;
 	isError: boolean;
 	errorText?: string;
+	/** find glob pattern (header detail for output panels). */
+	pattern?: string;
+	/** Display path (header detail for output panels). */
+	pathLabel?: string;
+	/** Parsed output entries once the result arrives (ls/find). `undefined` until
+	 *  the result is registered; an empty array means a successful zero-entry
+	 *  result (e.g. an empty directory). */
+	outputEntries?: string[];
 }
 
 export interface BatchState {
@@ -65,9 +86,11 @@ export interface BatchState {
 
 /** Tree head limit: only the first few members are listed, the rest collapse. */
 const BATCH_TREE_HEAD_LIMIT = 5;
+/** Per-member file subtree head limit in a batched output panel. */
+const BATCH_MEMBER_FILE_HEAD_LIMIT = 4;
 const BATCH_ERROR_LINES = 2;
 /** Indent for tree lines below the header. */
-const BATCH_TREE_INDENT = "  ";
+const BATCH_TREE_INDENT = TREE_INDENT;
 
 /** Component rendered for non-leader batch members (zero height). */
 export const EMPTY_BATCH_COMPONENT: Component = Object.freeze({
@@ -93,13 +116,27 @@ export function resetBatchRegistry(): void {
 	batchByCallId.clear();
 }
 
-function createBatch(meta: BatchToolMeta, leaderId: string, detail: string): BatchState {
+function createBatch(
+	meta: BatchToolMeta,
+	leaderId: string,
+	detail: string,
+	opts: { pattern?: string; pathLabel?: string } = {},
+): BatchState {
 	const batch: BatchState = {
 		meta,
 		leaderId,
 		startedAt: performance.now(),
 		closed: false,
-		members: [{ toolCallId: leaderId, detail, status: "pending", isError: false }],
+		members: [
+			{
+				toolCallId: leaderId,
+				detail,
+				status: "pending",
+				isError: false,
+				...(opts.pattern ? { pattern: opts.pattern } : {}),
+				...(opts.pathLabel ? { pathLabel: opts.pathLabel } : {}),
+			},
+		],
 	};
 	activeBatch = batch;
 	batchByCallId.set(leaderId, batch);
@@ -115,23 +152,30 @@ export function registerBatchCall(
 	meta: BatchToolMeta,
 	detail: string,
 	context: BoxedToolContext,
+	opts: { pattern?: string; pathLabel?: string } = {},
 ): { batch: BatchState; isLeader: boolean } {
 	const existing = batchByCallId.get(context.toolCallId);
 	if (existing) {
 		const member = existing.members.find((entry) => entry.toolCallId === context.toolCallId);
-		if (member) member.detail = detail;
+		if (member) {
+			member.detail = detail;
+			if (opts.pattern !== undefined) member.pattern = opts.pattern;
+			if (opts.pathLabel !== undefined) member.pathLabel = opts.pathLabel;
+		}
 		return { batch: existing, isLeader: existing.leaderId === context.toolCallId };
 	}
 	const current = activeBatch;
 	if (!current || current.closed || current.meta.toolName !== meta.toolName) {
 		closeActiveBatch();
-		return { batch: createBatch(meta, context.toolCallId, detail), isLeader: true };
+		return { batch: createBatch(meta, context.toolCallId, detail, opts), isLeader: true };
 	}
 	const member: BatchMember = {
 		toolCallId: context.toolCallId,
 		detail,
 		status: "pending",
 		isError: false,
+		...(opts.pattern ? { pattern: opts.pattern } : {}),
+		...(opts.pathLabel ? { pathLabel: opts.pathLabel } : {}),
 	};
 	current.members.push(member);
 	batchByCallId.set(context.toolCallId, current);
@@ -142,6 +186,8 @@ export interface BatchResultData {
 	readonly isPartial: boolean;
 	readonly isError: boolean;
 	readonly errorText: string | undefined;
+	/** Parsed output entries (ls/find) stored on the member for tree rendering. */
+	readonly entries?: string[];
 }
 
 /**
@@ -163,6 +209,7 @@ export function registerBatchResult(
 		member.isError = !data.isPartial && data.isError;
 		if (member.isError && data.errorText !== undefined) member.errorText = data.errorText;
 		else delete member.errorText;
+		if (data.entries !== undefined) member.outputEntries = data.entries;
 	}
 	if (batch.completedAt === undefined && batch.members.every((entry) => entry.status === "done")) {
 		batch.completedAt = performance.now();
@@ -205,9 +252,13 @@ function bold(theme: BoxTheme, text: string): string {
 	return typeof theme?.bold === "function" ? theme.bold(text) : text;
 }
 
+function isOutputTool(meta: BatchToolMeta): boolean {
+	return meta.toolName === "ls" || meta.toolName === "find";
+}
+
 /** Header line: state glyph + batch label(count) + progress/elapsed (no box). */
 function formatBatchHeader(theme: BoxTheme, batch: BatchState, status: BatchStatus): string {
-	const label = `${batch.meta.label} (${status.total})`;
+	const label = `${batch.meta.headerLabel ?? batch.meta.label} (${status.total})`;
 	if (status.failed > 0) return theme.fg("error", bold(theme, `✗ ${label} · ${status.failed} failed`));
 	if (status.allDone) {
 		const glyph = getToolsRenderConfig().batchOpenGlyph;
@@ -270,9 +321,109 @@ function renderBatchTree(theme: BoxTheme, batch: BatchState, status: BatchStatus
 	return out;
 }
 
+/** Header for a lone (batch-of-one) ls/find output panel: `Glob: <pattern> <N> files · in <path>`. */
+function formatLoneOutputHeader(theme: BoxTheme, meta: BatchToolMeta, member: BatchMember): string {
+	const label = meta.headerLabel ?? meta.label;
+	const count = member.outputEntries?.length ?? 0;
+	const filesPart = theme.fg("accent", `${count} ${count === 1 ? "file" : "files"}`);
+	const patternPart = meta.toolName === "find" && member.pattern ? `${theme.fg("text", member.pattern)} ` : "";
+	const pathPart = member.pathLabel ? theme.fg("dim", ` · in ${member.pathLabel}`) : "";
+	// ls/find headers carry the magnifying-glass icon in Nerd Font mode,
+	// matching find/grep.
+	const icon = getToolsRenderConfig().nerdFonts ? `${SEARCH_ICON} ` : "";
+	return `${icon}${bold(theme, `${label}:`)} ${patternPart}${filesPart}${pathPart}`;
+}
+
+/** Nested file subtree for one member inside a batched (2+) output panel. */
+function renderMemberSubtree(theme: BoxTheme, member: BatchMember, isLastMember: boolean, width: number): string[] {
+	const safeWidth = Math.max(1, width);
+	const trunk = isLastMember ? " " : theme.fg("borderMuted", "│");
+	const out: string[] = [];
+
+	// Member header row: path + file count (or status glyph when not done).
+	const entries = member.outputEntries ?? [];
+	if (member.isError) {
+		const line = `${BATCH_TREE_INDENT}${theme.fg("borderMuted", isLastMember ? "└─" : "├─")} ${theme.fg("error", "✗")} ${theme.fg("error", member.pathLabel ?? member.detail)}`;
+		out.push(safeTruncateToWidth(line, safeWidth, "…"));
+		if (member.errorText) out.push(...renderErrorLines(theme, member.errorText, width));
+		return out;
+	}
+	if (member.status !== "done" || member.outputEntries === undefined) {
+		const glyph = member.status === "done" ? theme.fg("success", "✓") : theme.fg("text", "◌");
+		const line = `${BATCH_TREE_INDENT}${theme.fg("borderMuted", isLastMember ? "└─" : "├─")} ${glyph} ${theme.fg("text", member.pathLabel ?? member.detail)}`;
+		out.push(safeTruncateToWidth(line, safeWidth, "…"));
+		return out;
+	}
+
+	const countLabel = theme.fg("dim", ` · ${entries.length} ${pluralForm("file", entries.length)}`);
+	const headerLine = `${BATCH_TREE_INDENT}${theme.fg("borderMuted", isLastMember ? "└─" : "├─")} ${theme.fg("accent", member.pathLabel ?? member.detail)}${countLabel}`;
+	out.push(safeTruncateToWidth(headerLine, safeWidth, "…"));
+
+	const visible = entries.slice(0, BATCH_MEMBER_FILE_HEAD_LIMIT);
+	const more = entries.length - visible.length;
+	const lastIndex = visible.length - 1;
+	const icons = getToolsRenderConfig().nerdFonts;
+	for (let i = 0; i < visible.length; i++) {
+		const entry = visible[i] ?? "";
+		const label = icons && entry ? `${fileIcon(entry)} ${entry}` : entry;
+		const branch = i < lastIndex || more > 0 ? "├─" : "└─";
+		const line = `${BATCH_TREE_INDENT}${trunk}${TREE_CHILD_INDENT}${theme.fg("borderMuted", branch)} ${theme.fg("toolOutput", label)}`;
+		out.push(safeTruncateToWidth(line, safeWidth, "…"));
+	}
+	if (more > 0) {
+		const line = `${BATCH_TREE_INDENT}${trunk}${TREE_CHILD_INDENT}${theme.fg("borderMuted", "└─")} ${theme.fg("dim", `… ${more} more ${pluralForm("file", more)}`)}`;
+		out.push(safeTruncateToWidth(line, safeWidth, "…"));
+	}
+	return out;
+}
+
+/** ls/find output panel: lone call renders a flat tree; a batch renders nested subtrees. */
+function renderOutputBatchPanel(theme: BoxTheme, batch: BatchState, status: BatchStatus, width: number): string[] {
+	const safeWidth = Math.max(1, width);
+
+	// Lone successful call with output: flat tree under a `Glob:/List:` header.
+	if (batch.members.length === 1) {
+		const member = batch.members[0];
+		if (member && member.outputEntries !== undefined && !member.isError) {
+			const header = safeTruncateToWidth(formatLoneOutputHeader(theme, batch.meta, member), safeWidth, "…");
+			return renderOutputTree(theme, header, member.outputEntries, safeWidth, {
+				headLimit: OUTPUT_TREE_HEAD_LIMIT,
+				moreUnit: "file",
+				entryColor: "toolOutput",
+				indent: BATCH_TREE_INDENT,
+				withIcons: getToolsRenderConfig().nerdFonts,
+			});
+		}
+		// Pending/error/empty-without-entries: fall through to the path-only panel.
+	}
+
+	// Batched (2+) or a not-yet-ready lone call: per-member rows/subtrees.
+	const header = safeTruncateToWidth(formatBatchHeader(theme, batch, status), safeWidth, "…");
+	const out: string[] = [header];
+	const visible = batch.members.slice(0, BATCH_TREE_HEAD_LIMIT);
+	const more = batch.members.length - visible.length;
+	visible.forEach((member, index) => {
+		const isLast = index === visible.length - 1 && more <= 0;
+		out.push(...renderMemberSubtree(theme, member, isLast, safeWidth));
+	});
+	if (more > 0) {
+		out.push(
+			safeTruncateToWidth(
+				`${BATCH_TREE_INDENT}${theme.fg("borderMuted", "└─")} ${theme.fg("dim", `${more} more`)}`,
+				safeWidth,
+				"…",
+			),
+		);
+	}
+	return out;
+}
+
 function renderBatchPanelLines(theme: BoxTheme, batch: BatchState, status: BatchStatus, width: number): string[] {
 	// The tree stays open in every state, including for a lone call: no boxed
 	// single-call special case, no collapsed single-line summary.
+	if (isOutputTool(batch.meta) && batch.members.some((member) => member.outputEntries !== undefined)) {
+		return renderOutputBatchPanel(theme, batch, status, width);
+	}
 	const header = safeTruncateToWidth(formatBatchHeader(theme, batch, status), Math.max(1, width), "…");
 	const lines = [header];
 	lines.push(...renderBatchTree(theme, batch, status, width));

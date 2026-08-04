@@ -68,7 +68,6 @@ describe("surface rendering width matrix", () => {
 		for (const width of widths) assertSafe(styled.render(width), width);
 		let nativeCalls = 0;
 		const message = decorateMessageRender(
-			"native-assistant-message",
 			(width: number) => {
 				nativeCalls++;
 				return width >= 20 ? [`\x1b]133;A\x07answer\x1b]133;B\x07\x1b]133;C\x07`] : ["answer"];
@@ -80,7 +79,6 @@ describe("surface rendering width matrix", () => {
 		expect(message).toBeDefined();
 		for (const width of widths) {
 			const rendered = decorateMessageRender(
-				"native-assistant-message",
 				(nativeWidth: number) => [nativeWidth > 2 ? "\x1b]133;A\x07answer\x1b]133;B\x07\x1b]133;C\x07" : ""],
 				{},
 				[width],

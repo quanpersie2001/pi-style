@@ -20,7 +20,6 @@ describe("snapshot and adapter rendering", () => {
 		expect(() => renderStartup({ reason: "startup", model: "model" }, config, {}, 80)).not.toThrow();
 		let messageCalls = 0;
 		decorateMessageRender(
-			"native-user-message",
 			() => {
 				messageCalls++;
 				return ["text"];

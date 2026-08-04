@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Removed the user-message `❯` prefix and its `messages.userPrefix` option entirely. The editor prompt glyph is also `❯`, so prefixing sent user messages made them look identical to the live input box. The `native-user-message` certified surface was removed (user messages render native and are never patched); the `--pi-style-message-user` flag and `messages.userPrefix` config leaf are gone. Assistant prefix is unchanged.
+
 ## [0.1.2] - 2026-08-04
 
 ### Bug Fixes

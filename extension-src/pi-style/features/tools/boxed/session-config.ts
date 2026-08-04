@@ -10,6 +10,8 @@ export interface ToolsRenderConfig {
 	showElapsed: boolean;
 	/** Open-tree glyph for the done batch header (nerd `\u{F111}` / unicode `●`). */
 	batchOpenGlyph: string;
+	/** Nerd Font mode is active: file-type icons render in output trees. */
+	nerdFonts: boolean;
 }
 
 let sessionToolsConfig: ToolsRenderConfig = {
@@ -18,6 +20,7 @@ let sessionToolsConfig: ToolsRenderConfig = {
 	dimOutput: false,
 	showElapsed: true,
 	batchOpenGlyph: "●",
+	nerdFonts: false,
 };
 
 export function setToolsRenderConfig(config: Partial<ToolsRenderConfig>): void {

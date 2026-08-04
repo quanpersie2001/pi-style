@@ -174,29 +174,23 @@ function prefixNative(lines: unknown, width: number, prefix: string): string[] |
 }
 
 export type MessageDecorationSnapshot = Readonly<{
-	userPrefix: string;
 	assistantPrefix: string;
-	userEnabled: boolean;
 	assistantEnabled: boolean;
 }>;
 
 export function decorateMessageRender(
-	subtype: "native-user-message" | "native-assistant-message",
 	original: unknown,
 	instance: object,
 	args: unknown[],
 	snapshot: MessageDecorationSnapshot = {
-		userPrefix: "❯ ",
 		assistantPrefix: "│ ",
-		userEnabled: true,
 		assistantEnabled: true,
 	},
 ): unknown {
 	if (typeof original !== "function") return undefined;
 	const width = typeof args[0] === "number" ? args[0] : 0;
-	const enabled = subtype === "native-user-message" ? snapshot.userEnabled : snapshot.assistantEnabled;
-	const prefix = subtype === "native-user-message" ? snapshot.userPrefix : snapshot.assistantPrefix;
-	if (!enabled) return Reflect.apply(original, instance, args);
+	const prefix = snapshot.assistantPrefix;
+	if (!snapshot.assistantEnabled) return Reflect.apply(original, instance, args);
 	if (width <= visibleWidth(prefix)) return Reflect.apply(original, instance, args);
 	// Exactly one native invocation. If the reduced render cannot be certified, the
 	// already-obtained result is the only safe fallback; retrying can mutate state.

@@ -8,7 +8,6 @@ import {
 	CustomMessageComponent,
 	SkillInvocationMessageComponent,
 	ToolExecutionComponent,
-	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { decorateMessageRender, type MessageDecorationSnapshot } from "../features/messages/index.js";
 import { renderSpecialMessageBlock, type SpecialBlockSubtype } from "../features/messages/special-blocks.js";
@@ -31,7 +30,6 @@ const reportStates = new WeakMap<
 // code loaded before this module could spoof the same function source. We therefore
 // fail closed on every unrecorded Pi build and never use module-load capture as trust.
 export const TRUSTED_NATIVE_FINGERPRINTS: Readonly<Record<string, string>> = Object.freeze({
-	"native-user-message:render": "b442a17c",
 	"native-assistant-message:render": "2a39243f",
 	"native-compaction-message:updateDisplay": "f8c44e78",
 	"native-branch-message:updateDisplay": "415d57b7",
@@ -43,19 +41,6 @@ export const TRUSTED_NATIVE_FINGERPRINTS: Readonly<Record<string, string>> = Obj
 
 export const CERTIFICATION_TABLE = Object.freeze({
 	"0.83.0": Object.freeze({
-		"native-user-message:render": Object.freeze({
-			feature: "messages",
-			subtype: "native-user-message",
-			target: UserMessageComponent.prototype,
-			method: "render",
-			writable: true,
-			configurable: true,
-			name: "render",
-			arity: 1,
-			fingerprint: TRUSTED_NATIVE_FINGERPRINTS["native-user-message:render"],
-			adapterId: "message-prefix-osc133-v1",
-			status: "certified" as const,
-		}),
 		"native-assistant-message:render": Object.freeze({
 			feature: "messages",
 			subtype: "native-assistant-message",
@@ -234,14 +219,6 @@ function trustedNativeIdentity(spec: TargetSpec, piVersion: string | undefined):
 export const targetSpecs: readonly TargetSpec[] = [
 	{
 		feature: "messages",
-		subtype: "native-user-message",
-		target: UserMessageComponent.prototype,
-		method: "render",
-		adapterId: "message-prefix-osc133-v1",
-		status: "certified",
-	},
-	{
-		feature: "messages",
 		subtype: "native-assistant-message",
 		target: AssistantMessageComponent.prototype,
 		method: "render",
@@ -404,7 +381,7 @@ function shape(target: object, method: string): boolean {
 export interface CompatibilityProbeOptions {
 	markers?: Set<string>;
 	config?: Readonly<{
-		messages: { enabled: boolean; userPrefix: boolean; assistantPrefix: boolean; specialBlocks: boolean };
+		messages: { enabled: boolean; assistantPrefix: boolean; specialBlocks: boolean };
 		tools: { enabled: boolean; style: string; maxCollapsedLines: number; maxExpandedLines: number; dimOutput: boolean };
 		preset: string;
 	}>;
@@ -450,7 +427,6 @@ function surfaceDisabled(spec: TargetSpec, config: CompatibilityProbeOptions["co
 	if (!config) return false;
 	if (spec.feature === "tools") return !config.tools.enabled;
 	if (!config.messages.enabled) return true;
-	if (spec.subtype === "native-user-message") return !config.messages.userPrefix;
 	if (spec.subtype === "native-assistant-message") return !config.messages.assistantPrefix;
 	if (isSpecialBlock(spec)) return !config.messages.specialBlocks;
 	return true;
@@ -496,14 +472,8 @@ function probeSpec(options: {
 						args,
 					) ?? Reflect.apply(original as (...values: unknown[]) => unknown, target, args)
 				);
-			if (spec.subtype === "native-user-message" || spec.subtype === "native-assistant-message")
-				return decorateMessageRender(
-					spec.subtype as "native-user-message" | "native-assistant-message",
-					original,
-					target,
-					args,
-					messageSnapshot,
-				);
+			if (spec.subtype === "native-assistant-message")
+				return decorateMessageRender(original, target, args, messageSnapshot);
 			return renderSpecialMessageBlock(spec.subtype as SpecialBlockSubtype, original, target, args);
 		},
 	});

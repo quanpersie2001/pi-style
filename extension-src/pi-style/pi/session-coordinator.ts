@@ -4,7 +4,9 @@ import type { ConfigFilePort } from "../app/config-storage.js";
 import { createPiStyleApp, type PiStyleApp } from "../app/index.js";
 import { resolveTheme } from "../domain/theme.js";
 import { setSpecialBlockTheme } from "../features/messages/special-blocks.js";
+import { resetBashTreeRegistry } from "../features/tools/boxed/bash.js";
 import { resetBatchRegistry } from "../features/tools/boxed/batch.js";
+import { resetGrepRegistry } from "../features/tools/boxed/grep.js";
 import { setToolsRenderConfig, type ToolsRenderConfig } from "../features/tools/boxed/session-config.js";
 import { createCompatibilityCoordinator } from "./compatibility-coordinator.js";
 import {
@@ -48,6 +50,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 	let tuiSession = false;
 	let terminalInputUnsubscribe: (() => void) | undefined;
 	let sessionTheme: unknown;
+	let sessionUi: import("@earendil-works/pi-coding-agent").ExtensionUIContext | undefined;
 	const source = createConfigSourceAdapter(
 		pi,
 		filePort,
@@ -76,7 +79,16 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 		setToolsRenderConfig({
 			...config.tools,
 			batchOpenGlyph: resolveTheme(sessionTheme as never, config, process.env).glyph("batchOpen"),
+			nerdFonts: resolveTheme(sessionTheme as never, config, process.env).mode === "nerd",
 		} satisfies ToolsRenderConfig);
+	};
+	/**
+	 * Hide Pi's "Thinking..." placeholder label: an empty label renders zero
+	 * lines, so the thinking block leaves no trace while content stays hidden.
+	 * Passing undefined restores the default label.
+	 */
+	const applyMessagesConfig = (config: import("../domain/config-types.js").NormalizedPiStyleConfig) => {
+		sessionUi?.setHiddenThinkingLabel?.(config.messages.hideThinkingLabel ? "" : undefined);
 	};
 	const app: PiStyleApp = createPiStyleApp(
 		undefined,
@@ -92,6 +104,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			// Apply render-scoped tool config live so `/pi-style set tools.*` takes
 			// effect immediately (line budgets, dimOutput, open-tree glyph, …).
 			applyToolsRenderConfig(config);
+			applyMessagesConfig(config);
 			if (compatibility.report) {
 				const cleanup = compatibility.dispose();
 				if (!cleanup.complete) {
@@ -113,7 +126,6 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			authorization = readSessionAuthorization(pi);
 			compatibility.captureAuthorization(
 				authorization.core,
-				authorization.user,
 				authorization.assistant,
 				authorization.specialBlocks,
 				authorization.tools,
@@ -136,6 +148,8 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			// Drop any batch state carried over from the previous session (Pi renders
 			// the restored chat between session_shutdown and the next session_start).
 			resetBatchRegistry();
+			resetGrepRegistry();
+			resetBashTreeRegistry();
 			active = false;
 			await app.reload();
 			productGate = app.productPolicy.corePatchGate;
@@ -144,7 +158,9 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			// Session-scoped render configuration for the boxed tool/message surfaces.
 			// Populated once per session (never inside render).
 			sessionTheme = ctx.ui?.theme as never;
+			sessionUi = ctx.ui as import("@earendil-works/pi-coding-agent").ExtensionUIContext | undefined;
 			applyToolsRenderConfig(app.config);
+			applyMessagesConfig(app.config);
 			if (ctx.ui?.theme) setSpecialBlockTheme(ctx.ui.theme as never);
 			const toolDetails = collectToolDetails(pi.getActiveTools?.(), pi.getAllTools?.());
 			app.sessionStart(
@@ -198,6 +214,8 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			terminalInputUnsubscribe?.();
 			terminalInputUnsubscribe = undefined;
 			resetBatchRegistry();
+			resetGrepRegistry();
+			resetBashTreeRegistry();
 			app.sessionShutdown();
 			// Tier C prototype patches stay installed across session switches. Pi renders
 			// the restored chat (renderBeforeBind) AFTER session_shutdown but BEFORE the

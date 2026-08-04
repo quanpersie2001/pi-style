@@ -8,7 +8,6 @@ export interface SessionFlagReader {
 }
 export interface SessionAuthorization {
 	core: boolean;
-	user: boolean;
 	assistant: boolean;
 	specialBlocks: boolean;
 	tools: boolean;
@@ -59,7 +58,6 @@ export function resolveProductGate(
 export function readSessionAuthorization(pi: SessionFlagReader): SessionAuthorization {
 	return {
 		core: pi.getFlag("pi-style-core-patches") === true,
-		user: pi.getFlag("pi-style-message-user") === true,
 		assistant: pi.getFlag("pi-style-message-assistant") === true,
 		specialBlocks: pi.getFlag("pi-style-message-special-blocks") === true,
 		tools: pi.getFlag("pi-style-tools") === true,

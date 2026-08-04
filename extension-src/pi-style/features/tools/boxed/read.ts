@@ -31,7 +31,7 @@ export const readTool: BoxedToolDefinition = {
 		if (!isLeader) return EMPTY_BATCH_COMPONENT;
 		return renderBatchAwareCall(theme, batch);
 	},
-	result(result, options, theme, context) {
+	result(result, options, _theme, context) {
 		const output = stripAnsi(getTextOutput(result)).trimEnd();
 		registerBatchResult(
 			READ_META,

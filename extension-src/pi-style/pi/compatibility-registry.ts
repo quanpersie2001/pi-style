@@ -1,5 +1,4 @@
 export type CompatibilitySubtype =
-	| "native-user-message"
 	| "native-assistant-message"
 	| "native-compaction-message"
 	| "native-branch-message"

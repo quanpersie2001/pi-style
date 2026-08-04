@@ -16,7 +16,7 @@
 - **Status line** — responsive segment layout (model, thinking, path, Git, context, usage, cost, time, extension statuses) through native widgets above or below the editor.
 - **Editor** — compact/boxed/dock `CustomEditor` treatments with prompt glyph, metadata rows, and thinking-level border, preserving Pi keybindings and autocomplete.
 - **Startup** — compact gradient logo header and optional overlay with System & Context / Available Tools panels, rendered from snapshot data collected before mount.
-- **Messages** — user/assistant prefixes, boxed compaction/skill/branch/MCP special blocks, and certified tool call/result selectors with pending/running/error markers.
+- **Messages** — assistant prefix and boxed compaction/skill/branch/MCP special blocks, and certified tool call/result selectors with pending/running/error markers.
 - **One visual system** — shared semantic theme, glyph sets (Nerd/Unicode/ASCII), and ANSI-safe rendering across every surface.
 
 All certified surfaces are **on by default**. The single OFF switch is:
@@ -107,7 +107,6 @@ Tier C surfaces are immutable session authorizations, not persisted config:
 
 ```bash
 --pi-style-core-patches
---pi-style-message-user
 --pi-style-message-assistant
 --pi-style-message-special-blocks
 --pi-style-tools

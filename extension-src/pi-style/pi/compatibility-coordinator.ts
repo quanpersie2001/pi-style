@@ -11,7 +11,6 @@ import {
 export interface CompatibilityCoordinator {
 	captureAuthorization(
 		coreFlag: boolean,
-		userFlag: boolean,
 		assistantFlag: boolean,
 		specialBlocksFlag: boolean,
 		toolsFlag: boolean,
@@ -33,7 +32,6 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 	let authorization:
 		| {
 				core: boolean;
-				user: boolean;
 				assistant: boolean;
 				specialBlocks: boolean;
 				tools: boolean;
@@ -44,15 +42,13 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 		get report() {
 			return report;
 		},
-		captureAuthorization(core, user, assistant, specialBlocks, tools, ascii) {
-			authorization = { core, user, assistant, specialBlocks, tools, ascii };
+		captureAuthorization(core, assistant, specialBlocks, tools, ascii) {
+			authorization = { core, assistant, specialBlocks, tools, ascii };
 		},
 		state(config) {
 			const version = detectPiVersion();
 			const messagesConfigured =
-				config.enabled &&
-				config.messages.enabled &&
-				(config.messages.userPrefix || config.messages.assistantPrefix || config.messages.specialBlocks);
+				config.enabled && config.messages.enabled && (config.messages.assistantPrefix || config.messages.specialBlocks);
 			const toolsConfigured = config.enabled && config.tools.enabled;
 			const surface = (
 				feature: "messages" | "tools",
@@ -91,12 +87,6 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 				nativeFallbacks: report?.unsupported.filter((item) => item.reason.includes("fallback")).length ?? 0,
 				piVersion: version.version ?? report?.piVersion ?? "unknown",
 				versionRange: report?.versionRange ?? ">=0.83.0 <0.84.0",
-				userMessage: surface(
-					"messages",
-					config.enabled && config.messages.enabled && config.messages.userPrefix,
-					Boolean(authorization?.user),
-					"native-user-message",
-				),
 				assistantMessage: surface(
 					"messages",
 					config.enabled && config.messages.enabled && config.messages.assistantPrefix,
@@ -116,15 +106,6 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 			if (cleanupPending && !report) cleanupPending = false;
 			if (cleanupPending || !tui || !config.enabled || !authorization?.core || productDenied) return undefined;
 			const certifiedHost = detectPiVersion().version === "0.83.0";
-			const userEnabled =
-				authorization.user &&
-				isTierCAuthorized({
-					certifiedHost,
-					coreFlag: authorization.core,
-					surfaceFlag: true,
-					surface: "userMessage",
-					config,
-				});
 			const assistantEnabled =
 				authorization.assistant &&
 				isTierCAuthorized({
@@ -143,7 +124,7 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 					surface: "specialBlocks",
 					config,
 				});
-			const messagesEnabled = (userEnabled || assistantEnabled || specialBlocksEnabled) && config.messages.enabled;
+			const messagesEnabled = (assistantEnabled || specialBlocksEnabled) && config.messages.enabled;
 			const toolsEnabled =
 				authorization.tools &&
 				isTierCAuthorized({ certifiedHost, coreFlag: authorization.core, surfaceFlag: true, surface: "tools", config });
@@ -155,7 +136,6 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 					messages: {
 						...config.messages,
 						enabled: messagesEnabled,
-						userPrefix: userEnabled,
 						assistantPrefix: assistantEnabled,
 						specialBlocks: messagesEnabled && config.messages.specialBlocks && specialBlocksEnabled,
 					},
@@ -165,9 +145,7 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 					},
 				},
 				messageSnapshot: {
-					userPrefix: authorization.ascii ? "[user] " : "❯ ",
 					assistantPrefix: authorization.ascii ? "[assistant] " : "│ ",
-					userEnabled,
 					assistantEnabled,
 				},
 				toolSnapshot: {

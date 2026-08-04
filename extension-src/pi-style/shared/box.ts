@@ -47,6 +47,14 @@ export interface BoxedRenderOptions {
 	state?: Record<string, unknown>;
 	/** Wall-clock elapsed override (used when metrics are not in result.details). */
 	elapsedMs?: number;
+	/** Width-dependent content lines rendered between the top border and the
+	 *  footer border of a compact box (replaces the blank breathing line).
+	 *  Each returned line is truncated to the box inner width by the renderer.
+	 *  Returns an empty array for no body (blank line preserved). */
+	bodyLines?: (contentWidth: number) => string[];
+	/** Right-side label embedded in the compact box bottom border before the
+	 *  corner (e.g. an expand hint such as `Ctrl+O for more`). */
+	bottomRightLabel?: string;
 }
 
 export function isExpanded(options: { expanded?: boolean } | undefined): boolean {
@@ -622,9 +630,12 @@ export function renderCompactBoxedToolCall(
 				typeof options.state?.[COMPACT_FOOTER_KEY] === "string" ? options.state[COMPACT_FOOTER_KEY] : "";
 			const _footerIsError = Boolean(options.state?.[COMPACT_FOOTER_ERROR_KEY]);
 			const _footerIsPartial = Boolean(options.state?.[COMPACT_FOOTER_PARTIAL_KEY]);
+			const bodyLines = options.bodyLines ? options.bodyLines(boxInnerWidth(renderedWidth)) : [];
 			const lines = [
 				boxLabeledBorder(theme, BOX_ROUND_TOP_LEFT, BOX_ROUND_TOP_RIGHT, headerLabel, undefined, renderedWidth),
-				boxBlankLine(theme, renderedWidth),
+				...(bodyLines.length > 0
+					? bodyLines.map((line) => boxLine(theme, line, renderedWidth))
+					: [boxBlankLine(theme, renderedWidth)]),
 			];
 			if (compactFooter) {
 				lines.push(
@@ -633,7 +644,7 @@ export function renderCompactBoxedToolCall(
 						BOX_ROUND_BOTTOM_LEFT,
 						BOX_ROUND_BOTTOM_RIGHT,
 						compactFooter,
-						undefined,
+						options.bottomRightLabel,
 						renderedWidth,
 					),
 				);
@@ -645,7 +656,7 @@ export function renderCompactBoxedToolCall(
 						BOX_ROUND_BOTTOM_LEFT,
 						BOX_ROUND_BOTTOM_RIGHT,
 						theme.fg("dim", `… ${pendingText}`),
-						undefined,
+						options.bottomRightLabel,
 						renderedWidth,
 					),
 				);

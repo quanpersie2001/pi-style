@@ -32,7 +32,7 @@ export interface PiStyleConfig {
 		contextBarWidth?: number;
 	};
 	editor?: { enabled?: boolean; style?: string; frame?: string; showMetadata?: boolean };
-	messages?: { enabled?: boolean; userPrefix?: boolean; assistantPrefix?: boolean; specialBlocks?: boolean };
+	messages?: { enabled?: boolean; assistantPrefix?: boolean; specialBlocks?: boolean; hideThinkingLabel?: boolean };
 	tools?: {
 		enabled?: boolean;
 		style?: string;
@@ -79,7 +79,7 @@ export interface NormalizedPiStyleConfig {
 		contextBarWidth: number;
 	};
 	readonly editor: { enabled: boolean; style: EditorStyle; frame: EditorFrame; showMetadata: boolean };
-	readonly messages: { enabled: boolean; userPrefix: boolean; assistantPrefix: boolean; specialBlocks: boolean };
+	readonly messages: { enabled: boolean; assistantPrefix: boolean; specialBlocks: boolean; hideThinkingLabel: boolean };
 	readonly tools: {
 		enabled: boolean;
 		style: string;

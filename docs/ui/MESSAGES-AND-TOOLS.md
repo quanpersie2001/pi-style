@@ -4,7 +4,7 @@
 
 ## Scope
 
-This contract covers: user and assistant message prefixes; thinking and tool-only assistant presentation; compaction, skill, branch-summary, and custom (MCP) message blocks; and tool call headers, results, state, expansion, and metrics. These surfaces carry a higher compatibility burden than widgets and editors and always preserve native fallback.
+This contract covers: the assistant message prefix; thinking and tool-only assistant presentation; compaction, skill, branch-summary, and custom (MCP) message blocks; and tool call headers, results, state, expansion, and metrics. These surfaces carry a higher compatibility burden than widgets and editors and always preserve native fallback.
 
 ## Shared visual primitives
 
@@ -19,22 +19,22 @@ Pure, theme-consuming primitives shared by feature-local renderers (no global th
 
 ## User and assistant messages
 
-Default user treatment:
+User messages render **native** (no leading glyph). The editor prompt glyph is also `❯`, so prefixing sent user messages made them indistinguishable from the live input box; the `❯` prefix was therefore removed entirely:
 
 ```text
-❯ user prompt text
-  continuation aligned here
+user prompt text
+continuation aligned here
 ```
 
-Rules: prefix is optional by config/preset; multiline continuation aligns after the prefix/gap; native user-message background/text tokens remain the base; long content wraps (never truncates); images/attachments preserve native rendering.
+Rules: no prefix is applied to user messages (the feature and its `messages.userPrefix` option were removed); native user-message background/text tokens remain the base; long content wraps (never truncates); images/attachments preserve native rendering. User messages are never patched: the certified `native-user-message` surface was removed, so only assistant and special-block message surfaces are certified.
 
-Assistant presentation uses a restrained prefix only when it improves role separation. It must handle normal text streaming, thinking-only updates, tool-only messages, mixed text and tool calls, aborted/error states, and final render cache reuse without stale partial content. Thinking text uses Pi's thinking token and does not visually compete with final assistant text.
+Assistant presentation uses a restrained prefix only when it improves role separation. It must handle normal text streaming, thinking-only updates, tool-only messages, mixed text and tool calls, aborted/error states, and final render cache reuse without stale partial content. Thinking text uses Pi's thinking token and does not visually compete with final assistant text. By default the `Thinking...` placeholder label for hidden thinking blocks is suppressed entirely (`messages.hideThinkingLabel: true` renders it as an empty label, which produces zero lines).
 
 ## Compatibility status
 
 The certified Tier C subset targets exact Pi `0.83.0` only (policy range `>=0.83.0 <0.84.0`). Installation is session-only; the core/message/tool surface flags are default-on (fingerprint-certified, fail-closed elsewhere, conflict-preserving), and the OFF switch is `compatibility.allowCorePatches: false` in config. No execution, tool registration, prompt, filesystem, or process behavior is changed.
 
-Certified presentation: user/assistant prefixes; tool call/result selectors with exact markers `[tool]`, `[tool:result]`, `[tool:pending]`, `[tool:running]`, `[tool:error]` (marker style); and boxed special blocks when `tools.style: "compact-box"` and `messages.specialBlocks` are active. Boxed special blocks are certified adapters over the native `updateDisplay`/`rebuild` identities (fingerprint-verified) and fall back to native layout whenever no session theme is cached or the component shape is unsupported. ASCII mode uses configured ASCII markers on already-authorized surfaces.
+Certified presentation: assistant prefix; tool call/result selectors with exact markers `[tool]`, `[tool:result]`, `[tool:pending]`, `[tool:running]`, `[tool:error]` (marker style); and boxed special blocks when `tools.style: "compact-box"` and `messages.specialBlocks` are active. Boxed special blocks are certified adapters over the native `updateDisplay`/`rebuild` identities (fingerprint-verified) and fall back to native layout whenever no session theme is cached or the component shape is unsupported. ASCII mode uses configured ASCII markers on already-authorized surfaces.
 
 ## Special message blocks
 
@@ -71,13 +71,13 @@ Full boxed shape (bash/edit/quick-edit/fallback), with the title in the top bord
 ╰─ 1.2s · timeout 300s · ~45 words ── Ctrl+O for more ─╯
 ```
 
-Compact (summary) tools render `➔ <Tool> ✓ · <detail>` with the footer in the bottom border; bash renders a full call box with the command, a `Response` divider, and the expand hint on the bottom border when output is truncated. Edit/quick-edit render the path in the header and the diff under a `Diff · +N -M` divider. `tools.style: "marker"` keeps the marker style (`[read] src/index.ts`).
+Compact (summary) tools render `➔ <Tool> ✓ · <detail>` with the footer in the bottom border; bash renders a full call box with the command, a `Response` divider, and the expand hint on the bottom border when output is truncated. Edit/quick-edit render the path in the header and the diff under a `Diff · +N -M` divider. Write renders a compact preview box: the path in the top border, the written content as numbered lines (cat -n style) in the body, and the metrics footer in the bottom border with a `Ctrl+O for more` hint when the preview is truncated; expanded reveals the expanded line budget. `tools.style: "marker"` keeps the marker style (`[read] src/index.ts`).
 
 ### Quiet-tool batching
 
 Consecutive calls of the same quiet tool (`read`, `ls`, `find`) inside one assistant turn collapse into a **single boxless tree panel** instead of one box per call. Grouping is always on. The first call becomes the batch leader and renders the whole panel; later calls render zero lines, so N boxes become one. Batching is per turn and per tool: a non-batchable call (bash/edit/write/…) or the next message closes the batch, so reads separated by an edit never merge, and session history is not re-grouped.
 
-The panel has **no surrounding box and never collapses** — the tree stays open in every state (one box per call is exactly the noise this feature removes). States:
+The panel has **no surrounding box and never collapses** — the tree stays open in every state (one box per call is exactly the noise this feature removes). `read` members render a single path row; `ls`/`find` members render their **parsed output** as a file subtree once the result arrives. States:
 
 ```text
 ◌ Read (3) · 1/3
@@ -88,9 +88,28 @@ The panel has **no surrounding box and never collapses** — the tree stays open
 
 - **Pending** header `➔ Read (N)`.
 - **Running** header `◌ Read (N) · k/N`; tree shows `✓`/`◌` per member.
-- **Done** header ` Read (N) · 0.08s` (open-tree glyph; `●` unicode fallback, nerd `\u{F111}`); tree keeps the first 5 members and a `└─ N more` row.
+- **Done** header ` Read (N) · 0.08s` (open-tree glyph; `●` unicode fallback, nerd `\u{F111}`); tree keeps the first 5 members and a `└─ N more` row.
 - **Per-file color**: files read successfully render in the primary (accent) color; failed members render in the error color with the error text indented beneath, and the header becomes `✗ Read (N) · 1 failed`. Errors stay open.
-- **Lone calls use the same tree**: a single read/list/find is just a batch of one — ` Read (1) · 0.08s` with a single `└─ path` row. No boxed special case.
+- **`read` lone call**: a single read is a batch of one — ` Read (1) · 0.08s` with a single `└─ path` row. No boxed special case.
+
+#### ls / find output trees
+
+A lone `ls`/`find` renders its parsed output as a **flat boxless tree** under a `List:`/`Glob:` summary header; batched (2+) calls render **nested per-member subtrees**. Pending/failed calls without output fall back to the path-row tree above.
+
+```text
+Glob: **/*.ts 152 files · in .
+  ├─ test/unit/
+  ├─ test/integration/resume-render.test.ts
+  ├─ extension-src/pi-style/features/tools/index.ts
+  ├─ docs/ui/MESSAGES-AND-TOOLS.md
+  ├─ extension-src/pi-style/features/tools/boxed/read.ts
+  └─ … 147 more files
+```
+
+- Header: `List: <N> files · in <path>` (ls) / `Glob: <pattern> <N> files · in <path>` (find); directories keep their `/` suffix.
+- Body: the first ~6 entries as `├─`/`└─` rows, then a `└─ … N more files` row when truncated.
+- Batched calls use the `<glyph> Glob/List (N) · <total> files` header with one subtree per member (`├─ <path> · <n> files` → indented entries).
+- **File-type icons** (Nerd Font mode only): each entry is prefixed with its file icon — ` ` (folder), ` ` (TypeScript), ` ` (Markdown), … — via `theme.n` glyph mode; Unicode/ASCII modes render plain entries.
 
 Header requirements: stable human-readable tool label (`formatToolName`); concise primary argument; pending/success/error via `✓`/`✗` (the native `toolPendingBg`/`toolErrorBg`/`toolSuccessBg` container fill is neutralized for boxed rendering); no leaking of hidden/sensitive values beyond native Pi behavior; incomplete streaming arguments render safely; labels and glyphs remain meaningful in ASCII/no-color mode.
 
@@ -118,10 +137,10 @@ Edit, quick-edit, substitute-edit, and target-edit render their diff **adaptivel
 | Tool | Presentation |
 | --- | --- |
 | Read | Badge + normalized path, optional line range; native syntax-highlighted content when possible; truncation notice preserved. Consecutive reads batch into one boxless tree panel. |
-| Write | Path and created/overwritten state; concise success/error; no duplicate full file content unless native result provides it. |
+| Write | Path in the header; numbered preview of the written content (cat -n style, `Ctrl+O for more` hint when truncated, expanded reveals more); concise success/error. |
 | Edit | Path in the header; adaptive diff (unified/split) with collapsed unchanged context; failed unique-match errors prominent. |
-| Find/list/grep | Query/path summary, result count/truncation status, compact file/result rows; expansion preserves full native details. `ls`/`find` batch like reads; `grep` stays unbatched so match previews are never hidden. |
-| Bash | Concise command header, running/exit status, stdout/stderr distinction where host data supports it; long output uses native truncation/expansion; execution, environment, timeout, and shell behavior are never changed. |
+| Find/list/grep | Boxless output tree: `ls`/`find` render a flat `List:`/`Glob: <pattern> <N> files · in <path>` tree (nested per call when batched); `grep` renders a `Grep: <pattern> <N> matches · <M> files · in <path>` tree with `*line│content` rows grouped by file. `ls`/`find` batch like reads; `grep` is unbatched so match previews are never hidden. Pending/failed calls without output fall back to the path-row tree; a trailing `└─ … N more` row collapses long lists. |
+| Bash | Concise command header, running/exit status, stdout/stderr distinction where host data supports it. When the command is a plain `ls`/`find`/`grep`/`rg` (no pipes, redirects, `;`, `&&`, or command substitution), its output renders as the same boxless output tree as the native tool — including `ls -l`/`ls -la` long format (parsed into names) and single-file `rg`/`grep` (`line: content` attributed to the file). Unparseable output (e.g. `rg -c`, `rg -l`) falls back to the boxed command/response shell. Execution, environment, timeout, and shell behavior are never changed. |
 
 ## Expansion and collapse
 
@@ -148,7 +167,7 @@ If another extension already owns a message/tool renderer: compose only through 
 
 ## Requirements — messages
 
-- **MSG-001:** user/assistant prefixes are optional and width-safe.
+- **MSG-001:** the assistant prefix is optional and width-safe.
 - **MSG-002:** streaming, thinking-only, tool-only, and mixed messages render correctly.
 - **MSG-003:** special blocks alter presentation, not model/session content.
 - **MSG-004:** unsupported shapes use native rendering.
@@ -167,7 +186,7 @@ If another extension already owns a message/tool renderer: compose only through 
 
 ## Certified and fallback tests
 
-- user/assistant multiline prefixes at wide/narrow widths; partial/final transitions;
+- assistant multiline prefixes at wide/narrow widths; partial/final transitions;
 - thinking-only/tool-only/mixed messages; each special block collapsed/expanded;
 - built-in tools with incomplete args, partial updates, success, error, cancellation, truncation;
 - diff and syntax-highlight preservation; no-color/ASCII/theme invalidation;

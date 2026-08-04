@@ -37,7 +37,7 @@ Global/project paths use Pi's exported `getAgentDir()` and `CONFIG_DIR_NAME`. Pr
       "customItems": []
     },
     "editor": { "enabled": true, "style": "compact", "frame": "auto", "showMetadata": true },
-    "messages": { "enabled": true, "userPrefix": true, "assistantPrefix": true, "specialBlocks": true },
+    "messages": { "enabled": true, "assistantPrefix": true, "specialBlocks": true },
     "tools": { "enabled": true, "style": "compact-box", "maxCollapsedLines": 10, "maxExpandedLines": 50, "dimOutput": false, "showElapsed": true },
     "theme": { "nerdFonts": "auto", "terminalBackgroundSync": "auto", "colors": {}, "glyphs": {} },
     "compatibility": { "allowSafePatches": true, "allowCorePatches": false, "preferExistingEditor": true, "preferExistingFooter": true },
@@ -121,7 +121,9 @@ Values only select an existing extension status and presentation options; they c
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
+| `messages.assistantPrefix` | boolean | `true` | Prepend the `│` prefix to assistant messages. Requires `--pi-style-message-assistant` plus `--pi-style-core-patches`. |
 | `messages.specialBlocks` | boolean | `true` | Boxed presentation for compaction, skill, branch, and custom (MCP) message blocks. Requires `--pi-style-message-special-blocks` plus `--pi-style-core-patches`. |
+| `messages.hideThinkingLabel` | boolean | `true` | Hide Pi's `Thinking...` placeholder label for hidden thinking blocks (the empty label renders zero lines). Set `false` to restore the default label. |
 | `tools.style` | `marker \| compact-box` | `compact-box` | `marker` prefixes tool lines (`[tool]`, `[tool:result]`); `compact-box` renders boxed call headers and compact/expanded result boxes for read, write, edit, bash, ls, find, grep, quick-edit, substitute-edit, target-edit, and a boxed generic fallback. |
 | `tools.maxCollapsedLines` | number | `10` | Line budget for collapsed tool results (head/tail). |
 | `tools.maxExpandedLines` | number | `50` | Maximum body lines for expanded results (read/bash/grep/fallback). |
@@ -156,7 +158,6 @@ Registered public boolean flags for the current session; immutable, session-only
 | Flag | Effect |
 | --- | --- |
 | `--pi-style-core-patches` | Permits Tier C consideration. |
-| `--pi-style-message-user` | Authorizes the certified user-message prefix. |
 | `--pi-style-message-assistant` | Authorizes the certified assistant-message prefix. |
 | `--pi-style-message-special-blocks` | Authorizes boxed special message blocks. |
 | `--pi-style-tools` | Authorizes certified tool call/result selectors. |

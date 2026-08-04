@@ -329,6 +329,106 @@ describe("boxed tool renderers", () => {
 		assertFit(lines, 80);
 	});
 
+	it("renders a write call as a numbered content preview box", () => {
+		// The renderer state is shared across updateDisplay passes (like Pi's
+		// ToolExecutionComponent): the result renderer stores the metrics footer
+		// into it, and the re-invoked call renderer closes the box with it.
+		const state: Record<string, unknown> = {};
+		const args = { path: "/tmp/pi-write-test.md", content: "a\nb\nc\n" };
+
+		// Pending (args streaming / execution started, no result yet).
+		const pending = dispatchCall("write", args, theme, context({ args, state, isPartial: true })).render(80);
+		const pendingText = stripAnsi(pending.join("\n"));
+		expect(pendingText).toContain("Write ✓ · Path: ../tmp/pi-write-test.md");
+		expect(pendingText).toContain("1 a");
+		expect(pendingText).toContain("2 b");
+		expect(pendingText).toContain("3 c");
+		expect(pendingText).toContain("4 "); // trailing empty line from the final newline
+		expect(pendingText).toContain("Waiting for output");
+		assertFit(pending, 80);
+
+		// Settled: the result stores the footer into the shared state; the call
+		// re-renders with the footer in the bottom border (elapsed · words).
+		dispatchResult(
+			"write",
+			{ content: [{ type: "text", text: "Successfully wrote 6 bytes to /tmp/pi-write-test.md" }], details: {} },
+			{ expanded: false, isPartial: false },
+			theme,
+			context({ args, state }),
+		);
+		const settled = dispatchCall("write", args, theme, context({ args, state })).render(80);
+		const settledText = stripAnsi(settled.join("\n"));
+		expect(settledText).toContain("1 a");
+		expect(settledText).toContain("4 ");
+		expect(settledText).toMatch(/\d+\.\d\ds · ~\d+ words/);
+		expect(settledText).not.toContain("Waiting for output");
+		assertFit(settled, 80);
+	});
+
+	it("shows a Ctrl+O for more hint when the write preview is truncated", () => {
+		const content = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n");
+		const ctx = context({ args: { path: "/tmp/big.md", content } });
+		const call = dispatchCall("write", ctx.args, theme, ctx);
+		dispatchResult(
+			"write",
+			{ content: [{ type: "text", text: "Successfully wrote 100 bytes to /tmp/big.md" }], details: {} },
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		);
+		const lines = call.render(80);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).toContain("10 line 10");
+		expect(text).not.toContain("11 line 11");
+		expect(text).toContain("… 2 more lines");
+		expect(text).toContain("Ctrl+O for more");
+		assertFit(lines, 80);
+	});
+
+	it("expands the write preview to the expanded line budget", () => {
+		const content = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n");
+		const ctx = context({ args: { path: "/tmp/big.md", content }, expanded: true });
+		const call = dispatchCall("write", ctx.args, theme, ctx);
+		dispatchResult(
+			"write",
+			{ content: [{ type: "text", text: "Successfully wrote 100 bytes to /tmp/big.md" }], details: {} },
+			{ expanded: true, isPartial: false },
+			theme,
+			ctx,
+		);
+		const lines = call.render(80);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).toContain("12 line 12");
+		expect(text).not.toContain("Ctrl+O for more");
+		expect(text).not.toContain("more lines");
+		assertFit(lines, 80);
+	});
+
+	it("keeps a blank body for empty write content", () => {
+		const ctx = context({ args: { path: "/tmp/empty.md", content: "" } });
+		const lines = dispatchCall("write", ctx.args, theme, ctx).render(80);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).not.toMatch(/^\s*\d+ /m); // no numbered rows
+		assertFit(lines, 80);
+	});
+
+	it("renders write errors in the boxed error result without a preview body", () => {
+		const ctx = context({ args: { path: "/tmp/x.md", content: "a" }, isError: true });
+		const call = dispatchCall("write", ctx.args, theme, ctx).render(80);
+		expect(stripAnsi(call.join("\n"))).toContain("Write ✗");
+		expect(stripAnsi(call.join("\n"))).not.toContain("1 a");
+		assertFit(call, 80);
+		const result = dispatchResult(
+			"write",
+			{ content: [{ type: "text", text: "EACCES: permission denied" }], details: {} },
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		).render(80);
+		expect(stripAnsi(result.join("\n"))).toContain("EACCES: permission denied");
+		assertFit(result, 80);
+	});
+
 	it.each(["TaskCreate", "TaskUpdate", "TaskList", "TaskDelete", "custom_tool_xyz", "run_tests", "submit_patch"])(
 		"boxes every non-registered tool through the generic fallback: %s",
 		(toolName) => {

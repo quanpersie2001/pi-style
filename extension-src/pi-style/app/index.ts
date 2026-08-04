@@ -311,7 +311,6 @@ export function createPiStyleApp(
 					status: operational.installations?.status ?? "unknown",
 					editor: operational.installations?.editor ?? "unknown",
 					startup: operational.installations?.startup ?? "unknown",
-					userMessage: operational.compatibility?.userMessage ?? "unknown",
 					assistantMessage: operational.compatibility?.assistantMessage ?? "unknown",
 					specialBlocks: operational.compatibility?.specialBlocks ?? "unknown",
 					tools: operational.compatibility?.tools ?? "unknown",

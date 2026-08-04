@@ -20,8 +20,6 @@ const extensionDir = dirname(fileURLToPath(import.meta.url));
 export const THEME_EXTRA_DEFAULTS: Readonly<Record<string, string>> = Object.freeze({
 	assistantPrefix: "•",
 	assistantPrefixColor: "",
-	userPrefix: "❯",
-	userPrefixColor: "accent",
 	dividerChar: "─",
 	dividerColor: "",
 	showDivider: "true",

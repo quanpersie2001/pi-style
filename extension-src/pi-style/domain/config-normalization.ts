@@ -28,7 +28,7 @@ export const DEFAULT_CONFIG: NormalizedPiStyleConfig = Object.freeze({
 		contextBarWidth: 10,
 	}),
 	editor: Object.freeze({ enabled: true, style: "compact", frame: "auto", showMetadata: false }),
-	messages: Object.freeze({ enabled: true, userPrefix: true, assistantPrefix: true, specialBlocks: true }),
+	messages: Object.freeze({ enabled: true, assistantPrefix: true, specialBlocks: true, hideThinkingLabel: true }),
 	tools: Object.freeze({
 		enabled: true,
 		style: "compact-box",
@@ -159,9 +159,9 @@ export function normalizeConfig(
 		}),
 		messages: Object.freeze({
 			enabled: bool(messages.enabled, defaults.messages.enabled),
-			userPrefix: bool(messages.userPrefix, defaults.messages.userPrefix),
 			assistantPrefix: bool(messages.assistantPrefix, defaults.messages.assistantPrefix),
 			specialBlocks: bool(messages.specialBlocks, defaults.messages.specialBlocks),
+			hideThinkingLabel: bool(messages.hideThinkingLabel, defaults.messages.hideThinkingLabel),
 		}),
 		tools: Object.freeze({
 			enabled: bool(tools.enabled, defaults.tools.enabled),
@@ -213,9 +213,9 @@ const BOOL_PATHS = new Set([
 	"editor.enabled",
 	"editor.showMetadata",
 	"messages.enabled",
-	"messages.userPrefix",
 	"messages.assistantPrefix",
 	"messages.specialBlocks",
+	"messages.hideThinkingLabel",
 	"tools.enabled",
 	"tools.showElapsed",
 	"tools.dimOutput",
