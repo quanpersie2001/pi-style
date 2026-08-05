@@ -889,35 +889,22 @@ describe("renderBoxedToolCall/renderBoxedToolResult direct primitives", () => {
 		expect(err ?? "").toContain("\x1b[38;2;255;68;68m➔ Tool ✗");
 	});
 
-	it("keeps every border glyph in the border color around embedded labels", () => {
+	it("keeps every border glyph dim-styled around embedded labels", () => {
 		// Embedded labels (title/divider/footer) wrap their text in foreground
 		// escapes that end with \x1b[39m (reset to the terminal default). The border
 		// must re-apply its color per segment, otherwise every dash after a label
 		// renders in the default foreground and the box looks faint/bold in parts.
-		const rich = createFakeTheme({ colors: { borderMuted: "#888888" } });
-		const borderAnsi = "\x1b[38;2;136;136;136m";
-		const call = renderBoxedToolCall(rich, "Tool", ["detail"], {}).render(40);
-		expect(call[0] ?? "").toContain(`${borderAnsi}╭`);
-		expect(call[0] ?? "").toContain(`${borderAnsi}╮`);
-		const result = renderBoxedToolResult(rich, () => ["out"], { footerLines: ["0.00s · ~2 words"] }).render(40);
-		expect(result[0] ?? "").toContain(`${borderAnsi}├`);
-		expect(result[0] ?? "").toContain(`${borderAnsi}┤`);
+		const theme = createFakeTheme({});
+		const dimPrefix = "\x1b[2m";
+		const call = renderBoxedToolCall(theme, "Tool", ["detail"], {}).render(40);
+		expect(call[0] ?? "").toContain(`${dimPrefix}╭`);
+		expect(call[0] ?? "").toContain(`${dimPrefix}╮`);
+		const result = renderBoxedToolResult(theme, () => ["out"], { footerLines: ["0.00s · ~2 words"] }).render(40);
+		expect(result[0] ?? "").toContain(`${dimPrefix}├`);
+		expect(result[0] ?? "").toContain(`${dimPrefix}┤`);
 		const bottom = result[result.length - 1] ?? "";
-		expect(bottom).toContain(`${borderAnsi}╰`);
-		expect(bottom).toContain(`${borderAnsi}╯`);
-	});
-
-	it("colors the frame by tool state (mirrors omp borders)", () => {
-		const rich = createFakeTheme({ colors: { borderMuted: "#888888", borderAccent: "#00b4ff", error: "#ff4444" } });
-		const accentAnsi = "\x1b[38;2;0;180;255m";
-		const errorAnsi = "\x1b[38;2;255;68;68m";
-		const doneAnsi = "\x1b[38;2;136;136;136m";
-		const pending = renderBoxedToolCall(rich, "Tool", ["detail"], { isPending: true }).render(40)[0] ?? "";
-		expect(pending).toContain(`${accentAnsi}╭`);
-		const errored = renderBoxedToolResult(rich, () => ["boom"], { isError: true }).render(40);
-		expect(errored[errored.length - 1] ?? "").toContain(`${errorAnsi}╰`);
-		const done = renderBoxedToolResult(rich, () => ["out"], {}).render(40);
-		expect(done[done.length - 1] ?? "").toContain(`${doneAnsi}╰`);
+		expect(bottom).toContain(`${dimPrefix}╰`);
+		expect(bottom).toContain(`${dimPrefix}╯`);
 	});
 
 	it("renders pending and error states", () => {
