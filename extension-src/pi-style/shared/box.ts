@@ -319,8 +319,6 @@ export function formatToolParamLines(args: unknown, theme?: BoxTheme): string[] 
 	return lines;
 }
 
-const RESET_INTENSITY = "\x1b[22m";
-
 function colorFromExtra(theme: BoxTheme, extraKey: string, fallbackColor: string, text: string): string {
 	const color = getThemeExtra(theme, extraKey);
 	if (color) {
@@ -380,11 +378,17 @@ export function formatBoxedRunningStatus(theme: BoxTheme, elapsedMs: number | un
 	return `${theme.fg("dim", "◌ Running")}${elapsed}`;
 }
 
+/** Structural line — box frame, tree branch, divider, gutter — wrapped in
+ * dim terminal-default intensity. Visible in every theme; matches omp. */
+export function dimLine(text: string): string {
+	return `\x1b[2m${text}\x1b[22m`;
+}
+
 function boxText(theme: BoxTheme, text: string): string {
-	return `${RESET_INTENSITY}${theme.fg("borderMuted", text)}`;
+	return dimLine(text);
 }
 function boxFrameText(theme: BoxTheme, text: string): string {
-	return `\x1b[2m${text}\x1b[22m`;
+	return dimLine(text);
 }
 
 export function boxedToolBgName(isError?: boolean, isPartial?: boolean): string {

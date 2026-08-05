@@ -13,6 +13,7 @@
 import type { Component } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
 import {
+	dimLine,
 	type BoxTheme,
 	boxedToolWidthKey,
 	getTextOutput,
@@ -62,7 +63,7 @@ function numberedPreviewLines(content: string): NumberedLine[] {
 
 /** One boxed preview row: dim gutter + toolOutput content. */
 function formatNumberedLine(theme: BoxTheme, line: NumberedLine): string {
-	return `${theme.fg("borderMuted", `${line.number} `)}${theme.fg("toolOutput", line.content)}`;
+	return `${dimLine(`${line.number} `)}${theme.fg("toolOutput", line.content)}`;
 }
 
 /** Compact write box: path header, numbered content preview, metrics footer. */

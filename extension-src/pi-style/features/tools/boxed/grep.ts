@@ -13,7 +13,7 @@
 
 import type { Component } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
-import { type BoxTheme, getTextOutput, shortenPath } from "../../../shared/box.js";
+import { dimLine, type BoxTheme, getTextOutput, shortenPath } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import {
 	type GrepMatch,
@@ -111,7 +111,7 @@ function renderErrorLines(theme: BoxTheme, errorText: string, width: number): st
 		.map((line) => line.trim())
 		.filter((line) => line.length > 0);
 	if (raw.length === 0) return [];
-	const prefix = `${TREE_INDENT}${theme.fg("borderMuted", "└─")} `;
+	const prefix = `${TREE_INDENT}${dimLine("└─")} `;
 	const out = raw
 		.slice(0, GREP_ERROR_LINES)
 		.map((line) => safeTruncateToWidth(`${prefix}${theme.fg("error", line)}`, Math.max(1, width), "…"));

@@ -20,6 +20,7 @@
 //   as one visual family.
 
 import type { BoxTheme } from "../../../shared/box.js";
+import { dimLine } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 
 /** Indent for top-level tree rows; matches the quiet-tool batch panel. */
@@ -251,11 +252,11 @@ export function renderOutputTree(
 	const lastIndex = visible.length - 1;
 	for (let i = 0; i < visible.length; i++) {
 		const branch = i < lastIndex || more > 0 ? "├─" : "└─";
-		const line = `${indent}${theme.fg("borderMuted", branch)} ${theme.fg(entryColor, label(visible[i] ?? ""))}`;
+		const line = `${indent}${dimLine(branch)} ${theme.fg(entryColor, label(visible[i] ?? ""))}`;
 		out.push(safeTruncateToWidth(line, safeWidth, "…"));
 	}
 	if (more > 0) {
-		const line = `${indent}${theme.fg("borderMuted", "└─")} ${theme.fg("dim", `… ${more} more ${pluralForm(moreUnit, more)}`)}`;
+		const line = `${indent}${dimLine("└─")} ${theme.fg("dim", `… ${more} more ${pluralForm(moreUnit, more)}`)}`;
 		out.push(safeTruncateToWidth(line, safeWidth, "…"));
 	}
 	return out;
@@ -274,7 +275,7 @@ function formatMatchRow(theme: BoxTheme, match: GrepMatch): string {
 	// Match rows render in the output text color (not primary) so they read like
 	// the matched code; only the file nodes carry the primary color.
 	const label = theme.fg("toolOutput", `*${match.line}`);
-	const sep = theme.fg("borderMuted", "│");
+	const sep = dimLine("│");
 	return `${label}${sep} ${theme.fg("toolOutput", match.content)}`;
 }
 
@@ -313,7 +314,7 @@ export function renderGrepTree(
 	if (singleFile) {
 		budget.forEach((match, index) => {
 			const isLast = index === totalVisible - 1 && !truncated;
-			push(`${indent}${theme.fg("borderMuted", isLast ? "└─" : "├─")} ${formatMatchRow(theme, match)}`);
+			push(`${indent}${dimLine(isLast ? "└─" : "├─")} ${formatMatchRow(theme, match)}`);
 		});
 	} else {
 		// Walk the budget, tracking position within each file group so the file
@@ -323,7 +324,7 @@ export function renderGrepTree(
 			const group = groups[gi];
 			if (!group) continue;
 			const isLastGroup = gi === groups.length - 1;
-			const trunk = isLastGroup ? " " : theme.fg("borderMuted", "│");
+			const trunk = isLastGroup ? " " : dimLine("│");
 
 			const visibleHere: GrepMatch[] = [];
 			for (const match of group.matches) {
@@ -336,13 +337,13 @@ export function renderGrepTree(
 			const groupIsLastRendered = shown >= totalVisible && !truncated;
 			const fileLabel = options.withIcons ? `${fileIcon(group.file)} ${group.file}` : group.file;
 			// File nodes use the primary (accent) color, matching read/ls/find paths.
-			push(`${indent}${theme.fg("borderMuted", groupIsLastRendered ? "└─" : "├─")} ${theme.fg("accent", fileLabel)}`);
+			push(`${indent}${dimLine(groupIsLastRendered ? "└─" : "├─")} ${theme.fg("accent", fileLabel)}`);
 
 			visibleHere.forEach((match, index) => {
 				const isLastInGroup = index === visibleHere.length - 1;
 				const isLastOverall = groupIsLastRendered && isLastInGroup;
 				push(
-					`${indent}${trunk}${TREE_CHILD_INDENT}${theme.fg("borderMuted", isLastOverall ? "└─" : "├─")} ${formatMatchRow(theme, match)}`,
+					`${indent}${trunk}${TREE_CHILD_INDENT}${dimLine(isLastOverall ? "└─" : "├─")} ${formatMatchRow(theme, match)}`,
 				);
 			});
 		}
@@ -350,7 +351,7 @@ export function renderGrepTree(
 
 	if (truncated) {
 		push(
-			`${indent}${theme.fg("borderMuted", "└─")} ${theme.fg("dim", `… ${remaining} more ${pluralForm("match", remaining)}`)}`,
+			`${indent}${dimLine("└─")} ${theme.fg("dim", `… ${remaining} more ${pluralForm("match", remaining)}`)}`,
 		);
 	}
 	return out;

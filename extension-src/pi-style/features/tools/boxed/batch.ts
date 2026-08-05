@@ -28,7 +28,7 @@
 
 import type { Component } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
-import { type BoxTheme, formatToolTitlePrefix } from "../../../shared/box.js";
+import { dimLine, type BoxTheme, formatToolTitlePrefix } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import {
 	fileIcon,
@@ -283,7 +283,7 @@ function renderErrorLines(theme: BoxTheme, errorText: string, width: number): st
 		.map((line) => line.trim())
 		.filter((line) => line.length > 0);
 	if (raw.length === 0) return [];
-	const prefix = `${theme.fg("borderMuted", "  │  ")}`;
+	const prefix = `${dimLine("  │  ")}`;
 	const out = raw
 		.slice(0, BATCH_ERROR_LINES)
 		.map((line) => safeTruncateToWidth(`${prefix}${theme.fg("error", line)}`, Math.max(1, width), "…"));
@@ -305,14 +305,14 @@ function renderBatchTree(theme: BoxTheme, batch: BatchState, status: BatchStatus
 		const glyph = memberGlyph(theme, member, showGlyphs);
 		// Primary color for files read successfully, error red for failures.
 		const pathColor = member.isError ? "error" : member.status === "done" ? "accent" : "text";
-		const line = `${BATCH_TREE_INDENT}${theme.fg("borderMuted", branch)}${glyph ? ` ${glyph}` : ""} ${theme.fg(pathColor, member.detail)}`;
+		const line = `${BATCH_TREE_INDENT}${dimLine(branch)}${glyph ? ` ${glyph}` : ""} ${theme.fg(pathColor, member.detail)}`;
 		out.push(safeTruncateToWidth(line, Math.max(1, width), "…"));
 		if (member.isError && member.errorText) out.push(...renderErrorLines(theme, member.errorText, width));
 	}
 	if (more > 0) {
 		out.push(
 			safeTruncateToWidth(
-				`${BATCH_TREE_INDENT}${theme.fg("borderMuted", "└─")} ${theme.fg("dim", `${more} more`)}`,
+				`${BATCH_TREE_INDENT}${dimLine("└─")} ${theme.fg("dim", `${more} more`)}`,
 				Math.max(1, width),
 				"…",
 			),
@@ -337,26 +337,26 @@ function formatLoneOutputHeader(theme: BoxTheme, meta: BatchToolMeta, member: Ba
 /** Nested file subtree for one member inside a batched (2+) output panel. */
 function renderMemberSubtree(theme: BoxTheme, member: BatchMember, isLastMember: boolean, width: number): string[] {
 	const safeWidth = Math.max(1, width);
-	const trunk = isLastMember ? " " : theme.fg("borderMuted", "│");
+	const trunk = isLastMember ? " " : dimLine("│");
 	const out: string[] = [];
 
 	// Member header row: path + file count (or status glyph when not done).
 	const entries = member.outputEntries ?? [];
 	if (member.isError) {
-		const line = `${BATCH_TREE_INDENT}${theme.fg("borderMuted", isLastMember ? "└─" : "├─")} ${theme.fg("error", "✗")} ${theme.fg("error", member.pathLabel ?? member.detail)}`;
+		const line = `${BATCH_TREE_INDENT}${dimLine(isLastMember ? "└─" : "├─")} ${theme.fg("error", "✗")} ${theme.fg("error", member.pathLabel ?? member.detail)}`;
 		out.push(safeTruncateToWidth(line, safeWidth, "…"));
 		if (member.errorText) out.push(...renderErrorLines(theme, member.errorText, width));
 		return out;
 	}
 	if (member.status !== "done" || member.outputEntries === undefined) {
 		const glyph = member.status === "done" ? theme.fg("success", "✓") : theme.fg("text", "◌");
-		const line = `${BATCH_TREE_INDENT}${theme.fg("borderMuted", isLastMember ? "└─" : "├─")} ${glyph} ${theme.fg("text", member.pathLabel ?? member.detail)}`;
+		const line = `${BATCH_TREE_INDENT}${dimLine(isLastMember ? "└─" : "├─")} ${glyph} ${theme.fg("text", member.pathLabel ?? member.detail)}`;
 		out.push(safeTruncateToWidth(line, safeWidth, "…"));
 		return out;
 	}
 
 	const countLabel = theme.fg("dim", ` · ${entries.length} ${pluralForm("file", entries.length)}`);
-	const headerLine = `${BATCH_TREE_INDENT}${theme.fg("borderMuted", isLastMember ? "└─" : "├─")} ${theme.fg("accent", member.pathLabel ?? member.detail)}${countLabel}`;
+	const headerLine = `${BATCH_TREE_INDENT}${dimLine(isLastMember ? "└─" : "├─")} ${theme.fg("accent", member.pathLabel ?? member.detail)}${countLabel}`;
 	out.push(safeTruncateToWidth(headerLine, safeWidth, "…"));
 
 	const visible = entries.slice(0, BATCH_MEMBER_FILE_HEAD_LIMIT);
@@ -367,11 +367,11 @@ function renderMemberSubtree(theme: BoxTheme, member: BatchMember, isLastMember:
 		const entry = visible[i] ?? "";
 		const label = icons && entry ? `${fileIcon(entry)} ${entry}` : entry;
 		const branch = i < lastIndex || more > 0 ? "├─" : "└─";
-		const line = `${BATCH_TREE_INDENT}${trunk}${TREE_CHILD_INDENT}${theme.fg("borderMuted", branch)} ${theme.fg("toolOutput", label)}`;
+		const line = `${BATCH_TREE_INDENT}${trunk}${TREE_CHILD_INDENT}${dimLine(branch)} ${theme.fg("toolOutput", label)}`;
 		out.push(safeTruncateToWidth(line, safeWidth, "…"));
 	}
 	if (more > 0) {
-		const line = `${BATCH_TREE_INDENT}${trunk}${TREE_CHILD_INDENT}${theme.fg("borderMuted", "└─")} ${theme.fg("dim", `… ${more} more ${pluralForm("file", more)}`)}`;
+		const line = `${BATCH_TREE_INDENT}${trunk}${TREE_CHILD_INDENT}${dimLine("└─")} ${theme.fg("dim", `… ${more} more ${pluralForm("file", more)}`)}`;
 		out.push(safeTruncateToWidth(line, safeWidth, "…"));
 	}
 	return out;
@@ -409,7 +409,7 @@ function renderOutputBatchPanel(theme: BoxTheme, batch: BatchState, status: Batc
 	if (more > 0) {
 		out.push(
 			safeTruncateToWidth(
-				`${BATCH_TREE_INDENT}${theme.fg("borderMuted", "└─")} ${theme.fg("dim", `${more} more`)}`,
+				`${BATCH_TREE_INDENT}${dimLine("└─")} ${theme.fg("dim", `${more} more`)}`,
 				safeWidth,
 				"…",
 			),

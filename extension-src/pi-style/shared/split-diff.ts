@@ -8,6 +8,7 @@ import type { Component } from "@earendil-works/pi-tui";
 
 import { stripAnsi } from "./ansi.js";
 import { safeTruncateToWidth, safeVisibleWidth } from "./render-budget.js";
+import { dimLine } from "./box.js";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -761,7 +762,7 @@ class SplitDiffRenderer {
 			lineKind === "add" ? "toolDiffAdded" : lineKind === "remove" ? "toolDiffRemoved" : "borderMuted";
 		const marker = this.ctx.fg(markerColor, markerChar);
 		const lineNumber = this.ctx.fg("dim", " ".repeat(this.ctx.lineNumberWidth));
-		const divider = this.ctx.fg("borderMuted", " │ ");
+		const divider = dimLine(" │ ");
 		const prefix = `${marker} ${lineNumber}${divider}`;
 		const prefixPlain = `${markerChar} ${" ".repeat(this.ctx.lineNumberWidth)} │ `;
 		const tailWidth = Math.max(0, columnWidth - safeVisibleWidth(prefixPlain));
@@ -791,14 +792,14 @@ class SplitDiffRenderer {
 			this.ctx.fg(markerColor, markerChar) +
 			" " +
 			this.ctx.fg(this.getNumberColor(lineKind), lineNumber) +
-			this.ctx.fg("borderMuted", " │ ");
+			dimLine(" │ ");
 		const firstPrefixPlain = `${markerChar} ${lineNumber} │ `;
 
 		const contPrefixAnsi =
 			this.ctx.fg(markerColor, markerChar) +
 			" " +
 			this.ctx.fg("dim", " ".repeat(this.ctx.lineNumberWidth)) +
-			this.ctx.fg("borderMuted", " │ ");
+			dimLine(" │ ");
 		const contPrefixPlain = `${markerChar} ${" ".repeat(this.ctx.lineNumberWidth)} │ `;
 
 		const codeWidth = Math.max(1, columnWidth - safeVisibleWidth(firstPrefixPlain));
@@ -865,7 +866,7 @@ class SplitDiffRenderer {
 
 	render(width: number): string[] {
 		const safeWidth = Math.max(20, width);
-		const columnSeparator = this.ctx.fg("borderMuted", " │ ");
+		const columnSeparator = dimLine(" │ ");
 		const separatorWidth = safeVisibleWidth(stripAnsi(columnSeparator));
 		const leftWidth = Math.max(20, Math.floor((safeWidth - separatorWidth) / 2));
 		const rightWidth = Math.max(20, safeWidth - separatorWidth - leftWidth);
@@ -877,7 +878,7 @@ class SplitDiffRenderer {
 			if (dividerIndex >= 0 && dividerIndex < chars.length) {
 				chars[dividerIndex] = junction;
 			}
-			return this.ctx.fg("borderMuted", chars.join(""));
+			return dimLine(chars.join(""));
 		};
 
 		const formatHeaderCell = (label: string, columnWidth: number): string => {
@@ -885,7 +886,7 @@ class SplitDiffRenderer {
 			const markerPad = "  ";
 			const lineNumberLabel = fitToWidth(label, this.ctx.lineNumberWidth);
 			const prefixAnsi =
-				this.ctx.fg("borderMuted", markerPad) + this.ctx.fg("dim", lineNumberLabel) + this.ctx.fg("borderMuted", " │ ");
+				dimLine(markerPad) + this.ctx.fg("dim", lineNumberLabel) + dimLine(" │ ");
 			const prefixPlain = `${markerPad}${stripAnsi(lineNumberLabel)} │ `;
 			const codeWidth = Math.max(0, columnWidth - safeVisibleWidth(prefixPlain));
 			return padRenderedLineWidth(prefixAnsi + " ".repeat(codeWidth), columnWidth);
@@ -894,7 +895,7 @@ class SplitDiffRenderer {
 		const lines: string[] = [];
 		lines.push(
 			padRenderedLineWidth(
-				formatBorderCell(leftWidth, "┬") + this.ctx.fg("borderMuted", "─┬─") + formatBorderCell(rightWidth, "┬"),
+				formatBorderCell(leftWidth, "┬") + dimLine("─┬─") + formatBorderCell(rightWidth, "┬"),
 				safeWidth,
 			),
 		);
@@ -931,7 +932,7 @@ class SplitDiffRenderer {
 
 		lines.push(
 			padRenderedLineWidth(
-				formatBorderCell(leftWidth, "┴") + this.ctx.fg("borderMuted", "─┴─") + formatBorderCell(rightWidth, "┴"),
+				formatBorderCell(leftWidth, "┴") + dimLine("─┴─") + formatBorderCell(rightWidth, "┴"),
 				safeWidth,
 			),
 		);
