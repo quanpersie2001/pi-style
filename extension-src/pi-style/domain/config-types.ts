@@ -44,6 +44,8 @@ export interface PiStyleConfig {
 	theme?: {
 		nerdFonts?: string;
 		terminalBackgroundSync?: string;
+		/** Pi theme name auto-applied at TUI session start ("off" disables; default "titanium"). */
+		autoApply?: string;
 		colors?: Record<string, unknown>;
 		glyphs?: Record<string, unknown>;
 	};
@@ -91,6 +93,8 @@ export interface NormalizedPiStyleConfig {
 	readonly theme: {
 		nerdFonts: NerdFontsMode;
 		terminalBackgroundSync: ToggleMode;
+		/** Pi theme name auto-applied at TUI session start; "off" disables the surface. */
+		autoApply: string;
 		colors: Readonly<Record<string, string>>;
 		glyphs: Readonly<Record<string, string>>;
 	};

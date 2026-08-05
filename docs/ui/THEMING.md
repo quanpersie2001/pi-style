@@ -33,7 +33,7 @@ Tokens are grouped by meaning, not component implementation. Implementations may
 - A **style preset** defines surface enablement, spacing/padding, status segment groups, editor layout/frame, message/tool density, and startup mode.
 - A **theme** defines color values, glyphs, separators, and background behavior.
 
-Users combine a style preset with any compatible Pi theme. pi-style may ship optional theme JSON resources but never requires switching away from the user's active theme.
+Users combine a style preset with any compatible Pi theme. The `theme.autoApply` leaf (default `"titanium"`) switches the active Pi theme at TUI session start when no other theme is active, resolving the target before switching so an unresolvable name never reaches Pi (its `setTheme` would fall back to the dark theme on load error). Setting `theme.autoApply: "off"` (or the `native` preset, or `PI_STYLE_THEME=off`) keeps the user's active theme untouched; the value may use Pi's `light/dark` auto syntax, e.g. `"titanium-light/titanium"`.
 
 ## Active Pi theme integration
 
@@ -81,7 +81,7 @@ Foreground/background colors are removed; labels, prefixes, borders, and state t
 
 ## Theme resources
 
-Optional complete Pi themes ship under `themes/` (`pi-style-dark.json`, `pi-style-light.json`) for users wanting the intended palette; the extension works with any active theme through semantic mapping.
+Optional complete Pi themes ship under `themes/` (`titanium.json`, `titanium-light.json`) and are auto-applied through `theme.autoApply`; the extension still works with any active theme through semantic mapping when auto-apply is off.
 
 ## Theme requirements
 

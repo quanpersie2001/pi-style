@@ -37,7 +37,13 @@ export const DEFAULT_CONFIG: NormalizedPiStyleConfig = Object.freeze({
 		dimOutput: false,
 		showElapsed: true,
 	}),
-	theme: Object.freeze({ nerdFonts: "auto", terminalBackgroundSync: "auto", colors: {}, glyphs: {} }),
+	theme: Object.freeze({
+		nerdFonts: "auto",
+		terminalBackgroundSync: "auto",
+		autoApply: "titanium",
+		colors: {},
+		glyphs: {},
+	}),
 	compatibility: Object.freeze({
 		allowSafePatches: true,
 		allowCorePatches: false,
@@ -179,6 +185,10 @@ export function normalizeConfig(
 				["auto", "on", "off"],
 				defaults.theme.terminalBackgroundSync,
 			),
+			autoApply:
+				typeof theme.autoApply === "string" && theme.autoApply.trim() !== ""
+					? theme.autoApply
+					: defaults.theme.autoApply,
 			colors: stringMap(theme.colors),
 			glyphs: stringMap(theme.glyphs),
 		}),
@@ -260,6 +270,7 @@ function validCustomItem(item: unknown): boolean {
 function validLeaf(path: string, value: unknown): boolean {
 	if (BOOL_PATHS.has(path)) return typeof value === "boolean";
 	if (ENUMS[path]) return typeof value === "string" && ENUMS[path].includes(value);
+	if (path === "theme.autoApply") return typeof value === "string" && value !== "";
 	if (path === "statusLine.separator" || path === "tools.style" || path === "editor.hint")
 		return typeof value === "string";
 	if (path === "tools.maxCollapsedLines" || path === "tools.maxExpandedLines")
@@ -484,6 +495,8 @@ export function resolveConfigDetailed(sources: ConfigSources): {
 		envPatch.theme = { nerdFonts: env.PI_STYLE_NERD_FONTS === "1" ? "on" : "off" };
 	if (env.PI_STYLE_EDITOR && ["native", "compact", "boxed", "dock"].includes(env.PI_STYLE_EDITOR))
 		envPatch.editor = { style: env.PI_STYLE_EDITOR };
+	if (env.PI_STYLE_THEME !== undefined && env.PI_STYLE_THEME !== "")
+		envPatch.theme = { ...(envPatch.theme ?? {}), autoApply: env.PI_STYLE_THEME };
 	if (env.PI_STYLE_OSC11 === "1" || env.PI_STYLE_OSC11 === "0")
 		envPatch.theme = { ...(envPatch.theme ?? {}), terminalBackgroundSync: env.PI_STYLE_OSC11 === "1" ? "on" : "off" };
 	if (env.PI_STYLE_DEBUG === "1") envPatch.debug = true;
@@ -528,6 +541,7 @@ export function resolveConfigDetailed(sources: ConfigSources): {
 				"PI_STYLE_OSC11",
 				"PI_STYLE_DEBUG",
 				"PI_STYLE_STATUS",
+				"PI_STYLE_THEME",
 			].includes(key)
 		)
 			diagnostics.push({

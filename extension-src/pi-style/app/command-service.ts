@@ -56,6 +56,7 @@ const allowedPaths = new Set([
 	"tools.showElapsed",
 	"theme.nerdFonts",
 	"theme.terminalBackgroundSync",
+	"theme.autoApply",
 	"theme.colors",
 	"theme.glyphs",
 	"compatibility.allowSafePatches",
@@ -93,6 +94,7 @@ function validatePathValue(path: string, value: unknown): boolean {
 	if (path === "startup.mode") return typeof value === "string" && startupModes.includes(value);
 	if (path === "editor.style") return typeof value === "string" && styles.includes(value);
 	if (path === "editor.frame") return typeof value === "string" && frames.includes(value);
+	if (path === "theme.autoApply") return typeof value === "string" && value !== "";
 	if (["theme.nerdFonts", "theme.terminalBackgroundSync", "statusLine.separator", "tools.style"].includes(path))
 		return typeof value === "string";
 	if (path === "tools.maxCollapsedLines" || path === "tools.maxExpandedLines")

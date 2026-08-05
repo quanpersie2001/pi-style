@@ -30,6 +30,10 @@ export interface FakePiHostOptions {
 	flags?: Record<string, boolean | string | undefined>;
 	projectTrusted?: boolean;
 	cwd?: string;
+	/** Active theme name (default "fake"). */
+	themeName?: string;
+	/** Available themes for getTheme/setTheme; the active theme is registered automatically. */
+	themes?: Record<string, Theme>;
 	/** Test-only provider seam; production Pi does not expose this on ExtensionContext. */
 	gitRunner?: GitCommandRunner;
 	/** Session entries surfaced through the fake session manager (usage aggregation). */
@@ -67,6 +71,8 @@ export class FakePiHost {
 		) => { render(width: number): string[]; invalidate(): void; dispose?(): void }
 	>();
 	readonly notifications: Array<{ message: string; type?: "info" | "warning" | "error" }> = [];
+	/** Theme names passed to ui.setTheme by the extension under test. */
+	readonly setThemeCalls: string[] = [];
 	readonly renderRequests: Array<"tui" | "rpc"> = [];
 	readonly overlays: Array<{ options?: unknown; handle: { hidden: boolean; disposed: boolean } }> = [];
 	readonly workingIndicatorChanges: Array<WorkingIndicatorOptions | undefined> = [];
@@ -94,7 +100,9 @@ export class FakePiHost {
 	private editorFactory: NonNullable<ExtensionUIContext["setEditorComponent"]> extends (factory: infer F) => void
 		? F | undefined
 		: undefined;
-	readonly theme = createFakeTheme();
+	/** Active theme; ui.setTheme may replace it. */
+	theme: Theme;
+	private readonly themeRegistry: Map<string, Theme>;
 	model: unknown;
 	thinkingLevel = "off";
 	private sessionStarted = false;
@@ -120,6 +128,10 @@ export class FakePiHost {
 		this.gitRunner = options.gitRunner ?? (async () => ({ stdout: "", stderr: "not a git repository", code: 1 }));
 		this.sessionEntries = options.sessionEntries ?? [];
 		this.capabilities = { ...defaultCapabilities, ...options.capabilities };
+		this.theme = createFakeTheme({ name: options.themeName ?? "fake" });
+		this.themeRegistry = new Map(Object.entries(options.themes ?? {}));
+		if (!this.themeRegistry.has(this.theme.name ?? "fake"))
+			this.themeRegistry.set(this.theme.name ?? "fake", this.theme);
 		this.ownership.editor.initial = options.initialEditor !== undefined;
 		this.ownership.editor.current = this.ownership.editor.initial;
 		this.ownership.footer.initial = options.initialFooter !== undefined;
@@ -321,9 +333,16 @@ export class FakePiHost {
 			get theme() {
 				return host.theme;
 			},
-			getAllThemes: () => [],
-			getTheme: () => undefined,
-			setTheme: () => ({ success: true }),
+			getAllThemes: () => [...host.themeRegistry.keys()].map((name) => ({ name, path: undefined })),
+			getTheme: (name) => host.themeRegistry.get(name),
+			setTheme: (themeOrName) => {
+				const name = typeof themeOrName === "string" ? themeOrName : ((themeOrName as Theme).name ?? "");
+				host.setThemeCalls.push(name);
+				const candidate = typeof themeOrName === "string" ? host.themeRegistry.get(name) : (themeOrName as Theme);
+				if (!candidate) return { success: false, error: `unknown theme "${name}"` };
+				host.theme = candidate;
+				return { success: true };
+			},
 			getToolsExpanded: () => false,
 			setToolsExpanded: () => {},
 		};

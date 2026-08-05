@@ -94,6 +94,26 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 	const applyMessagesConfig = (config: import("../domain/config-types.js").NormalizedPiStyleConfig) => {
 		sessionUi?.setHiddenThinkingLabel?.(config.messages.hideThinkingLabel ? "" : undefined);
 	};
+	/**
+	 * Auto-apply the configured pi-style theme (default "titanium") once per TUI
+	 * session before any surface captures the active theme, so a fresh install
+	 * renders with the intended palette. Failure-safe: an unresolvable target is
+	 * never passed to Pi (its setTheme falls back to the dark theme on load
+	 * error, which would clobber the user's theme), and "off" disables the
+	 * surface for users who keep their own theme.
+	 */
+	const applyAutoTheme = (
+		config: import("../domain/config-types.js").NormalizedPiStyleConfig,
+		ctx: ExtensionContext,
+	) => {
+		const target = config.theme.autoApply;
+		if (ctx.mode !== "tui" || !target || target === "off") return;
+		const ui = ctx.ui;
+		if (ui?.theme?.name === target) return;
+		// Resolve before switching (see failure-safe note above).
+		if (!ui?.getTheme?.(target)) return;
+		ui.setTheme?.(target);
+	};
 	const app: PiStyleApp = createPiStyleApp(
 		undefined,
 		{
@@ -162,6 +182,8 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			productGate = app.productPolicy.corePatchGate;
 			active = true;
 			compatibility.install(app.config, ctx.mode === "tui", productGate);
+			// Auto-apply the configured theme before surfaces capture the active one.
+			applyAutoTheme(app.config, ctx);
 			// Session-scoped render configuration for the boxed tool/message surfaces.
 			// Populated once per session (never inside render).
 			sessionTheme = ctx.ui?.theme as never;

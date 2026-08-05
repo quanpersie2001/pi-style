@@ -42,7 +42,7 @@ export const CONFIG_PRESETS: Readonly<Record<PresetName, Readonly<PiStyleConfig>
 		startup: { mode: "off" },
 		messages: { enabled: false },
 		tools: { enabled: false },
-		theme: { terminalBackgroundSync: "off" },
+		theme: { terminalBackgroundSync: "off", autoApply: "off" },
 	}),
 });
 

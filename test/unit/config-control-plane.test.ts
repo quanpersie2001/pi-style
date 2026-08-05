@@ -134,6 +134,7 @@ describe("configuration control plane and composition", () => {
 			["tools.showElapsed", false, "bad"],
 			["theme.nerdFonts", "off", "bad"],
 			["theme.terminalBackgroundSync", "on", "bad"],
+			["theme.autoApply", "titanium", 3],
 			["theme.colors", {}, { x: 1 }],
 			["theme.glyphs", { x: "" }, { x: 1 }],
 			["compatibility.allowSafePatches", false, "bad"],
@@ -329,6 +330,20 @@ describe("configuration control plane and composition", () => {
 		await expect(writeScopedConfig(filePort, path, { enabled: true })).rejects.toThrow("refusing");
 		const read = await readScopedConfig(filePort, path);
 		expect(read.readOnly).toBe(true);
+	});
+
+	it("defaults theme autoApply to titanium with preset and env overrides", () => {
+		expect(resolveConfigDetailed({}).config.theme.autoApply).toBe("titanium");
+		// The native preset keeps the user's active Pi theme.
+		expect(resolveConfigDetailed({ global: { preset: "native" } }).config.theme.autoApply).toBe("off");
+		expect(resolveConfigDetailed({ session: { theme: { autoApply: "off" } } }).config.theme.autoApply).toBe("off");
+		expect(
+			resolveConfigDetailed({ global: { theme: { autoApply: "titanium-light/titanium" } } }).config.theme.autoApply,
+		).toBe("titanium-light/titanium");
+		const env = resolveConfigDetailed({ environment: { PI_STYLE_THEME: "off" } });
+		expect(env.config.theme.autoApply).toBe("off");
+		expect(env.sources["theme.autoApply"]).toBe("environment");
+		expect(env.diagnostics.length).toBe(0);
 	});
 
 	it("keeps untrusted project configuration out of effective resolution", () => {

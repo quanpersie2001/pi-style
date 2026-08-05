@@ -39,6 +39,8 @@ Resolution starts from the active Pi theme, then applies optional pi-style theme
 
 No configuration field accepts executable render code.
 
+> **Update (0.2.0):** the `theme.autoApply` leaf (default `"titanium"`) applies a theme at TUI session start when the active theme differs, configurable per scope and disabled with `"off"` (also the `native` preset default). This stays consistent with the decision above: the palette is not hardcoded — it is a documented, overridable leaf, and the switch never passes an unresolvable name to Pi (whose `setTheme` would fall back to the dark theme).
+
 ## Alternatives considered
 
 ### Hardcode one palette and layout

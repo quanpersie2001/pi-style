@@ -17,6 +17,7 @@
 - **Editor** — compact/boxed/dock `CustomEditor` treatments with prompt glyph, metadata rows, and thinking-level border, preserving Pi keybindings and autocomplete.
 - **Startup** — compact gradient logo header and optional overlay with System & Context / Available Tools panels, rendered from snapshot data collected before mount.
 - **Messages** — assistant prefix and boxed compaction/skill/branch/MCP special blocks, and certified tool call/result selectors with pending/running/error markers.
+- **Auto theme** — the `titanium` palette is applied at TUI session start when no other theme is active (configurable via `theme.autoApply`, disable with `"off"`).
 - **One visual system** — shared semantic theme, glyph sets (Nerd/Unicode/ASCII), and ANSI-safe rendering across every surface.
 
 All certified surfaces are **on by default**. The single OFF switch is:
@@ -48,6 +49,7 @@ No configuration is required. The `default` preset enables:
 - primary status row **below the editor** (`placement: "below"`), secondary row when it has content;
 - `dock` editor (rounded input box) with metadata ownership resolved so the status line and editor do not duplicate text;
 - `compact` startup header (gradient logo block only; resource chips are opt-in);
+- the `titanium` theme auto-applied at session start (`theme.autoApply`, default `"titanium"`; set `"off"` to keep your active Pi theme);
 - certified message prefixes and boxed tool presentation when compatible with the exact Pi version.
 
 Override any documented leaf through global/project `piStyle` settings, environment, or session commands. Precedence:
@@ -64,7 +66,8 @@ Example settings file (`.pi/pi-style` or global config):
     "preset": "full",
     "placement": "above",
     "editor": { "style": "boxed", "frame": "line" },
-    "startup": { "mode": "overlay", "showResources": true }
+    "startup": { "mode": "overlay", "showResources": true },
+    "theme": { "autoApply": "titanium-light" }
   }
 }
 ```
@@ -82,7 +85,7 @@ Invalid values never break startup: they fall back safely and appear in `/pi-sty
 | `compact` | High information density for medium terminals. |
 | `full` | Broad status data and all compatible visual surfaces. |
 | `ascii` | No Nerd Font assumptions and conservative separators. |
-| `native` | Active Pi theme plus only low-risk status enhancements. |
+| `native` | Active Pi theme kept as-is (`theme.autoApply: "off"`) plus only low-risk status enhancements. |
 
 ---
 
@@ -99,6 +102,7 @@ The full schema, precedence, persistence, and migration policy live in [`docs/CO
 | `PI_STYLE_EDITOR=native\|compact\|boxed\|dock` | Temporary editor override. |
 | `PI_STYLE_STATUS=above\|below\|off` | Temporary status placement/state. |
 | `PI_STYLE_OSC11=1\|0` | Force terminal background sync policy. |
+| `PI_STYLE_THEME=<name\|off>` | Override the auto-applied theme (`off` keeps the active Pi theme). |
 | `PI_STYLE_DEBUG=1` | Enable bounded diagnostics. |
 
 ### CLI flags
