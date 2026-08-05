@@ -390,6 +390,15 @@ function boxFrameText(theme: BoxTheme, text: string): string {
 export function boxedToolBgName(isError?: boolean, isPartial?: boolean): string {
 	return isPartial ? "toolPendingBg" : isError ? "toolErrorBg" : "toolSuccessBg";
 }
+/**
+ * Resolve the box-frame color token from tool state, mirroring omp dynamic
+ * borders: pending/running pop in `borderAccent`, errors use `error`, settled
+ * results recede in `borderMuted` (the theme subtle border).
+ */
+export function frameToneToken(options: { isError?: boolean; isPartial?: boolean; isPending?: boolean }): string {
+	const active = options.isPartial ?? options.isPending;
+	return options.isError ? "error" : active ? "borderAccent" : "borderMuted";
+}
 
 export function boxBorder(theme: BoxTheme, left: string, right: string, width: number): string {
 	const renderedWidth = boxWidth(width);
@@ -610,8 +619,10 @@ export function renderBoxedToolCall(
 			);
 			const headerLabel = options.headerDetail ? `${title} · ${options.headerDetail}` : title;
 			const renderedWidth = boxWidth(width);
+			const frameToken = frameToneToken(options);
+			const frame: BoxTheme = { fg: (token, text) => theme.fg(token === "border" ? frameToken : token, text) };
 			const lines = [
-				boxLabeledBorder(theme, BOX_ROUND_TOP_LEFT, BOX_ROUND_TOP_RIGHT, headerLabel, undefined, renderedWidth),
+				boxLabeledBorder(frame, BOX_ROUND_TOP_LEFT, BOX_ROUND_TOP_RIGHT, headerLabel, undefined, renderedWidth),
 				boxBlankLine(theme, renderedWidth),
 				...detailLines.flatMap((line) => boxedWrappedLines(theme, line, renderedWidth)),
 			];
@@ -624,7 +635,7 @@ export function renderBoxedToolCall(
 				lines.push(
 					boxBlankLine(theme, renderedWidth),
 					boxLabeledBorder(
-						theme,
+						frame,
 						BOX_ROUND_BOTTOM_LEFT,
 						BOX_ROUND_BOTTOM_RIGHT,
 						pendingLabel,
@@ -664,6 +675,8 @@ export function renderCompactBoxedToolCall(
 		invalidate() {},
 		render(width: number): string[] {
 			const renderedWidth = boxWidth(width);
+			const frameToken = frameToneToken(options);
+			const frame: BoxTheme = { fg: (token, text) => theme.fg(token === "border" ? frameToken : token, text) };
 			const title = formatBoxedToolTitle(
 				theme,
 				toolName,
@@ -677,7 +690,7 @@ export function renderCompactBoxedToolCall(
 			const _footerIsPartial = Boolean(options.state?.[COMPACT_FOOTER_PARTIAL_KEY]);
 			const bodyLines = options.bodyLines ? options.bodyLines(boxInnerWidth(renderedWidth)) : [];
 			const lines = [
-				boxLabeledBorder(theme, BOX_ROUND_TOP_LEFT, BOX_ROUND_TOP_RIGHT, headerLabel, undefined, renderedWidth),
+				boxLabeledBorder(frame, BOX_ROUND_TOP_LEFT, BOX_ROUND_TOP_RIGHT, headerLabel, undefined, renderedWidth),
 				...(bodyLines.length > 0
 					? bodyLines.map((line) => boxLine(theme, line, renderedWidth))
 					: [boxBlankLine(theme, renderedWidth)]),
@@ -685,7 +698,7 @@ export function renderCompactBoxedToolCall(
 			if (compactFooter) {
 				lines.push(
 					boxLabeledBorder(
-						theme,
+						frame,
 						BOX_ROUND_BOTTOM_LEFT,
 						BOX_ROUND_BOTTOM_RIGHT,
 						compactFooter,
@@ -701,7 +714,7 @@ export function renderCompactBoxedToolCall(
 						: theme.fg("dim", `… ${options.pendingText ?? "Waiting for output…"}`));
 				lines.push(
 					boxLabeledBorder(
-						theme,
+						frame,
 						BOX_ROUND_BOTTOM_LEFT,
 						BOX_ROUND_BOTTOM_RIGHT,
 						pendingLabel,
@@ -753,6 +766,8 @@ export function renderBoxedToolResult(
 		render(width: number): string[] {
 			if (cache?.width === width) return cache.lines;
 			const renderedWidth = boxWidth(width);
+			const frameToken = frameToneToken(options);
+			const frame: BoxTheme = { fg: (token, text) => theme.fg(token === "border" ? frameToken : token, text) };
 			const maxContentWidth = boxInnerWidth(renderedWidth);
 			const bodyLines = typeof body === "function" ? body(maxContentWidth) : body.render(maxContentWidth);
 			const errorPrefix = options.isError ? [theme.fg("error", options.errorLabel ?? "✗ Error")] : [];
@@ -770,7 +785,7 @@ export function renderBoxedToolResult(
 					? []
 					: [
 							boxLabeledBorder(
-								theme,
+								frame,
 								BOX_DIVIDER_LEFT,
 								BOX_DIVIDER_RIGHT,
 								theme.fg("dim", dividerText),
@@ -782,7 +797,7 @@ export function renderBoxedToolResult(
 				...renderBoxedOutputLines(theme, outputLines, renderedWidth, options.renderLineBudget ?? outputLines.length),
 				boxBlankLine(theme, renderedWidth),
 				boxLabeledBorder(
-					theme,
+					frame,
 					BOX_ROUND_BOTTOM_LEFT,
 					BOX_ROUND_BOTTOM_RIGHT,
 					footerText,
@@ -849,9 +864,11 @@ export function renderCompactBoxedFooter(
 		invalidate() {},
 		render(width: number): string[] {
 			const renderedWidth = boxWidth(width);
+			const frameToken = frameToneToken(options);
+			const frame: BoxTheme = { fg: (token, text) => theme.fg(token === "border" ? frameToken : token, text) };
 			return [
 				boxLabeledBorder(
-					theme,
+					frame,
 					BOX_ROUND_BOTTOM_LEFT,
 					BOX_ROUND_BOTTOM_RIGHT,
 					formatBoxedFooterParts(theme, result, [], options.elapsedMs),
