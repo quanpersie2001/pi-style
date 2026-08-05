@@ -27,7 +27,7 @@ export const DEFAULT_CONFIG: NormalizedPiStyleConfig = Object.freeze({
 		bottomMargin: 1,
 		contextBarWidth: 10,
 	}),
-	editor: Object.freeze({ enabled: true, style: "compact", frame: "auto", showMetadata: false }),
+	editor: Object.freeze({ enabled: true, style: "dock", frame: "rounded", showMetadata: false, hint: "" }),
 	messages: Object.freeze({ enabled: true, assistantPrefix: true, specialBlocks: true, hideThinkingLabel: true }),
 	tools: Object.freeze({
 		enabled: true,
@@ -152,10 +152,11 @@ export function normalizeConfig(
 			style: stringEnum(editor.style, ["compact", "boxed", "dock", "native"], defaults.editor.style),
 			frame: stringEnum(
 				editor.frame,
-				["auto", "halfblock", "line", "solid", "outline", "native"],
+				["auto", "halfblock", "line", "solid", "outline", "rounded", "native"],
 				defaults.editor.frame,
 			),
 			showMetadata: bool(editor.showMetadata, defaults.editor.showMetadata),
+			hint: typeof editor.hint === "string" ? editor.hint : defaults.editor.hint,
 		}),
 		messages: Object.freeze({
 			enabled: bool(messages.enabled, defaults.messages.enabled),
@@ -201,7 +202,7 @@ const ENUMS: Readonly<Record<string, readonly string[]>> = {
 	placement: ["above", "below"],
 	"startup.mode": ["off", "compact", "overlay"],
 	"editor.style": ["compact", "boxed", "dock", "native"],
-	"editor.frame": ["auto", "halfblock", "line", "solid", "outline", "native"],
+	"editor.frame": ["auto", "halfblock", "line", "solid", "outline", "rounded", "native"],
 	"theme.nerdFonts": ["auto", "on", "off"],
 	"theme.terminalBackgroundSync": ["auto", "on", "off"],
 };
@@ -259,7 +260,8 @@ function validCustomItem(item: unknown): boolean {
 function validLeaf(path: string, value: unknown): boolean {
 	if (BOOL_PATHS.has(path)) return typeof value === "boolean";
 	if (ENUMS[path]) return typeof value === "string" && ENUMS[path].includes(value);
-	if (path === "statusLine.separator" || path === "tools.style") return typeof value === "string";
+	if (path === "statusLine.separator" || path === "tools.style" || path === "editor.hint")
+		return typeof value === "string";
 	if (path === "tools.maxCollapsedLines" || path === "tools.maxExpandedLines")
 		return typeof value === "number" && Number.isFinite(value) && value >= 0;
 	if (path === "statusLine.bottomMargin" || path === "statusLine.contextBarWidth")

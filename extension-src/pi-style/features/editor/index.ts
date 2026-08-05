@@ -118,6 +118,7 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	override render(width: number): string[] {
 		if (width <= 0) return [];
 		const nativeLines = super.render(width);
+		const style = this.styleFor(width);
 		// Autocomplete (slash menu / @-mentions) restructure: Pi draws the
 		// suggestions after its own bottom border, which pushes the below-editor
 		// widgets (status line) down. Re-frame the native output so the dropdown
@@ -125,7 +126,7 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		// Native layout: [top border, text lines, bottom border, dropdown lines...].
 		if ((this as unknown as { autocompleteState?: unknown }).autocompleteState) {
 			const prompt = this.prompt();
-			const padding = this.paddingFor(width, this.styleFor(width));
+			const padding = this.paddingFor(width, style);
 			const promptWidth = widthOf(prompt) + 1;
 			const prefix = `${" ".repeat(padding)}${prompt} `;
 			const continuation = " ".repeat(padding + promptWidth);
@@ -133,31 +134,59 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 			const split = borderIndex >= 0 ? borderIndex + 1 : nativeLines.length;
 			const body = nativeLines.slice(1, split);
 			const dropdown = nativeLines.slice(split);
-			const border = this.borderFor(width);
-			const renderedBody = body.map((line, index) => widthSafe(`${index === 0 ? prefix : continuation}${line}`, width));
-			return [
-				border("─".repeat(width)),
-				...renderedBody,
-				...dropdown.map((line) => widthSafe(line, width)),
-				border("─".repeat(width)),
-			];
+			const border = this.borderFor();
+			const kind = this.frameKind(style);
+			const renderWidth = width - (kind === "rounded" ? 2 : 0);
+			const sideColor = kind === "rounded" ? this.borderColorFor() : undefined;
+			const wrap = (line: string) =>
+				kind === "rounded" && sideColor ? `${sideColor("│")}${line}${sideColor("│")}` : line;
+			const renderedBody = body.map((line, index) =>
+				wrap(widthSafe(`${index === 0 ? prefix : continuation}${line}`, renderWidth)),
+			);
+			const dropdownLines = dropdown.map((line) => wrap(widthSafe(line, renderWidth)));
+			if (kind === "rounded") {
+				return [
+					border(`╭${"─".repeat(Math.max(0, width - 2))}╮`),
+					...renderedBody,
+					...dropdownLines,
+					border(`╰${"─".repeat(Math.max(0, width - 2))}╯`),
+				];
+			}
+			return [border("─".repeat(width)), ...renderedBody, ...dropdownLines, border("─".repeat(width))];
 		}
-		const style = this.styleFor(width);
 		if (style === "native") return nativeLines.map((line) => widthSafe(line, width));
 
 		const prompt = this.prompt();
 		const promptWidth = widthOf(prompt) + 1;
 		const padding = this.paddingFor(width, style);
-		const innerWidth = Math.max(1, width - promptWidth - padding * 2);
+		const kind = this.frameKind(style);
+		const sideReserve = kind === "rounded" ? 2 : 0;
+		const renderWidth = Math.max(1, width - sideReserve);
+		const innerWidth = Math.max(1, renderWidth - promptWidth - padding * 2);
 		const innerLines = super.render(innerWidth);
 		if (innerLines.length === 0) return [];
 
 		const body = innerLines.slice(1, -1);
 		const prefix = `${" ".repeat(padding)}${prompt} `;
 		const continuation = " ".repeat(padding + promptWidth);
+		const hint = this.config.editor.hint;
+		const showHint = hint !== "" && this.getText() === "";
 		const renderedBody = body.map((line, index) => {
 			const lead = index === 0 ? prefix : continuation;
-			return widthSafe(`${lead}${line}`, width);
+			let content = `${lead}${line}`;
+			// Empty-input hint: the cursor block (first cell of the native empty
+			// line) stays at the input position, the dim hint trails it. The native
+			// line is pre-padded to renderWidth with literal spaces; drop them from
+			// the raw end (safe: no ANSI follows the padding) before appending the
+			// hint, or the hint is truncated away by widthSafe. Typing any character
+			// makes the text non-empty and the hint disappears.
+			if (showHint && index === 0 && line) {
+				let end = content.length;
+				while (end > 0 && content[end - 1] === " ") end--;
+				if (end < content.length) content = content.slice(0, end);
+				content += this.semantic.apply("hint", hint);
+			}
+			return widthSafe(content, renderWidth);
 		});
 		const metadata = this.metadata(width, style);
 		const framed = this.frame(width, style, renderedBody, metadata);
@@ -186,17 +215,36 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		return "compact";
 	}
 
+	/**
+	 * Resolve the frame treatment for a style: horizontal bars for compact,
+	 * full-width bars for boxed, an outlined box for dock, and a rounded box
+	 * with side borders (`╭─╮ │ │ ╰─╯`) for `frame: "rounded"`.
+	 */
+	private frameKind(
+		style: "compact" | "boxed" | "dock" | "native",
+	): "compact" | "boxed" | "outline" | "rounded" | "native" {
+		const frame = this.config.editor.frame;
+		if (style === "compact" || frame === "line" || frame === "solid") return "compact";
+		if (style === "boxed") return "boxed";
+		if (frame === "native") return "native";
+		if (frame === "rounded") return "rounded";
+		return "outline";
+	}
+
 	private paddingFor(width: number, style: "compact" | "boxed" | "dock" | "native"): number {
 		if (width < 50) return 0;
 		return style === "boxed" ? 2 : style === "dock" ? 1 : 1;
 	}
 
-	private borderFor(width: number): (line: string) => string {
-		// Sync the frame color with the active thinking level, matching Pi's native editor.
+	private borderFor(): (line: string) => string {
+		return (line: string) => this.borderColorFor()(line);
+	}
+
+	/** Raw border color function (thinking-synced) WITHOUT full-width padding, for single glyphs. */
+	private borderColorFor(): (line: string) => string {
 		const level = this.snapshot.thinkingLevel;
 		const thinking = this.fullTheme?.getThinkingBorderColor?.(level ?? "off");
-		const border = thinking ?? this.piTheme.borderColor;
-		return (line: string) => border(widthSafe(line, width));
+		return thinking ?? this.piTheme.borderColor;
 	}
 
 	private frame(
@@ -205,23 +253,27 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		body: string[],
 		metadata: string[],
 	): string[] {
-		const border = this.borderFor(width);
-		const lineMode = this.config.editor.frame === "line" || this.config.editor.frame === "solid";
-		if (style === "compact" || lineMode) {
+		const border = this.borderFor();
+		const kind = this.frameKind(style);
+		if (kind === "compact") {
 			// Match Pi's native editor: a horizontal border above and below the input.
 			return [border("─".repeat(width)), ...body, border("─".repeat(width)), ...metadata];
 		}
-		if (style === "boxed") {
+		if (kind === "boxed") {
 			const glyph = this.config.editor.frame === "halfblock" ? "▀" : "━";
 			return [border(glyph.repeat(width)), ...body, border(glyph.repeat(width)), ...metadata];
 		}
-		if (this.config.editor.frame === "native") return body;
-		return [
-			border(`┌${"─".repeat(Math.max(0, width - 2))}┐`),
-			...body,
-			border(`└${"─".repeat(Math.max(0, width - 2))}┘`),
-			...metadata,
-		];
+		if (kind === "native") return body;
+		const inner = Math.max(0, width - 2);
+		if (kind === "rounded") {
+			// Rounded box with vertical side borders: `╭─╮ / │ text │ / ╰─╯`.
+			// Body lines were rendered at width - 2; re-fit defensively, then wrap.
+			// Side glyphs use the raw border color (no full-width padding, unlike border()).
+			const sideColor = this.borderColorFor();
+			const side = (line: string) => `${sideColor("│")}${widthSafe(line, inner)}${sideColor("│")}`;
+			return [border(`╭${"─".repeat(inner)}╮`), ...body.map(side), border(`╰${"─".repeat(inner)}╯`), ...metadata];
+		}
+		return [border(`┌${"─".repeat(inner)}┐`), ...body, border(`└${"─".repeat(inner)}┘`), ...metadata];
 	}
 
 	private metadata(width: number, style: "compact" | "boxed" | "dock" | "native"): string[] {

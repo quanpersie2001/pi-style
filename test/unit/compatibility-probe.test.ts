@@ -150,11 +150,11 @@ describe("Pi 0.83 compatibility probe", () => {
 	it.each([
 		// Core/message/tool surfaces are default-on (fingerprint-certified, fail-closed,
 		// conflict-preserving); explicit flags and the ASCII override still work.
-		[{}, 7],
+		[{}, 8],
 		[{ "pi-style-core-patches": false }, 0],
-		[{ "pi-style-ascii": true }, 7],
-		[{ "pi-style-tools": false }, 5],
-		[{ "pi-style-message-special-blocks": false }, 3],
+		[{ "pi-style-ascii": true }, 8],
+		[{ "pi-style-tools": false }, 6],
+		[{ "pi-style-message-special-blocks": false }, 4],
 	] as const)("enables certified surfaces by default with explicit flag overrides %#", async (flags, expected) => {
 		const host = new FakePiHost({ flags });
 		piStyleExtension(host.extensionApi);
@@ -172,7 +172,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		initTheme("dark", false);
 		const markers = new Set<string>();
 		const report = probePiCompatibility("0.83.0", markers);
-		expect(report.recordSnapshots).toHaveLength(7);
+		expect(report.recordSnapshots).toHaveLength(8);
 		expect(report.recordSnapshots.every((record) => record.piVersion === "0.83.0")).toBe(true);
 		expect(report.recordSnapshots.every((record) => record.shape === "installed")).toBe(true);
 		expect(report.recordSnapshots.every((record) => record.disposed === false)).toBe(true);
@@ -241,6 +241,7 @@ describe("Pi 0.83 compatibility probe", () => {
 			messageSnapshot: {
 				assistantPrefix: "[assistant] ",
 				assistantEnabled: true,
+				collapseHiddenThinking: false,
 			},
 		});
 		const user = new UserMessageComponent("  user installed sentinel\ncontinuation");
@@ -283,6 +284,7 @@ describe("Pi 0.83 compatibility probe", () => {
 			decorateMessageRender(() => ["content sentinel"], {}, [80], {
 				assistantPrefix: "[assistant] ",
 				assistantEnabled: true,
+				collapseHiddenThinking: false,
 			}),
 		).toEqual([`[assistant] content sentinel${" ".repeat(52)}`]);
 		expect(userLines.some((line) => line.includes("  user installed sentinel"))).toBe(true);
@@ -311,6 +313,7 @@ describe("Pi 0.83 compatibility probe", () => {
 			messageSnapshot: {
 				assistantPrefix: "[assistant] ",
 				assistantEnabled: true,
+				collapseHiddenThinking: false,
 			},
 		});
 		const asciiUser = new UserMessageComponent("ascii installed sentinel").render(160).join("\n");
@@ -326,6 +329,7 @@ describe("Pi 0.83 compatibility probe", () => {
 			messageSnapshot: {
 				assistantPrefix: "[assistant] ",
 				assistantEnabled: true,
+				collapseHiddenThinking: false,
 			},
 		});
 		const stripAnsi = (value: string) => {
@@ -490,7 +494,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		await host.sessionStart();
 		expect(
 			targetSpecs.filter((spec) => getCompatibilityRecords(spec.target).some((record) => !record.disposed)).length,
-		).toBe(7);
+		).toBe(8);
 		await host.sessionShutdown();
 		// Tier C patches are retained across session switches (Pi renders the restored
 		// chat with renderBeforeBind before the next session_start, which restores and
@@ -499,7 +503,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		await host.sessionStart();
 		expect(
 			targetSpecs.filter((spec) => getCompatibilityRecords(spec.target).some((record) => !record.disposed)).length,
-		).toBe(7);
+		).toBe(8);
 		await host.sessionShutdown();
 
 		// OFF switch: `compatibility.allowCorePatches: false` in config denies all core patches.
@@ -556,9 +560,9 @@ describe("Pi 0.83 compatibility probe", () => {
 		).toBeUndefined();
 		for (const version of [undefined, "0.84.0"]) {
 			const report = probePiCompatibility(version);
-			expect(report.recordSnapshots).toHaveLength(7);
+			expect(report.recordSnapshots).toHaveLength(8);
 			expect(report.recordSnapshots.every((record) => record.shape === "unsupported")).toBe(true);
-			expect(report.unsupported).toHaveLength(7);
+			expect(report.unsupported).toHaveLength(8);
 		}
 	});
 
@@ -642,7 +646,7 @@ describe("Pi 0.83 compatibility probe", () => {
 			expect(descriptor?.writable).toBe(true);
 			expect(descriptor?.configurable).toBe(true);
 			expect(descriptor?.value?.name).toBe(spec.method);
-			expect(descriptor?.value?.length).toBe(spec.method === "render" ? 1 : 0);
+			expect(descriptor?.value?.length).toBe(spec.method === "render" || spec.method === "updateContent" ? 1 : 0);
 			expect(fingerprint(descriptor?.value)).toBe(TRUSTED_NATIVE_FINGERPRINTS[`${spec.subtype}:${spec.method}`]);
 		}
 		const beforeDescriptors = descriptors();
@@ -654,7 +658,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		disposePiCompatibilityProbe(report);
 		expect(descriptors()).toEqual(beforeDescriptors);
 		const replacement = probePiCompatibility("0.83.0");
-		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(7);
+		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(8);
 		expect(markers).not.toContain("native-assistant-message:delegated");
 		const snapshots: readonly CompatibilityRecordSnapshot[] = report.recordSnapshots;
 		expect(snapshots.every((record) => record.generation > 0)).toBe(true);
@@ -1080,7 +1084,7 @@ describe("Pi 0.83 compatibility probe", () => {
 			);
 			tool.updateResult({ content: [{ type: "text", text: "cycle result" }], details: {}, isError: false }, true);
 			tool.render(80);
-			expect(getCompatibilityRecords(AssistantMessageComponent.prototype).length).toBe(1);
+			expect(getCompatibilityRecords(AssistantMessageComponent.prototype).length).toBe(2);
 			expect(getCompatibilityRecords(ToolExecutionComponent.prototype).length).toBe(2);
 			await host.sessionShutdown();
 			// Patches are retained across the session-switch gap (renderBeforeBind), and
@@ -1136,7 +1140,7 @@ describe("Pi 0.83 compatibility probe", () => {
 			for (let index = 0; index < installed.length; index++) {
 				expect(installed[index]?.value).not.toBe(baseline[index]?.value);
 			}
-			expect(getCompatibilityRecords(AssistantMessageComponent.prototype).length).toBe(1);
+			expect(getCompatibilityRecords(AssistantMessageComponent.prototype).length).toBe(2);
 			await host.sessionShutdown();
 			// Retained across the switch gap; restoration happens at the next start.
 			expect(descriptors()).not.toEqual(baseline);

@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+- New `editor.frame: "rounded"` mode for the editor input: a rounded box (`╭─╮ / │ text │ / ╰─╯`) with vertical side borders around the input and the autocomplete dropdown. Requires `editor.style: "dock"`; side borders reserve two columns and the cursor stays aligned inside the box (`outline` keeps the previous square-corner look without side borders).
+- New `editor.hint` config leaf: a dim placeholder (semantic `hint` token, `theme.colors.hint`, default muted gray) shown after the prompt while the input is empty — e.g. `"Ask Pi anything"`. Any typed character hides it.
+
+### Changed
+
+- The default editor frame is now the rounded input box (`editor.style: "dock"` + `editor.frame: "rounded"`) with vertical side borders. `frame: "outline"` restores the previous square-corner box without side borders; the `compact`, `minimal`, and `native` presets keep their explicit compact/native editor and are unaffected.
+
+### Bug Fixes
+
+- `messages.hideThinkingLabel` now truly leaves zero trace: Pi wraps even an empty label in ANSI codes, so its `Text` still rendered one invisible full-width row, and the native layout added a trailing spacer — together the visible "gap" where the `Thinking...` label used to sit. A certified `AssistantMessageComponent.updateContent` patch (fingerprint-verified for 0.83.0) drops the invisible label row and its trailing spacer, leaving the same single top padding as a text-only assistant message. Disabling the option restores the native label/layout; on any other Pi build the surface falls back native.
+
 ## [0.1.4] - 2026-08-05
 
 ### Features
@@ -20,6 +35,10 @@
 
 - Render lone read/ls/find calls with the same boxless tree
 - Boxless output trees, readonly tool activation, drop user prefix
+
+### Bug Fixes
+
+- `messages.hideThinkingLabel` now truly leaves zero trace: Pi wraps even an empty label in ANSI codes, so its `Text` still rendered one invisible full-width row, and the native layout added a trailing spacer — together the visible "gap" where the `Thinking...` label used to sit. A certified `AssistantMessageComponent.updateContent` patch (fingerprint-verified for 0.83.0) drops the invisible label row and its trailing spacer, leaving the same single top padding as a text-only assistant message. Disabling the option restores the native label/layout; on any other Pi build the surface falls back native.
 
 ## [0.1.2] - 2026-08-04
 

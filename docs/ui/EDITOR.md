@@ -14,7 +14,7 @@ Installed through `ctx.ui.setEditorComponent()` in interactive TUI mode only. It
 
 Code-defined layouts selected by configuration; users may override colors/glyphs but cannot provide arbitrary renderer code.
 
-### `compact` (default)
+### `compact`
 
 ```text
   ❯ prompt text
@@ -35,14 +35,24 @@ Code-defined layouts selected by configuration; users may override colors/glyphs
 
 2-cell padding where width permits, strong top/bottom or host border, metadata and optional runtime row, collapses to compact at narrow widths.
 
-### `dock`
+### `dock` (default)
+
+```text
+╭─ ❯ prompt text ──────────────────────────────────────╮
+│ continuation / empty-hint text                       │
+╰──────────────────────────────────────────────────────╯
+```
+
+Rounded box with vertical side borders — the default editor frame (`dock` style + `rounded` frame). Compact prompt gap, one owned status row, no attempt to become a fixed terminal zone. Side borders reserve two columns; the cursor marker stays inside the box (the TUI derives the cursor column from the rendered prefix, so the hardware cursor lands after the `│ ` border). Body rows are rendered at `width − 2` and wrapped in the thinking-synced border color. The autocomplete dropdown is re-framed inside the same box. Falls back to `compact` bars below 40 columns and native below 20.
+
+### `outline` frame
 
 ```text
 ┌─ ❯ prompt text ──────────────────────────────────────┐
 └─ think:high · ctx 42% ───────────────────────────────┘
 ```
 
-Outlined frame, compact prompt gap, one owned status row, no attempt to become a fixed terminal zone.
+Square-corner box without side borders — the pre-rounded default, still available via `frame: "outline"` for backward compatibility.
 
 ### `native`
 
@@ -50,7 +60,11 @@ Native-looking Pi editor output with minimal decoration; both a user preference 
 
 ## Frame modes
 
-`auto` (choose by style/width/color capability/thinking level), `halfblock`, `line`, `solid`, `outline`, `native`. Unknown or unsupported modes fall back to the style default.
+`auto` (choose by style/width/color capability/thinking level), `halfblock`, `line`, `solid`, `outline`, `rounded`, `native`. Unknown or unsupported modes fall back to the style default. `rounded` renders the rounded box with side borders (see above); `outline` keeps the square-corner box without side borders.
+
+## Empty-input hint
+
+`editor.hint` renders a dim placeholder after the prompt while the input is empty (e.g. `"Ask Pi anything"`). The hint is drawn after the cursor cell, so typing replaces the input position exactly; the first keystroke makes the text non-empty and the hint disappears. Color comes from the semantic `hint` token (`theme.colors.hint`, default muted gray) so it stays a soft hint rather than body text. No hint is drawn while autocomplete is open (text is non-empty there) or at narrow widths where the row would overflow.
 
 ## Prompt and continuation alignment
 

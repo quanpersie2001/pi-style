@@ -176,6 +176,8 @@ function prefixNative(lines: unknown, width: number, prefix: string): string[] |
 export type MessageDecorationSnapshot = Readonly<{
 	assistantPrefix: string;
 	assistantEnabled: boolean;
+	/** Drop the hidden-thinking label row and its trailing spacer (zero-trace collapse). */
+	collapseHiddenThinking: boolean;
 }>;
 
 export function decorateMessageRender(
@@ -185,6 +187,7 @@ export function decorateMessageRender(
 	snapshot: MessageDecorationSnapshot = {
 		assistantPrefix: "│ ",
 		assistantEnabled: true,
+		collapseHiddenThinking: false,
 	},
 ): unknown {
 	if (typeof original !== "function") return undefined;
@@ -197,6 +200,69 @@ export function decorateMessageRender(
 	const reducedWidth = width - visibleWidth(prefix);
 	const native = Reflect.apply(original, instance, [reducedWidth, ...args.slice(1)]);
 	return prefixNative(native, width, prefix) ?? native;
+}
+
+/** Spacer-like: renders empty lines and exposes only setLines among these surfaces. */
+function isSpacerChild(child: unknown): boolean {
+	return typeof (child as { setLines?: unknown } | undefined)?.setLines === "function";
+}
+
+/**
+ * The hidden-thinking placeholder: a Text (setCustomBgFn) whose ANSI-stripped
+ * rendered content is empty. Duck-typed on the public shape because
+ * pi-coding-agent may resolve its own nested pi-tui copy, so `instanceof`
+ * across that module boundary is unreliable.
+ */
+function isBlankTextChild(child: unknown): boolean {
+	const candidate = child as { setCustomBgFn?: unknown; render?: (width: number) => string[] } | undefined;
+	if (typeof candidate?.setCustomBgFn !== "function" || typeof candidate.render !== "function") return false;
+	return contentText(candidate.render(0).join("\n")).trim() === "";
+}
+
+/**
+ * Collapse Pi's hidden-thinking placeholder row to zero trace.
+ *
+ * Native `AssistantMessageComponent.updateContent` renders the thinking block as
+ * `Text(theme.italic(theme.fg("thinkingText", label)), outputPad, 0)` plus a
+ * trailing `Spacer(1)`. An empty label is still wrapped in ANSI SGR codes, so
+ * `Text.render` cannot treat it as empty (its check is `text.trim() === ""`,
+ * and trim does not strip escape sequences) and emits one full-width invisible
+ * line. That invisible row plus the surrounding spacers is the "gap" left when
+ * the label is hidden. This wrapper runs the native layout, then drops the
+ * invisible label row and the spacer the native layout appends after the
+ * thinking run, leaving the same single top padding as a text-only message.
+ */
+export function decorateMessageUpdate(
+	original: unknown,
+	instance: object,
+	args: unknown[],
+	snapshot: MessageDecorationSnapshot = {
+		assistantPrefix: "│ ",
+		assistantEnabled: true,
+		collapseHiddenThinking: false,
+	},
+): unknown {
+	if (typeof original !== "function") return undefined;
+	const result = Reflect.apply(original, instance, args);
+	if (!snapshot.collapseHiddenThinking) return result;
+	const target = instance as {
+		hideThinkingBlock?: boolean;
+		hiddenThinkingLabel?: string;
+		contentContainer?: { children?: unknown[] };
+	};
+	// Only meaningful when Pi renders the hidden-block label (hideThinkingBlock)
+	// and the extension has blanked that label out ("" — the zero-trace mode).
+	if (target.hideThinkingBlock !== true || target.hiddenThinkingLabel !== "") return result;
+	const children = target.contentContainer?.children;
+	if (!children) return result;
+	for (let index = children.length - 1; index >= 0; index--) {
+		if (!isBlankTextChild(children[index])) continue;
+		children.splice(index, 1);
+		// Drop the Spacer(1) the native layout appends after the thinking run when
+		// another visible block follows; the message keeps only its shared top padding.
+		if (isSpacerChild(children[index])) children.splice(index, 1);
+	}
+	return result;
 }
 
 // Special private layouts are intentionally not installed; their prototypes remain native.

@@ -46,7 +46,7 @@ pi -e ./extension-src/pi-style/pi/index.ts
 No configuration is required. The `default` preset enables:
 
 - primary status row **below the editor** (`placement: "below"`), secondary row when it has content;
-- `compact` editor with metadata ownership resolved so the status line and editor do not duplicate text;
+- `dock` editor (rounded input box) with metadata ownership resolved so the status line and editor do not duplicate text;
 - `compact` startup header (gradient logo block only; resource chips are opt-in);
 - certified message prefixes and boxed tool presentation when compatible with the exact Pi version.
 
@@ -77,7 +77,7 @@ Invalid values never break startup: they fall back safely and appear in `/pi-sty
 
 | Preset | Behavior |
 |---|---|
-| `default` | Balanced status line, compact editor, compact startup, restrained message/tool styling. |
+| `default` | Balanced status line, rounded-box editor, compact startup, restrained message/tool styling. |
 | `minimal` | Path/Git/context essentials, native-like editor, no startup overlay, low decoration. |
 | `compact` | High information density for medium terminals. |
 | `full` | Broad status data and all compatible visual surfaces. |

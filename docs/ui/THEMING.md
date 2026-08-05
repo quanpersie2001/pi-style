@@ -25,7 +25,7 @@ Tokens are grouped by meaning, not component implementation. Implementations may
 | --- | --- |
 | Core | `surface`, `surfaceRaised`, `surfaceMuted`, `text`, `muted`, `dim`, `accent`, `accentStrong`, `border`, `borderMuted`, `borderActive`, `success`, `warning`, `error` |
 | Status data | `model`, `thinking`, `path`, `gitClean`, `gitDirty`, `contextLow`, `contextMedium`, `contextHigh`, `contextCritical`, `tokens`, `cache`, `cost`, `time`, `separator` |
-| Editor | `editorPrompt`, `editorText`, `editorBackground`, `editorBorder`, `editorBorderActive`, `editorMetadataLabel`, `editorMetadataValue`; thinking levels map to Pi's `thinkingOff`–`thinkingMax` tokens |
+| Editor | `editorPrompt`, `editorText`, `editorBackground`, `editorBorder`, `editorBorderActive`, `editorMetadataLabel`, `editorMetadataValue`, `hint`; thinking levels map to Pi's `thinkingOff`–`thinkingMax` tokens |
 | Messages/tools | `assistantPrefix`, `thinkingText`, `messageBorder`, `messageBackground`, `toolTitle`, `toolOutput`, `toolPending`, `toolSuccess`, `toolError`; diff colors defer to Pi's diff tokens |
 
 ## Style presets versus themes

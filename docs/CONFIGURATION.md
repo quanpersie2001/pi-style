@@ -36,7 +36,7 @@ Global/project paths use Pi's exported `getAgentDir()` and `CONFIG_DIR_NAME`. Pr
       "disabledSegments": [],
       "customItems": []
     },
-    "editor": { "enabled": true, "style": "compact", "frame": "auto", "showMetadata": true },
+    "editor": { "enabled": true, "style": "dock", "frame": "rounded", "showMetadata": false },
     "messages": { "enabled": true, "assistantPrefix": true, "specialBlocks": true },
     "tools": { "enabled": true, "style": "compact-box", "maxCollapsedLines": 10, "maxExpandedLines": 50, "dimOutput": false, "showElapsed": true },
     "theme": { "nerdFonts": "auto", "terminalBackgroundSync": "auto", "colors": {}, "glyphs": {} },
@@ -55,7 +55,7 @@ Global/project paths use Pi's exported `getAgentDir()` and `CONFIG_DIR_NAME`. Pr
 | `placement` | `above \| below` | `below` | Primary status-line placement (input stays pinned to the bottom; status row renders beneath it). |
 | `startup` | object | compact defaults | Startup/header behavior. |
 | `statusLine` | object | enabled defaults | Segment layout and options. |
-| `editor` | object | compact defaults | Editor style and frame. |
+| `editor` | object | dock/rounded defaults | Editor style and frame. |
 | `messages` | object | enabled when compatible | Message styling. |
 | `tools` | object | enabled when compatible | Tool styling. |
 | `theme` | object | auto defaults | Glyph/color/background behavior. |
@@ -123,7 +123,7 @@ Values only select an existing extension status and presentation options; they c
 | --- | --- | --- | --- |
 | `messages.assistantPrefix` | boolean | `true` | Prepend the `│` prefix to assistant messages. Requires `--pi-style-message-assistant` plus `--pi-style-core-patches`. |
 | `messages.specialBlocks` | boolean | `true` | Boxed presentation for compaction, skill, branch, and custom (MCP) message blocks. Requires `--pi-style-message-special-blocks` plus `--pi-style-core-patches`. |
-| `messages.hideThinkingLabel` | boolean | `true` | Hide Pi's `Thinking...` placeholder label for hidden thinking blocks (the empty label renders zero lines). Set `false` to restore the default label. |
+| `messages.hideThinkingLabel` | boolean | `true` | Hide Pi's `Thinking...` placeholder label for hidden thinking blocks with zero trace: the certified 0.83.0 `updateContent` patch drops the invisible label row and its trailing spacer, leaving the same single top padding as a text-only assistant message. Set `false` to restore the default label. |
 | `tools.style` | `marker \| compact-box` | `compact-box` | `marker` prefixes tool lines (`[tool]`, `[tool:result]`); `compact-box` renders boxed call headers and compact/expanded result boxes for read, write, edit, bash, ls, find, grep, quick-edit, substitute-edit, target-edit, and a boxed generic fallback. |
 | `tools.maxCollapsedLines` | number | `10` | Line budget for collapsed tool results (head/tail). |
 | `tools.maxExpandedLines` | number | `50` | Maximum body lines for expanded results (read/bash/grep/fallback). |
@@ -245,7 +245,33 @@ Ordinary mutations are session-only; persistence requires an explicit `global` o
 
 ## Editor configuration
 
-Styles: `compact`, `boxed`, `dock`, `native`. Frames: `auto`, `halfblock`, `line`, `solid`, `outline`, `native`. Unknown values normalize to the safe defaults (`compact`/`auto`). `native` and narrow-width fallback preserve Pi's editor semantics before decoration. The editor never executes configuration values.
+Styles: `compact`, `boxed`, `dock`, `native`. Frames: `auto`, `halfblock`, `line`, `solid`, `outline`, `rounded`, `native`. The default is the rounded box (`dock` + `rounded`); unknown values normalize to these safe defaults. `native` and narrow-width fallback preserve Pi's editor semantics before decoration. The editor never executes configuration values.
+
+### `editor.frame: "rounded"`
+
+A rounded box with vertical side borders around the input:
+
+```text
+╭─ ❯ Ask Pi anything ────────────────────────────────────────╮
+│  typed input (or the dim hint when empty)                  │
+╰────────────────────────────────────────────────────────────╯
+```
+
+Requires `editor.style: "dock"`; side borders reserve two columns and the cursor stays aligned inside the box. `outline` keeps the previous square-corner look without side borders.
+
+### `editor.hint`
+
+String shown in dim (`theme.colors.hint`, default gray) after the prompt while the input is empty, e.g. `"Ask Pi anything"`. Any typed character hides it. Default `""` (off).
+
+Mockup reproduction (style/frame are already the default; only the hint needs enabling):
+
+```json
+{
+  "piStyle": {
+    "editor": { "hint": "Ask Pi anything" }
+  }
+}
+```
 
 ## Acceptance criteria
 

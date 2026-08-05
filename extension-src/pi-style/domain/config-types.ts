@@ -5,7 +5,7 @@ export type NerdFontsMode = "auto" | "on" | "off";
 export type ToggleMode = "auto" | "on" | "off";
 export type PresetName = "default" | "minimal" | "compact" | "full" | "ascii" | "native";
 export type EditorStyle = "compact" | "boxed" | "dock" | "native";
-export type EditorFrame = "auto" | "halfblock" | "line" | "solid" | "outline" | "native";
+export type EditorFrame = "auto" | "halfblock" | "line" | "solid" | "outline" | "rounded" | "native";
 
 export interface StatusCustomItemConfig {
 	id: string;
@@ -31,7 +31,7 @@ export interface PiStyleConfig {
 		/** Context progress-bar cell count (default 10). */
 		contextBarWidth?: number;
 	};
-	editor?: { enabled?: boolean; style?: string; frame?: string; showMetadata?: boolean };
+	editor?: { enabled?: boolean; style?: string; frame?: string; showMetadata?: boolean; hint?: string };
 	messages?: { enabled?: boolean; assistantPrefix?: boolean; specialBlocks?: boolean; hideThinkingLabel?: boolean };
 	tools?: {
 		enabled?: boolean;
@@ -78,7 +78,7 @@ export interface NormalizedPiStyleConfig {
 		/** Context progress-bar cell count. */
 		contextBarWidth: number;
 	};
-	readonly editor: { enabled: boolean; style: EditorStyle; frame: EditorFrame; showMetadata: boolean };
+	readonly editor: { enabled: boolean; style: EditorStyle; frame: EditorFrame; showMetadata: boolean; hint: string };
 	readonly messages: { enabled: boolean; assistantPrefix: boolean; specialBlocks: boolean; hideThinkingLabel: boolean };
 	readonly tools: {
 		enabled: boolean;

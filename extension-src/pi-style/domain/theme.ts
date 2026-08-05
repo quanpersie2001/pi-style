@@ -35,7 +35,8 @@ export type SemanticToken =
 	| "cache"
 	| "cost"
 	| "time"
-	| "separator";
+	| "separator"
+	| "hint";
 
 /** Structural view of Pi's theme. fg/bg follow Pi's `(color, text) => string` shape. */
 export interface ActiveTheme {
@@ -94,6 +95,7 @@ const SEMANTIC_COLORS: Record<SemanticToken, string> = {
 	cost: "text",
 	time: "muted",
 	separator: "dim",
+	hint: "#8a8a8a",
 };
 
 const GLYPHS = {

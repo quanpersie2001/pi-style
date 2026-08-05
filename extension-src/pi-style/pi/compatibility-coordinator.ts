@@ -125,6 +125,21 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 					config,
 				});
 			const messagesEnabled = (assistantEnabled || specialBlocksEnabled) && config.messages.enabled;
+			// The hidden-thinking collapse is an assistant-message surface patch: it needs
+			// the assistant flag and `messages.hideThinkingLabel`, independent of the
+			// assistant prefix feature.
+			const thinkingCollapseEnabled = Boolean(
+				authorization.assistant &&
+					config.messages.enabled &&
+					config.messages.hideThinkingLabel &&
+					isTierCAuthorized({
+						certifiedHost,
+						coreFlag: authorization.core,
+						surfaceFlag: true,
+						surface: "messages",
+						config,
+					}),
+			);
 			const toolsEnabled =
 				authorization.tools &&
 				isTierCAuthorized({ certifiedHost, coreFlag: authorization.core, surfaceFlag: true, surface: "tools", config });
@@ -137,6 +152,7 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 						...config.messages,
 						enabled: messagesEnabled,
 						assistantPrefix: assistantEnabled,
+						hideThinkingLabel: thinkingCollapseEnabled,
 						specialBlocks: messagesEnabled && config.messages.specialBlocks && specialBlocksEnabled,
 					},
 					tools: {
@@ -147,6 +163,7 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 				messageSnapshot: {
 					assistantPrefix: authorization.ascii ? "[assistant] " : "│ ",
 					assistantEnabled,
+					collapseHiddenThinking: thinkingCollapseEnabled,
 				},
 				toolSnapshot: {
 					callMarker: authorization.ascii ? "[tool] " : "[tool] ",
