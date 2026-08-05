@@ -43,7 +43,15 @@ export interface BoxedRenderOptions {
 	isError?: boolean;
 	isPartial?: boolean;
 	isPending?: boolean;
+	/** Execution has started but the tool is still running (title `◌` instead of `✓`). */
+	running?: boolean;
+	/** A result renderer already produced a continuation for this call, so the call
+	 *  leaves the box open instead of closing it with a pending label. */
+	resultSeen?: boolean;
 	pendingText?: string;
+	/** Verbatim bottom-border label for the pending/running card (overrides the
+	 *  `… ${pendingText}` default, e.g. a live `◌ Running · 12.4s` status). */
+	pendingLabel?: string;
 	state?: Record<string, unknown>;
 	/** Wall-clock elapsed override (used when metrics are not in result.details). */
 	elapsedMs?: number;
@@ -333,20 +341,43 @@ function formatBoxedStatusIcon(theme: BoxTheme, isError?: boolean): string {
 
 /**
  * Colored `➔ Name` prefix for tool titles (identity color). The status glyph
- * (✓/✗) is appended separately by formatBoxedToolTitle.
+ * (✓/◌/✗) is appended separately by formatBoxedToolTitle.
  */
 export function formatToolTitlePrefix(theme: BoxTheme, name: string): string {
 	return colorFromExtra(theme, "bashPromptColor", "bashMode", `➔ ${name}`);
 }
 
-export function formatBoxedToolTitle(theme: BoxTheme, name: string, isError?: boolean): string {
+export type BoxedTitleStatus = "running" | "pending";
+
+/**
+ * Boxed tool title: `➔ Name ✓` when settled, `➔ Name ◌` while running, plain
+ * `➔ Name` while pending, and a fully error-colored `➔ Name ✗` on failure.
+ * The ✓/◌ glyphs are never shown before the tool settles, so a card that is
+ * still executing never reads as finished.
+ */
+export function formatBoxedToolTitle(
+	theme: BoxTheme,
+	name: string,
+	isError?: boolean,
+	status?: BoxedTitleStatus,
+): string {
 	// On failure the whole title turns error-colored (not just the ✗) so a failed
 	// tool reads instantly; on success the tool keeps its identity color and only
 	// the ✓ carries the success color.
 	const coloredTitle = isError
 		? theme.fg("error", `➔ ${name} ✗`)
-		: `${formatToolTitlePrefix(theme, name)} ${formatBoxedStatusIcon(theme, false)}`;
+		: status === "running"
+			? `${formatToolTitlePrefix(theme, name)} ${theme.fg("text", "◌")}`
+			: status === "pending"
+				? formatToolTitlePrefix(theme, name)
+				: `${formatToolTitlePrefix(theme, name)} ${formatBoxedStatusIcon(theme, false)}`;
 	return typeof theme?.bold === "function" ? theme.bold(coloredTitle) : coloredTitle;
+}
+
+/** Live running status label for pending/running cards and streaming footers. */
+export function formatBoxedRunningStatus(theme: BoxTheme, elapsedMs: number | undefined): string {
+	const elapsed = elapsedMs === undefined ? "" : `${theme.fg("text", ` · ${(elapsedMs / 1000).toFixed(1)}s`)}`;
+	return `${theme.fg("dim", "◌ Running")}${elapsed}`;
 }
 
 function boxText(theme: BoxTheme, text: string): string {
@@ -571,7 +602,12 @@ export function renderBoxedToolCall(
 		},
 		render(width: number): string[] {
 			if (cache?.width === width) return cache.lines;
-			const title = formatBoxedToolTitle(theme, toolName, options.isError);
+			const title = formatBoxedToolTitle(
+				theme,
+				toolName,
+				options.isError,
+				options.isPending ? (options.running ? "running" : "pending") : undefined,
+			);
 			const headerLabel = options.headerDetail ? `${title} · ${options.headerDetail}` : title;
 			const renderedWidth = boxWidth(width);
 			const lines = [
@@ -579,22 +615,26 @@ export function renderBoxedToolCall(
 				boxBlankLine(theme, renderedWidth),
 				...detailLines.flatMap((line) => boxedWrappedLines(theme, line, renderedWidth)),
 			];
-			if (options.isPending) {
-				const pendingText = options.pendingText ?? "Waiting for output…";
+			if (options.isPending && !options.resultSeen) {
+				// Pending/running card: close the box with the status label. Once a
+				// result renderer has produced a continuation, the box stays open and
+				// that continuation closes it.
+				const pendingLabel =
+					options.pendingLabel ?? theme.fg("dim", `… ${options.pendingText ?? "Waiting for output…"}`);
 				lines.push(
 					boxBlankLine(theme, renderedWidth),
 					boxLabeledBorder(
 						theme,
 						BOX_ROUND_BOTTOM_LEFT,
 						BOX_ROUND_BOTTOM_RIGHT,
-						theme.fg("dim", `… ${pendingText}`),
+						pendingLabel,
 						undefined,
 						renderedWidth,
 					),
 				);
 			} else {
 				// Leave the box open with trailing breathing room; the result renderer
-				// continues it with the Response divider.
+				// continues it with the result divider.
 				lines.push(boxBlankLine(theme, renderedWidth));
 			}
 			cache = { width, lines };
@@ -624,7 +664,12 @@ export function renderCompactBoxedToolCall(
 		invalidate() {},
 		render(width: number): string[] {
 			const renderedWidth = boxWidth(width);
-			const title = formatBoxedToolTitle(theme, toolName, options.isError);
+			const title = formatBoxedToolTitle(
+				theme,
+				toolName,
+				options.isError,
+				options.isPending ? (options.running ? "running" : "pending") : undefined,
+			);
 			const headerLabel = detailLine ? `${title} · ${detailLine}` : title;
 			const compactFooter =
 				typeof options.state?.[COMPACT_FOOTER_KEY] === "string" ? options.state[COMPACT_FOOTER_KEY] : "";
@@ -649,19 +694,23 @@ export function renderCompactBoxedToolCall(
 					),
 				);
 			} else if (options.isPending) {
-				const pendingText = options.pendingText ?? "Waiting for output…";
+				const pendingLabel =
+					options.pendingLabel ??
+					(options.running
+						? formatBoxedRunningStatus(theme, undefined)
+						: theme.fg("dim", `… ${options.pendingText ?? "Waiting for output…"}`));
 				lines.push(
 					boxLabeledBorder(
 						theme,
 						BOX_ROUND_BOTTOM_LEFT,
 						BOX_ROUND_BOTTOM_RIGHT,
-						theme.fg("dim", `… ${pendingText}`),
+						pendingLabel,
 						options.bottomRightLabel,
 						renderedWidth,
 					),
 				);
 			} else {
-				// No footer yet (transient, or the result opens the Response divider):
+				// No footer yet (transient, or the result opens the result divider):
 				// leave the box open so the result renderer continues the same box.
 			}
 			return lines;
@@ -689,6 +738,10 @@ export function renderBoxedToolResult(
 		expandHint?: string;
 		isError?: boolean;
 		isPartial?: boolean;
+		/** Skip the result divider entirely (streaming continuation into an open call box). */
+		showDivider?: boolean;
+		/** Error state marker prepended to the body (default `✗ Error`). */
+		errorLabel?: string;
 	} = {},
 ): Component {
 	let cache: RenderLinesCache | null = null;
@@ -702,7 +755,7 @@ export function renderBoxedToolResult(
 			const renderedWidth = boxWidth(width);
 			const maxContentWidth = boxInnerWidth(renderedWidth);
 			const bodyLines = typeof body === "function" ? body(maxContentWidth) : body.render(maxContentWidth);
-			const errorPrefix = options.isError ? [theme.fg("error", "✗ Error")] : [];
+			const errorPrefix = options.isError ? [theme.fg("error", options.errorLabel ?? "✗ Error")] : [];
 			const outputLines =
 				bodyLines.length > 0
 					? [...errorPrefix, ...bodyLines]
@@ -713,14 +766,18 @@ export function renderBoxedToolResult(
 					? options.dividerLabel(renderedWidth)
 					: (options.dividerLabel ?? "Response");
 			const rendered = [
-				boxLabeledBorder(
-					theme,
-					BOX_DIVIDER_LEFT,
-					BOX_DIVIDER_RIGHT,
-					theme.fg("dim", dividerText),
-					options.dividerRightLabel ? theme.fg("dim", options.dividerRightLabel) : undefined,
-					renderedWidth,
-				),
+				...(options.showDivider === false
+					? []
+					: [
+							boxLabeledBorder(
+								theme,
+								BOX_DIVIDER_LEFT,
+								BOX_DIVIDER_RIGHT,
+								theme.fg("dim", dividerText),
+								options.dividerRightLabel ? theme.fg("dim", options.dividerRightLabel) : undefined,
+								renderedWidth,
+							),
+						]),
 				boxBlankLine(theme, renderedWidth),
 				...renderBoxedOutputLines(theme, outputLines, renderedWidth, options.renderLineBudget ?? outputLines.length),
 				boxBlankLine(theme, renderedWidth),

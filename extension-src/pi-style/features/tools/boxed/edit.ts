@@ -2,8 +2,15 @@
 // (renderCall/renderResult only; no edit-core re-registration).
 
 import { getLanguageFromPath } from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
-import { type BoxTheme, getTextOutput, renderBoxedToolCall, renderBoxedToolResult } from "../../../shared/box.js";
+import {
+	type BoxTheme,
+	formatBoxedRunningStatus,
+	getTextOutput,
+	renderBoxedToolCall,
+	renderBoxedToolResult,
+} from "../../../shared/box.js";
 import { formatElapsedMs, getElapsedMs } from "../../../shared/elapsed.js";
 import {
 	AdaptiveDiffComponent,
@@ -12,10 +19,13 @@ import {
 	extractEditedPath,
 	firstText,
 } from "../../../shared/split-diff.js";
+import { isResultSeen } from "./session-config.js";
 import {
 	type BoxedToolContext,
 	type BoxedToolDefinition,
 	displayPath,
+	noteBoxedCallState,
+	noteBoxedResultPhase,
 	noteExecutionStart,
 	resultFooterLines,
 	stateElapsedMs,
@@ -23,6 +33,14 @@ import {
 
 const MAX_HIGHLIGHT_DIFF_CHARS = 12000;
 const MAX_HIGHLIGHT_DIFF_ROWS = 120;
+
+/** First-partial-pass result: the pending/running call card stands alone. */
+const EMPTY_EDIT_RESULT: Component = Object.freeze({
+	invalidate() {},
+	render() {
+		return [];
+	},
+});
 
 type EditResultDetails = { diff?: string; path?: string } | undefined;
 
@@ -52,18 +70,26 @@ function editDiffFooter(
 export const editTool: BoxedToolDefinition = {
 	call(args, theme, context) {
 		noteExecutionStart(context);
+		noteBoxedCallState(context);
 		const detail = displayPath(String(args?.path ?? args?.file_path ?? ""), context);
 		return renderBoxedToolCall(theme, "Edit", [], {
 			headerDetail: detail,
 			isError: Boolean(context.isError),
 			isPartial: Boolean(context.isPartial),
 			isPending: Boolean(context.isPartial),
+			running: Boolean(context.executionStarted),
+			resultSeen: isResultSeen(context.state),
 		});
 	},
 	result(result, options, theme, context) {
-		// Handle partial/streaming state
+		// Handle partial/streaming state: continue the open call box with the
+		// applying hint (no Response divider until the tool settles).
 		if (options.isPartial) {
+			const firstResultPass = noteBoxedResultPhase(context, options.isPartial);
+			if (firstResultPass) return EMPTY_EDIT_RESULT;
 			return renderBoxedToolResult(theme, () => [`${theme.fg("dim", "↳")} ${theme.fg("muted", "Applying edit...")}`], {
+				showDivider: false,
+				footerLines: [formatBoxedRunningStatus(theme, stateElapsedMs(context))],
 				isPartial: true,
 			});
 		}

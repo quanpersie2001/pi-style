@@ -34,6 +34,14 @@ import {
 /** Right-side bottom-border hint shown when the compact preview is truncated. */
 const WRITE_EXPAND_HINT = "Ctrl+O for more";
 
+/** Partial-pass result: the compact call keeps its `◌ Running` card. */
+const EMPTY_WRITE_RESULT: Component = Object.freeze({
+	invalidate() {},
+	render() {
+		return [];
+	},
+});
+
 type NumberedLine = { number: string; content: string };
 
 /**
@@ -66,6 +74,7 @@ function renderWritePreviewBox(
 		state?: Record<string, unknown>;
 		isError: boolean;
 		isPending: boolean;
+		running?: boolean;
 		expanded: boolean;
 	},
 ): Component {
@@ -78,6 +87,7 @@ function renderWritePreviewBox(
 		...(options.state ? { state: options.state } : {}),
 		isError: options.isError,
 		isPending: options.isPending,
+		running: Boolean(options.running),
 		bodyLines: () => {
 			if (preview.length === 0) return [];
 			const shown = preview.slice(0, budget).map((line) => formatNumberedLine(theme, line));
@@ -107,10 +117,11 @@ export const writeTool: BoxedToolDefinition = {
 			state: context.state,
 			isError: Boolean(context.isError),
 			isPending: Boolean(context.isPartial),
+			running: Boolean(context.executionStarted),
 			expanded: Boolean(context.expanded),
 		});
 	},
-	result(result, _options, theme, context) {
+	result(result, options, theme, context) {
 		clearFooterState(context);
 		const output = getTextOutput(result);
 		const detail = displayPath(String(context?.args?.path ?? context?.args?.file_path ?? ""), context);
@@ -123,6 +134,11 @@ export const writeTool: BoxedToolDefinition = {
 				isError: true,
 			});
 		}
+
+		// While the result is still streaming, don't stamp a metrics footer into
+		// the shared state: the compact call keeps its `◌ Running` card and only
+		// closes with `elapsed · words` once the tool settles.
+		if (options.isPartial) return EMPTY_WRITE_RESULT;
 
 		// Success (compact and expanded): the preview box closes with the metrics
 		// footer stored into the shared renderer state; the result adds nothing.

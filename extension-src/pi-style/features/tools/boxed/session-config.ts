@@ -33,19 +33,79 @@ export function getToolsRenderConfig(): ToolsRenderConfig {
 
 // Wall-clock elapsed tracking through the renderer context state (no tool
 // re-registration, so result.details has no execution timing).
+//
+// Elapsed is computed live from the recorded start on every read, so a running
+// tool keeps growing its displayed time. The value only freezes once the
+// execution end is recorded (terminal result), which keeps the completed footer
+// stable across later re-renders (expand toggles, terminal resizes).
 
 const STARTED_AT_KEY = "__piStyleStartedAt";
-const ELAPSED_MS_KEY = "__piStyleElapsedMs";
+const ENDED_AT_KEY = "__piStyleEndedAt";
+const RESULT_SEEN_KEY = "__piStyleResultSeen";
+const TICKER_KEY = "__piStyleElapsedTicker";
 
 export function recordExecutionStarted(state: Record<string, unknown> | undefined, executionStarted: boolean): void {
 	if (!executionStarted || !state || typeof state !== "object") return;
 	if (typeof state[STARTED_AT_KEY] !== "number") state[STARTED_AT_KEY] = performance.now();
 }
 
+/** Freeze the elapsed at the first terminal render (idempotent). */
+export function recordExecutionEnded(state: Record<string, unknown> | undefined): void {
+	if (!state || typeof state !== "object") return;
+	if (typeof state[ENDED_AT_KEY] !== "number") state[ENDED_AT_KEY] = performance.now();
+}
+
 export function getStateElapsedMs(state: Record<string, unknown> | undefined): number | undefined {
 	if (!state || typeof state !== "object") return undefined;
-	if (typeof state[ELAPSED_MS_KEY] !== "number" && typeof state[STARTED_AT_KEY] === "number") {
-		state[ELAPSED_MS_KEY] = performance.now() - state[STARTED_AT_KEY];
+	const started = state[STARTED_AT_KEY];
+	if (typeof started !== "number") return undefined;
+	const ended = state[ENDED_AT_KEY];
+	if (typeof ended === "number") return Math.max(0, ended - started);
+	return Math.max(0, performance.now() - started);
+}
+
+/** Whether a result renderer already produced a continuation for this call. */
+export function isResultSeen(state: Record<string, unknown> | undefined): boolean {
+	return Boolean(state && typeof state === "object" && state[RESULT_SEEN_KEY] === true);
+}
+
+/** Record that a result renderer ran for this call (streaming or final). */
+export function markResultSeen(state: Record<string, unknown> | undefined): void {
+	if (!state || typeof state !== "object") return;
+	state[RESULT_SEEN_KEY] = true;
+}
+
+type TickerHandle = ReturnType<typeof setInterval>;
+
+/** States that currently own a 1s elapsed-render interval, for session cleanup. */
+const tickerStates = new Set<Record<string, unknown>>();
+
+/**
+ * While a tool is running, re-render once per second so live elapsed labels
+ * tick without any output events. Idempotent per state.
+ */
+export function startElapsedTicker(state: Record<string, unknown> | undefined, invalidate: () => void): void {
+	if (!state || typeof state !== "object") return;
+	if (state[TICKER_KEY] !== undefined) return;
+	state[TICKER_KEY] = setInterval(() => invalidate(), 1000) as unknown as TickerHandle;
+	tickerStates.add(state);
+}
+
+/** Stop a running tool's elapsed ticker (terminal result, error, session end). */
+export function stopElapsedTicker(state: Record<string, unknown> | undefined): void {
+	if (!state || typeof state !== "object") return;
+	const handle = state[TICKER_KEY] as TickerHandle | undefined;
+	if (handle !== undefined) clearInterval(handle);
+	delete state[TICKER_KEY];
+	tickerStates.delete(state);
+}
+
+/** Stop every elapsed ticker (session start/shutdown). */
+export function stopAllElapsedTickers(): void {
+	for (const state of tickerStates) {
+		const handle = state[TICKER_KEY] as TickerHandle | undefined;
+		if (handle !== undefined) clearInterval(handle);
+		delete state[TICKER_KEY];
 	}
-	return typeof state[ELAPSED_MS_KEY] === "number" ? state[ELAPSED_MS_KEY] : undefined;
+	tickerStates.clear();
 }

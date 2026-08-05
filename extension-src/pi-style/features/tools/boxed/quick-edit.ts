@@ -4,18 +4,34 @@ import { getLanguageFromPath } from "@earendil-works/pi-coding-agent";
 import { stripAnsi } from "../../../shared/ansi.js";
 import {
 	type BoxTheme,
-	boxInnerWidth,
+	formatBoxedRunningStatus,
 	getTextOutput,
 	renderBoxedToolCall,
 	renderBoxedToolResult,
 } from "../../../shared/box.js";
 import { formatElapsedMs, getElapsedMs } from "../../../shared/elapsed.js";
 import { AdaptiveDiffComponent, buildSplitRows, countDiffStats } from "../../../shared/split-diff.js";
-import { getStateElapsedMs } from "./session-config.js";
-import { type BoxedToolContext, type BoxedToolDefinition, displayPath, noteExecutionStart } from "./shared.js";
+import { getStateElapsedMs, isResultSeen } from "./session-config.js";
+import {
+	type BoxedToolContext,
+	type BoxedToolDefinition,
+	displayPath,
+	noteBoxedCallState,
+	noteBoxedResultPhase,
+	noteExecutionStart,
+	stateElapsedMs,
+} from "./shared.js";
 
 const MAX_HIGHLIGHT_DIFF_CHARS = 12000;
 const MAX_HIGHLIGHT_DIFF_ROWS = 120;
+
+/** First-partial-pass result: the pending/running call card stands alone. */
+const EMPTY_QUICK_EDIT_RESULT = Object.freeze({
+	invalidate() {},
+	render() {
+		return [];
+	},
+});
 
 interface QuickEditToolConfig {
 	toolLabel: string;
@@ -131,10 +147,12 @@ function renderQuickEditResult(
 	config: QuickEditToolConfig,
 ) {
 	if (options.isPartial) {
+		const firstResultPass = noteBoxedResultPhase(context, options.isPartial);
+		if (firstResultPass) return EMPTY_QUICK_EDIT_RESULT;
 		return renderBoxedToolResult(
 			theme,
 			() => [`${theme.fg("dim", "↳")} ${theme.fg("muted", `Applying ${config.applyingLabel}...`)}`],
-			{ isPartial: true },
+			{ showDivider: false, footerLines: [formatBoxedRunningStatus(theme, stateElapsedMs(context))], isPartial: true },
 		);
 	}
 
@@ -196,12 +214,15 @@ export function quickEditTool(config: QuickEditToolConfig): BoxedToolDefinition 
 	return {
 		call(args, theme, context) {
 			noteExecutionStart(context);
+			noteBoxedCallState(context);
 			const detail = displayPath(String(args?.path ?? ""), context);
 			return renderBoxedToolCall(theme, config.toolLabel, [], {
 				headerDetail: detail,
 				isError: Boolean(context.isError),
 				isPartial: Boolean(context.isPartial),
 				isPending: Boolean(context.isPartial),
+				running: Boolean(context.executionStarted),
+				resultSeen: isResultSeen(context.state),
 			});
 		},
 		result(result, options, theme, context) {

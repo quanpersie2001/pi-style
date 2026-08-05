@@ -254,7 +254,7 @@ export function createBuiltinSegments(): ReadonlyMap<StatusSegmentId, StatusSegm
 			const token = contextBarToken(percent);
 			const window = snapshot.context?.windowTokens;
 			const label = `ctx${window !== undefined ? ` (${formatTokens(window)})` : ""}:`;
-			const width = (options["context_bar"]?.width as number | undefined) ?? CONTEXT_BAR_WIDTH;
+			const width = (options.context_bar?.width as number | undefined) ?? CONTEXT_BAR_WIDTH;
 			return {
 				visible: true,
 				content: `${theme.apply("muted", label)} ${theme.apply(token, contextBar(percent, width))} ${theme.apply(token, `${Math.round(percent)}%`)}`,

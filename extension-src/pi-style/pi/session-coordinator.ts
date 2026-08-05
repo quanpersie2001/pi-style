@@ -7,7 +7,11 @@ import { setSpecialBlockTheme } from "../features/messages/special-blocks.js";
 import { resetBashTreeRegistry } from "../features/tools/boxed/bash.js";
 import { resetBatchRegistry } from "../features/tools/boxed/batch.js";
 import { resetGrepRegistry } from "../features/tools/boxed/grep.js";
-import { setToolsRenderConfig, type ToolsRenderConfig } from "../features/tools/boxed/session-config.js";
+import {
+	setToolsRenderConfig,
+	stopAllElapsedTickers,
+	type ToolsRenderConfig,
+} from "../features/tools/boxed/session-config.js";
 import { createCompatibilityCoordinator } from "./compatibility-coordinator.js";
 import {
 	type CompatibilityCleanupResult,
@@ -150,6 +154,9 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			resetBatchRegistry();
 			resetGrepRegistry();
 			resetBashTreeRegistry();
+			// Stop any 1s elapsed re-render ticker left by a tool that was still
+			// running when the session ended.
+			stopAllElapsedTickers();
 			active = false;
 			await app.reload();
 			productGate = app.productPolicy.corePatchGate;
@@ -216,6 +223,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			resetBatchRegistry();
 			resetGrepRegistry();
 			resetBashTreeRegistry();
+			stopAllElapsedTickers();
 			app.sessionShutdown();
 			// Tier C prototype patches stay installed across session switches. Pi renders
 			// the restored chat (renderBeforeBind) AFTER session_shutdown but BEFORE the

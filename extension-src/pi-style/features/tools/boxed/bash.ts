@@ -7,7 +7,8 @@ import { stripAnsi } from "../../../shared/ansi.js";
 import type { BoxTheme } from "../../../shared/box.js";
 import {
 	boxedToolWidthKey,
-	formatBoxedFooter,
+	formatBoxedRunningStatus,
+	formatBoxedWords,
 	formatToolOutputLine,
 	getTextOutput,
 	renderBoxedToolCall,
@@ -30,8 +31,16 @@ import {
 	SEARCH_ICON,
 	TREE_INDENT,
 } from "./output-tree.js";
-import { getStateElapsedMs, getToolsRenderConfig } from "./session-config.js";
-import { type BoxedToolContext, type BoxedToolDefinition, noteExecutionStart } from "./shared.js";
+import {
+	getStateElapsedMs,
+	getToolsRenderConfig,
+	isResultSeen,
+	markResultSeen,
+	recordExecutionEnded,
+	startElapsedTicker,
+	stopElapsedTicker,
+} from "./session-config.js";
+import { type BoxedToolContext, type BoxedToolDefinition, noteBoxedCallState, noteExecutionStart } from "./shared.js";
 
 const MAX_LINE_CHARS = 2000;
 const ESC = "\x1b";
@@ -182,43 +191,270 @@ function renderBoxedBashCall(
 	if (commandLines.length > maxCommandLines + 1) {
 		detailLines.push(theme.fg("muted", `... ${commandLines.length - maxCommandLines - 1} more lines`));
 	}
-	return renderBoxedToolCall(theme, "Bash", detailLines, {
+	const running = Boolean(context.executionStarted);
+	const resultSeen = isResultSeen(context.state);
+	const base = {
 		widthKey,
 		isError: Boolean(context.isError),
 		isPartial: Boolean(context.isPartial),
 		isPending: Boolean(context.isPartial),
-	});
+		running,
+	};
+	if (running && context.isPartial && !resultSeen) {
+		// Pre-result running card: the call closes the box with a live running
+		// footer and a `No output received yet` line. The first partial result
+		// renders nothing, so this card is never duplicated below.
+		detailLines.push(theme.fg("dim", "No output received yet"));
+		return renderBoxedToolCall(theme, "Bash", detailLines, {
+			...base,
+			pendingLabel: formatBoxedRunningStatus(theme, getStateElapsedMs(context.state)),
+		});
+	}
+	// Streaming (a result renderer already continues this box) and terminal
+	// (settled) passes leave the box open so the result closes it.
+	return renderBoxedToolCall(theme, "Bash", detailLines, { ...base, resultSeen });
 }
 
-function formatTimeout(context: BoxedToolContext): string {
-	const timeout = context?.args?.timeout ?? 300;
-	return `${timeout}s`;
+// ── Terminal status detection ────────────────────────────────────────────────
+// The bash tool appends a `\n\n<status>` suffix to failed results (nonzero exit,
+// timeout, abort). Parse it off the raw text so the footer can carry the real
+// status instead of displaying the suffix as output.
+
+type BashTerminalStatus =
+	| { kind: "exit"; exitCode: number }
+	| { kind: "timeout"; seconds: number }
+	| { kind: "cancelled" };
+
+const BASH_STATUS_PATTERNS: ReadonlyArray<{
+	re: RegExp;
+	build: (match: RegExpMatchArray) => BashTerminalStatus;
+}> = [
+	{
+		re: /(?:^|\n\n)Command timed out after ([\d.]+) seconds$/i,
+		build: (match) => ({ kind: "timeout", seconds: Number(match[1]) }),
+	},
+	{ re: /(?:^|\n\n)[^\n]*aborted$/i, build: () => ({ kind: "cancelled" }) },
+	{
+		re: /(?:^|\n\n)Command exited with code (\d+)$/i,
+		build: (match) => ({ kind: "exit", exitCode: Number(match[1]) }),
+	},
+];
+
+function parseBashTerminalStatus(text: string): { status: BashTerminalStatus | undefined; body: string } {
+	const clean = String(text ?? "").replace(/\r/g, "");
+	for (const { re, build } of BASH_STATUS_PATTERNS) {
+		const match = clean.match(re);
+		if (match && match.index !== undefined) {
+			return { status: build(match), body: clean.slice(0, match.index).trimEnd() };
+		}
+	}
+	// Pi's message_end error path (agent aborted) sends a bare status text with
+	// no bash output shape; recognize it as a cancelled state.
+	if (/^(?:operation )?aborted(?: after \d+ retry attempts?)?$/i.test(clean.trim())) {
+		return { status: { kind: "cancelled" }, body: "" };
+	}
+	return { status: undefined, body: clean };
 }
 
-function renderBoxedBashResult(
+function bashErrorLabel(status: BashTerminalStatus | undefined): string | undefined {
+	if (status?.kind === "timeout") return "✗ Timed out";
+	if (status?.kind === "cancelled") return "✗ Cancelled";
+	return undefined;
+}
+
+/** Body text shown when a terminal bash result produced no output. */
+function bashEmptyBodyText(status: BashTerminalStatus | undefined, isError: boolean): string {
+	if (status?.kind === "timeout") return "No output was received before the timeout";
+	if (status?.kind === "cancelled") return "Command was cancelled without producing output";
+	if (isError) return "Command failed without producing output";
+	return "Command completed without producing output";
+}
+
+function bashFooter(
 	theme: BoxTheme,
-	inner: Component,
-	result: unknown,
+	status: BashTerminalStatus | undefined,
+	elapsedMs: number | undefined,
+	bodyText: string,
+	isError: boolean,
+): string {
+	const elapsed = elapsedMs === undefined ? "--" : `${(elapsedMs / 1000).toFixed(2)}s`;
+	const words = bodyText.trim() ? formatBoxedWords(bodyText) : "";
+
+	if (status?.kind === "timeout") {
+		const seconds = Number.isFinite(status.seconds) && status.seconds > 0 ? status.seconds : Number.NaN;
+		return theme.fg(
+			"warning",
+			Number.isFinite(seconds) ? `Terminated after ${seconds.toFixed(1)}s` : "Terminated by timeout",
+		);
+	}
+	if (status?.kind === "cancelled") {
+		return [theme.fg("warning", "Cancelled"), theme.fg("text", elapsed)].join(theme.fg("dim", " · "));
+	}
+
+	const exitLabel = status?.kind === "exit" ? `Exit ${status.exitCode}` : isError ? "Failed" : "Exit 0";
+	const exitColor = status?.kind === "exit" && status.exitCode !== 0 ? "error" : "text";
+	const parts = [theme.fg(exitColor, exitLabel), theme.fg("text", elapsed)];
+	if (words) parts.push(theme.fg("dim", words));
+	return parts.join(theme.fg("dim", " · "));
+}
+
+// ── Interactive command heuristics ───────────────────────────────────────────
+// Terminal programs that read stdin or own the screen produce no pipe output;
+// when one runs silently we hint that it may be waiting for terminal input.
+
+const INTERACTIVE_COMMANDS = new Set([
+	"pi",
+	"vim",
+	"vi",
+	"nvim",
+	"nano",
+	"less",
+	"more",
+	"man",
+	"top",
+	"htop",
+	"btop",
+	"ssh",
+	"telnet",
+	"python",
+	"python3",
+	"node",
+	"sqlite3",
+	"mysql",
+	"psql",
+	"redis-cli",
+	"mongosh",
+	"bc",
+	"irssi",
+]);
+
+function isInteractiveCommand(command: unknown): boolean {
+	const base =
+		(
+			String(command ?? "")
+				.trim()
+				.split(/\s+/)[0] ?? ""
+		)
+			.split("/")
+			.pop() ?? "";
+	return INTERACTIVE_COMMANDS.has(base);
+}
+
+/** Wrap an output preview so an empty result renders state text instead of `∅`. */
+function bashBodyComponent(preview: Component, emptyLines: string[] | undefined): Component {
+	if (!emptyLines) return preview;
+	return {
+		invalidate: () => preview.invalidate(),
+		render(width: number): string[] {
+			const lines = preview.render(width);
+			return lines.length > 0 ? lines : emptyLines;
+		},
+	};
+}
+
+/** Streaming continuation: streamed output (or `No output received yet`), a
+ *  live running footer, and no `Response` divider until the tool settles. */
+function renderBashStreamingResult(
+	theme: BoxTheme,
+	raw: string,
+	options: { expanded: boolean },
 	context: BoxedToolContext,
-	expandHint?: string,
 ): Component {
+	const body = stripBashToolNoticeLines(stripAnsi(raw));
+	const hasOutput = body.trim().length > 0;
+	const elapsed = getStateElapsedMs(context.state);
+	const emptyLines: string[] = [theme.fg("dim", "No output received yet")];
+	if (!hasOutput && isInteractiveCommand(context?.args?.command) && (elapsed ?? 0) >= 1000) {
+		emptyLines.push(theme.fg("dim", "The process may be waiting for terminal input"));
+	}
+	const preview = createBashResultPreview(theme, body, options, "toolOutput");
 	const rawCommand = String(context?.args?.command ?? "...");
-	const referenceLines = rawCommand.split("\n").map((line, index) => `${index === 0 ? "$ " : "> "}${line}`);
-	return renderBoxedToolResult(theme, inner, {
+	return renderBoxedToolResult(theme, bashBodyComponent(preview, hasOutput ? undefined : emptyLines), {
 		widthKey: bashWidthKey(rawCommand, context?.args?.timeout),
-		referenceLines,
-		footerLines: [
-			formatBoxedFooter(theme, result as never, [`timeout ${formatTimeout(context)}`], getElapsed(context)),
-		],
-		...(expandHint ? { expandHint } : {}),
-		isError: context.isError,
-		isPartial: Boolean(context.isPartial),
+		referenceLines: rawCommand.split("\n").map((line, index) => `${index === 0 ? "$ " : "> "}${line}`),
+		dividerLabel: "Output",
+		showDivider: hasOutput,
+		footerLines: [formatBoxedRunningStatus(theme, elapsed)],
+		isPartial: true,
 	});
 }
 
-function getElapsed(context: BoxedToolContext): number | undefined {
-	return getStateElapsedMs(context.state);
+function renderBashFinalResult(
+	theme: BoxTheme,
+	raw: string,
+	options: { expanded: boolean },
+	context: BoxedToolContext,
+): Component {
+	const isError = Boolean(context.isError);
+	const clean = stripAnsi(raw);
+	const { status, body: statusStripped } = parseBashTerminalStatus(clean);
+	const output = stripBashToolNoticeLines(statusStripped);
+	const elapsed = getStateElapsedMs(context.state);
+	const outputColor = isError ? "error" : "toolOutput";
+	const footer = bashFooter(theme, status, elapsed, output, isError);
+	const errorLabel = isError ? (bashErrorLabel(status) ?? "✗ Error") : undefined;
+
+	const rawCommand = String(context?.args?.command ?? "...");
+	const widthKey = bashWidthKey(rawCommand, context?.args?.timeout);
+	const referenceLines = rawCommand.split("\n").map((line, index) => `${index === 0 ? "$ " : "> "}${line}`);
+
+	if (!options.expanded) {
+		// Collapsed: only process the tail of the output (notices stripped per line).
+		const scanLines = getToolsRenderConfig().maxCollapsedLines + 10;
+		let nlCount = 0;
+		let tailStart = 0;
+		for (let i = statusStripped.length - 1; i >= 0; i--) {
+			if (statusStripped.charCodeAt(i) === 10) {
+				nlCount++;
+				if (nlCount >= scanLines) {
+					tailStart = i + 1;
+					break;
+				}
+			}
+		}
+		const tail = stripBashToolNoticeLines(stripAnsi(statusStripped.slice(tailStart)));
+		const totalLinesBefore = tailStart > 0 ? countNewlines(statusStripped, 0, tailStart) : 0;
+		const preview = createBashResultPreview(theme, tail, options, outputColor);
+		return renderBoxedToolResult(
+			theme,
+			bashBodyComponent(
+				preview,
+				statusStripped.trim() ? undefined : [theme.fg("muted", bashEmptyBodyText(status, isError))],
+			),
+			{
+				widthKey,
+				referenceLines,
+				footerLines: [footer],
+				...(totalLinesBefore > 0 ? { expandHint: "Ctrl+O for more" } : {}),
+				isError,
+				isPartial: false,
+				...(errorLabel ? { errorLabel } : {}),
+			},
+		);
+	}
+
+	const preview = createBashResultPreview(theme, output, options, outputColor);
+	return renderBoxedToolResult(
+		theme,
+		bashBodyComponent(preview, output.trim() ? undefined : [theme.fg("muted", bashEmptyBodyText(status, isError))]),
+		{
+			widthKey,
+			referenceLines,
+			footerLines: [footer],
+			isError,
+			isPartial: false,
+			...(errorLabel ? { errorLabel } : {}),
+		},
+	);
 }
+
+/** First-partial-pass result: the pending/running call card stands alone. */
+const EMPTY_BASH_RESULT: Component = Object.freeze({
+	invalidate() {},
+	render() {
+		return [];
+	},
+});
 
 function createBashResultPreview(
 	theme: BoxTheme,
@@ -677,12 +913,21 @@ export const bashTool: BoxedToolDefinition = {
 			bashTreeStates.set(context.toolCallId, { cls, command: String(args?.command ?? "") });
 			return renderBashTreePanel(theme, context.toolCallId, context);
 		}
+		noteBoxedCallState(context);
 		const rawCommand = String(args?.command ?? "...");
 		return renderBoxedBashCall(theme, rawCommand.split("\n"), context, bashWidthKey(rawCommand, args?.timeout));
 	},
 	result(result, options, theme, context) {
+		const firstResultPass = !isResultSeen(context.state);
+		markResultSeen(context.state);
 		const cls = classifyBashCommand(String(context?.args?.command ?? ""));
 		if (cls && !context.isError) {
+			// Tree-classified commands render in the call panel; the result adds
+			// nothing. Keep terminal state in sync without an elapsed ticker.
+			if (!options.isPartial) {
+				recordExecutionEnded(context.state);
+				stopElapsedTicker(context.state);
+			}
 			const output = stripBashToolNoticeLines(stripAnsi(getTextOutput(result)));
 			const parsed = parseBashTreeOutput(cls, output);
 			const state = bashTreeStates.get(context.toolCallId);
@@ -694,30 +939,19 @@ export const bashTool: BoxedToolDefinition = {
 			// Unparseable output (ls -l, raw rg summary): the boxed shell owns the
 			// result; flag the call panel to render nothing so the two don't duplicate.
 			if (state) state.fallback = true;
+		} else if (options.isPartial) {
+			startElapsedTicker(context.state, context.invalidate);
+		} else {
+			recordExecutionEnded(context.state);
+			stopElapsedTicker(context.state);
 		}
 		const raw = getTextOutput(result);
-		const outputColor = context.isError ? "error" : "toolOutput";
-
-		if (!options.expanded) {
-			const scanLines = getToolsRenderConfig().maxCollapsedLines + 10;
-			let nlCount = 0;
-			let tailStart = 0;
-			for (let i = raw.length - 1; i >= 0; i--) {
-				if (raw.charCodeAt(i) === 10) {
-					nlCount++;
-					if (nlCount >= scanLines) {
-						tailStart = i + 1;
-						break;
-					}
-				}
-			}
-			const tail = stripBashToolNoticeLines(stripAnsi(raw.slice(tailStart)));
-			const totalLinesBefore = tailStart > 0 ? countNewlines(raw, 0, tailStart) : 0;
-			const inner = createBashResultPreview(theme, tail, options, outputColor);
-			return renderBoxedBashResult(theme, inner, result, context, totalLinesBefore > 0 ? "Ctrl+O for more" : undefined);
+		if (options.isPartial) {
+			// First partial pass: the running call card stands alone. Later passes
+			// stream output into the open continuation without a Response divider.
+			if (firstResultPass) return EMPTY_BASH_RESULT;
+			return renderBashStreamingResult(theme, raw, options, context);
 		}
-		const output = stripBashToolNoticeLines(stripAnsi(raw));
-		const inner = createBashResultPreview(theme, output, options, outputColor);
-		return renderBoxedBashResult(theme, inner, result, context);
+		return renderBashFinalResult(theme, raw, options, context);
 	},
 };

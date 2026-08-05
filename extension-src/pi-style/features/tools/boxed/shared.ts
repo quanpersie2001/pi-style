@@ -13,12 +13,21 @@ import {
 	resolveRelativePath,
 	shortenPath,
 } from "../../../shared/box.js";
-import { getStateElapsedMs, recordExecutionStarted } from "./session-config.js";
+import {
+	getStateElapsedMs,
+	isResultSeen,
+	markResultSeen,
+	recordExecutionEnded,
+	recordExecutionStarted,
+	startElapsedTicker,
+	stopElapsedTicker,
+} from "./session-config.js";
 
 /** Renderer context delivered by Pi's ToolExecutionComponent (getRenderContext). */
 export interface BoxedToolContext {
 	readonly args: Record<string, unknown>;
 	readonly toolCallId: string;
+	readonly invalidate: () => void;
 	readonly state: Record<string, unknown>;
 	readonly cwd: string;
 	readonly executionStarted: boolean;
@@ -88,12 +97,43 @@ export function compactCall(
 		isError: Boolean(options.context.isError),
 		isPartial: Boolean(options.context.isPartial),
 		isPending: pendingFlag(options.context),
+		running: Boolean(options.context.executionStarted),
 	});
 }
 
 /** Record wall-clock start when execution begins (first render with executionStarted). */
 export function noteExecutionStart(context: BoxedToolContext): void {
 	recordExecutionStarted(context.state, context.executionStarted);
+}
+
+/**
+ * Keep running/ended execution state in sync from a call renderer pass. While
+ * the tool runs, a 1s re-render ticker keeps live elapsed labels current; once
+ * the call renders in its terminal form the elapsed freezes.
+ */
+export function noteBoxedCallState(context: BoxedToolContext): void {
+	if (!context.executionStarted) return;
+	if (context.isPartial) startElapsedTicker(context.state, context.invalidate);
+	else {
+		recordExecutionEnded(context.state);
+		stopElapsedTicker(context.state);
+	}
+}
+
+/**
+ * Record a result renderer pass and keep the ticker/ended state in sync.
+ * Returns whether this is the first result pass for the call, so renderers can
+ * render nothing while the pending/running call card stands alone.
+ */
+export function noteBoxedResultPhase(context: BoxedToolContext, isPartial: boolean): boolean {
+	const firstResultPass = !isResultSeen(context.state);
+	markResultSeen(context.state);
+	if (isPartial) startElapsedTicker(context.state, context.invalidate);
+	else {
+		recordExecutionEnded(context.state);
+		stopElapsedTicker(context.state);
+	}
+	return firstResultPass;
 }
 
 export function stateElapsedMs(context: BoxedToolContext): number | undefined {

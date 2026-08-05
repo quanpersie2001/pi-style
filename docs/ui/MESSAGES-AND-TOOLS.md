@@ -57,21 +57,43 @@ Compact boxed shape (`tools.style: "compact-box"`):
 ╰─ 1.2s · ~10k words ──────────────────────────────────╯
 ```
 
-Full boxed shape (bash/edit/quick-edit/fallback), with the title in the top border, a single labeled divider before the result, and the metrics footer embedded in the bottom border:
+Full boxed shape (bash/edit/quick-edit/fallback), with the title in the top border, a single labeled divider before the result, and the metrics footer embedded in the bottom border. The `Response` divider and the metrics footer appear **only when the tool settles** — while a call runs, the same box stays open with a live running status instead of a premature result frame:
 
 ```text
-╭─ ➔ Bash ✓ ──────────────────────────────────────────╮
-│                                                      │
-│  $ npm test                                          │
-│                                                      │
-├─ Response ──────────────────────────────────────────┤
-│                                                      │
-│  ✓ tests passed                                      │
-│                                                      │
-╰─ 1.2s · timeout 300s · ~45 words ── Ctrl+O for more ─╯
+╭─ ➔ Bash ◌ ─────────────────────────────────────────╮
+│                                                    │
+│  $ npm test                                        │
+│  No output received yet                            │
+│                                                    │
+╰─ ◌ Running · 12.4s ────────────────────────────────╯
+```
+
+Partial output streams into the open card under an `Output` divider (no `Response`), and the first partial result renders nothing so the running card is never duplicated below a second box. Only the terminal result adds the `Response` divider and the status footer:
+
+```text
+╭─ ➔ Bash ✓ ─────────────────────────────────────────╮
+│                                                    │
+│  $ npm test                                        │
+│                                                    │
+├─ Response ────────────────────────────────────────┤
+│                                                    │
+│  ✓ tests passed                                    │
+│                                                    │
+╰─ Exit 0 · 1.2s · ~3 words ── Ctrl+O for more ───────╯
 ```
 
 Compact (summary) tools render `➔ <Tool> ✓ · <detail>` with the footer in the bottom border; bash renders a full call box with the command, a `Response` divider, and the expand hint on the bottom border when output is truncated. Edit/quick-edit render the path in the header and the diff under a `Diff · +N -M` divider. Write renders a compact preview box: the path in the top border, the written content as numbered lines (cat -n style) in the body, and the metrics footer in the bottom border with a `Ctrl+O for more` hint when the preview is truncated; expanded reveals the expanded line budget. `tools.style: "marker"` keeps the marker style (`[read] src/index.ts`).
+
+### Tool state machine
+
+Boxed cards follow `queued → running → streaming output → completed | failed | timed out | cancelled`. The assistant's own response follows the tool's terminal state, and the renderers never draw a result frame before it:
+
+- **Queued** (execution not started): closed card, plain `➔ Tool` title, `… Waiting for output…` footer.
+- **Running** (execution started, no result yet): closed card, `➔ Tool ◌` title, `◌ Running · 12.4s` footer (live elapsed via a 1s re-render ticker), `No output received yet` body line.
+- **Streaming** (partial result): the call box stays open and the result continues it — streamed output under an `Output` divider (no divider while there is nothing to show) with a `◌ Running · 12.4s` footer. The first partial result renders zero lines so the running card stands alone.
+- **Completed** (`Exit 0 · 3.21s · ~45 words`), **failed** (`Exit 2 · …` or `Failed`), **timed out** (`✗ Timed out` label, `Terminated after 300.0s` footer), **cancelled** (`✗ Cancelled` label, `Cancelled` footer): `Response` divider, then the status footer.
+
+Empty-output text is state-dependent and never `∅ (no output)`: `No output received yet` while running, `Command completed without producing output` on success, `Command failed without producing output` on failure, `No output was received before the timeout` on timeout, `Command was cancelled without producing output` on cancel. A silent command whose base command is interactive (`pi`, `vim`, `less`, `top`, …) additionally hints `The process may be waiting for terminal input` after ~1s. Elapsed is computed live from execution start and only freezes when the result is terminal, so a completed footer never shows a stale `0.00s`.
 
 ### Quiet-tool batching
 
@@ -115,7 +137,7 @@ Header requirements: stable human-readable tool label (`formatToolName`); concis
 
 ## Tool result body
 
-Default body is compact when settled and supports native expansion. pi-style never suppresses information the user or model needs. States: pending/partial, success, error, cancelled, truncated, empty. `MetricsLine` can show elapsed time, result count, bytes/lines, or expansion hints when reliably available.
+Default body is compact when settled and supports native expansion. pi-style never suppresses information the user or model needs. States: pending/partial, success, error, cancelled, timed out, truncated, empty. `MetricsLine` can show elapsed time, result count, bytes/lines, or expansion hints when reliably available. The `Response` divider and metrics footer only render in terminal states (see [Tool state machine](#tool-state-machine)).
 
 ### Edit / quick-edit diffs
 
@@ -140,7 +162,7 @@ Edit, quick-edit, substitute-edit, and target-edit render their diff **adaptivel
 | Write | Path in the header; numbered preview of the written content (cat -n style, `Ctrl+O for more` hint when truncated, expanded reveals more); concise success/error. |
 | Edit | Path in the header; adaptive diff (unified/split) with collapsed unchanged context; failed unique-match errors prominent. |
 | Find/list/grep | Boxless output tree: `ls`/`find` render a flat `List:`/`Glob: <pattern> <N> files · in <path>` tree (nested per call when batched); `grep` renders a `Grep: <pattern> <N> matches · <M> files · in <path>` tree with `*line│content` rows grouped by file. `ls`/`find` batch like reads; `grep` is unbatched so match previews are never hidden. Pending/failed calls without output fall back to the path-row tree; a trailing `└─ … N more` row collapses long lists. |
-| Bash | Concise command header, running/exit status, stdout/stderr distinction where host data supports it. When the command is a plain `ls`/`find`/`grep`/`rg` (no pipes, redirects, `;`, `&&`, or command substitution), its output renders as the same boxless output tree as the native tool — including `ls -l`/`ls -la` long format (parsed into names) and single-file `rg`/`grep` (`line: content` attributed to the file). Unparseable output (e.g. `rg -c`, `rg -l`) falls back to the boxed command/response shell. Execution, environment, timeout, and shell behavior are never changed. |
+| Bash | Concise command header, running/exit status (including timeout/cancelled), stdout/stderr distinction where host data supports it. When the command is a plain `ls`/`find`/`grep`/`rg` (no pipes, redirects, `;`, `&&`, or command substitution), its output renders as the same boxless output tree as the native tool — including `ls -l`/`ls -la` long format (parsed into names) and single-file `rg`/`grep` (`line: content` attributed to the file). Unparseable output (e.g. `rg -c`, `rg -l`) falls back to the boxed command/response shell. Execution, environment, timeout, and shell behavior are never changed. |
 
 ## Expansion and collapse
 

@@ -6,13 +6,19 @@ import {
 	parseSkillBlock,
 	SkillInvocationMessageComponent,
 } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setSpecialBlockTheme } from "../../extension-src/pi-style/features/messages/special-blocks.js";
 import {
 	renderBoxedToolCall as dispatchCall,
 	renderBoxedToolResult as dispatchResult,
 } from "../../extension-src/pi-style/features/tools/boxed/index.js";
-import { setToolsRenderConfig } from "../../extension-src/pi-style/features/tools/boxed/session-config.js";
+import {
+	getStateElapsedMs,
+	recordExecutionEnded,
+	recordExecutionStarted,
+	setToolsRenderConfig,
+	stopAllElapsedTickers,
+} from "../../extension-src/pi-style/features/tools/boxed/session-config.js";
 import type { BoxedToolContext } from "../../extension-src/pi-style/features/tools/boxed/shared.js";
 import { createToolDecorationOwner } from "../../extension-src/pi-style/features/tools/index.js";
 import {
@@ -336,15 +342,18 @@ describe("boxed tool renderers", () => {
 		const state: Record<string, unknown> = {};
 		const args = { path: "/tmp/pi-write-test.md", content: "a\nb\nc\n" };
 
-		// Pending (args streaming / execution started, no result yet).
+		// Pending (args streaming / execution started, no result yet): the running
+		// card shows `Write ◌` and a `◌ Running` footer, not a ✓.
 		const pending = dispatchCall("write", args, theme, context({ args, state, isPartial: true })).render(80);
 		const pendingText = stripAnsi(pending.join("\n"));
-		expect(pendingText).toContain("Write ✓ · Path: ../tmp/pi-write-test.md");
+		expect(pendingText).toContain("Write ◌ · Path: ../tmp/pi-write-test.md");
 		expect(pendingText).toContain("1 a");
 		expect(pendingText).toContain("2 b");
 		expect(pendingText).toContain("3 c");
 		expect(pendingText).toContain("4 "); // trailing empty line from the final newline
-		expect(pendingText).toContain("Waiting for output");
+		expect(pendingText).toContain("◌ Running");
+		expect(pendingText).not.toContain("Waiting for output");
+		expect(pendingText).not.toContain("✓");
 		assertFit(pending, 80);
 
 		// Settled: the result stores the footer into the shared state; the call
@@ -490,6 +499,262 @@ describe("boxed tool renderers", () => {
 				).render(width);
 				assertFit(resultLines, Math.max(12, width));
 			}
+		}
+	});
+});
+
+describe("bash execution states", () => {
+	function textResult(text: string): { content: { type: string; text: string }[]; details: Record<string, never> } {
+		return { content: [{ type: "text", text }], details: {} };
+	}
+
+	afterEach(() => {
+		stopAllElapsedTickers();
+		vi.useRealTimers();
+	});
+
+	it("renders a queued bash call as a closed waiting card without a status glyph", () => {
+		const ctx = context({
+			toolCallId: "b-queued",
+			args: { command: "echo hi", timeout: 30 },
+			executionStarted: false,
+			isPartial: true,
+		});
+		const text = stripAnsi(dispatchCall("bash", { command: "echo hi", timeout: 30 }, theme, ctx).render(80).join("\n"));
+		expect(text).toContain("➔ Bash");
+		expect(text).not.toContain("✓");
+		expect(text).not.toContain("◌");
+		expect(text).toContain("Waiting for output");
+		expect(text).not.toContain("No output received yet");
+		expect(text).not.toContain("Response");
+	});
+
+	it("renders a running bash call as a single card with elapsed and no Response frame", () => {
+		const state: Record<string, unknown> = {};
+		const ctx = context({
+			toolCallId: "b-running",
+			args: { command: "cd src && npm test", timeout: 300 },
+			state,
+			isPartial: true,
+		});
+		recordExecutionStarted(state, true);
+		const lines = dispatchCall("bash", { command: "cd src && npm test", timeout: 300 }, theme, ctx).render(80);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).toContain("Bash ◌");
+		expect(text).toContain("$ cd src && npm test");
+		expect(text).toContain("No output received yet");
+		expect(text).toContain("◌ Running");
+		expect(text).not.toContain("Response");
+		expect(text).not.toContain("✓");
+		expect(text).not.toContain("∅");
+		assertFit(lines, 80);
+	});
+
+	it("renders nothing for the first partial result so the running card stands alone", () => {
+		const state: Record<string, unknown> = {};
+		const ctx = context({
+			toolCallId: "b-first-partial",
+			args: { command: "echo hi", timeout: 30 },
+			state,
+			isPartial: true,
+		});
+		dispatchCall("bash", { command: "echo hi", timeout: 30 }, theme, ctx);
+		const first = dispatchResult("bash", textResult("line1"), { expanded: false, isPartial: true }, theme, ctx);
+		expect(first.render(80)).toEqual([]);
+	});
+
+	it("streams later partial output into the open card with an Output divider, no Response", () => {
+		const state: Record<string, unknown> = {};
+		const ctx = context({
+			toolCallId: "b-stream",
+			args: { command: "echo hi", timeout: 30 },
+			state,
+			isPartial: true,
+		});
+		dispatchCall("bash", { command: "echo hi", timeout: 30 }, theme, ctx);
+		dispatchResult("bash", textResult(""), { expanded: false, isPartial: true }, theme, ctx); // first partial: empty
+		const lines = dispatchResult(
+			"bash",
+			textResult("line1\nline2"),
+			{ expanded: false, isPartial: true },
+			theme,
+			ctx,
+		).render(80);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).toContain("line2");
+		expect(text).toContain("Output");
+		expect(text).toContain("◌ Running");
+		expect(text).not.toContain("Response");
+		expect(text).not.toContain("No output received yet");
+		assertFit(lines, 80);
+	});
+
+	it("keeps saying No output received yet while an empty stream runs", () => {
+		const state: Record<string, unknown> = {};
+		const ctx = context({
+			toolCallId: "b-stream-empty",
+			args: { command: "sleep 5", timeout: 30 },
+			state,
+			isPartial: true,
+		});
+		dispatchCall("bash", { command: "sleep 5", timeout: 30 }, theme, ctx);
+		dispatchResult("bash", textResult(""), { expanded: false, isPartial: true }, theme, ctx);
+		const lines = dispatchResult("bash", textResult(""), { expanded: false, isPartial: true }, theme, ctx).render(80);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).toContain("No output received yet");
+		expect(text).toContain("◌ Running");
+		expect(text).not.toContain("├"); // no divider while there is nothing to show
+		expect(text).not.toContain("Response");
+		expect(text).not.toContain("∅");
+		assertFit(lines, 80);
+	});
+
+	it("hints that a silent interactive command may be waiting for terminal input", () => {
+		vi.useFakeTimers({ toFake: ["performance"] });
+		const state: Record<string, unknown> = {};
+		recordExecutionStarted(state, true);
+		vi.advanceTimersByTime(1500);
+		const ctx = context({
+			toolCallId: "b-interactive",
+			args: { command: "pi", timeout: 300 },
+			state,
+			isPartial: true,
+		});
+		dispatchCall("bash", { command: "pi", timeout: 300 }, theme, ctx);
+		dispatchResult("bash", textResult(""), { expanded: false, isPartial: true }, theme, ctx);
+		const lines = dispatchResult("bash", textResult(""), { expanded: false, isPartial: true }, theme, ctx).render(80);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).toContain("The process may be waiting for terminal input");
+		assertFit(lines, 80);
+	});
+
+	it("renders a settled empty result with Exit 0 and a state-specific empty text", () => {
+		const state: Record<string, unknown> = {};
+		const ctx = context({
+			toolCallId: "b-empty-done",
+			args: { command: "true", timeout: 30 },
+			state,
+		});
+		recordExecutionStarted(state, true);
+		const lines = dispatchResult("bash", textResult(""), { expanded: false, isPartial: false }, theme, ctx).render(80);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).toContain("Response");
+		expect(text).toContain("Exit 0");
+		expect(text).toContain("Command completed without producing output");
+		expect(text).not.toContain("∅");
+		assertFit(lines, 80);
+	});
+
+	it("shows the parsed exit code in the footer instead of the status suffix", () => {
+		const state: Record<string, unknown> = {};
+		const ctx = context({
+			toolCallId: "b-exit2",
+			args: { command: "false", timeout: 30 },
+			state,
+			isError: true,
+		});
+		recordExecutionStarted(state, true);
+		const lines = dispatchResult(
+			"bash",
+			textResult("boom\n\nCommand exited with code 2"),
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		).render(80);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).toContain("✗ Error");
+		expect(text).toContain("Exit 2");
+		expect(text).toContain("boom");
+		expect(text).not.toContain("Command exited with code"); // status parsed into the footer
+		assertFit(lines, 80);
+	});
+
+	it("renders a timed-out result with a dedicated label and termination footer", () => {
+		const state: Record<string, unknown> = {};
+		const ctx = context({
+			toolCallId: "b-timeout",
+			args: { command: "sleep 400", timeout: 300 },
+			state,
+			isError: true,
+		});
+		recordExecutionStarted(state, true);
+		const lines = dispatchResult(
+			"bash",
+			textResult("Command timed out after 300 seconds"),
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		).render(80);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).toContain("✗ Timed out");
+		expect(text).toContain("Terminated after 300.0s");
+		expect(text).toContain("No output was received before the timeout");
+		expect(text).not.toContain("∅");
+		expect(text).not.toContain("Command timed out after"); // status parsed into the footer
+		assertFit(lines, 80);
+	});
+
+	it("renders a cancelled result with partial output preserved", () => {
+		const state: Record<string, unknown> = {};
+		const ctx = context({
+			toolCallId: "b-cancelled",
+			args: { command: "tail -f /dev/null", timeout: 30 },
+			state,
+			isError: true,
+		});
+		recordExecutionStarted(state, true);
+		const lines = dispatchResult(
+			"bash",
+			textResult("watched line\n\nCommand aborted"),
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		).render(80);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).toContain("✗ Cancelled");
+		expect(text).toContain("Cancelled");
+		expect(text).toContain("watched line");
+		expect(text).not.toContain("Command aborted");
+		assertFit(lines, 80);
+	});
+
+	it("recognizes a bare agent-abort message as cancelled", () => {
+		const state: Record<string, unknown> = {};
+		const ctx = context({
+			toolCallId: "b-abort-msg",
+			args: { command: "npm run watch", timeout: 30 },
+			state,
+			isError: true,
+		});
+		recordExecutionStarted(state, true);
+		const lines = dispatchResult(
+			"bash",
+			textResult("Operation aborted"),
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		).render(80);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).toContain("✗ Cancelled");
+		expect(text).toContain("Cancelled");
+		assertFit(lines, 80);
+	});
+
+	it("reports live elapsed while running and freezes it at the end", () => {
+		vi.useFakeTimers({ toFake: ["performance"] });
+		try {
+			const state: Record<string, unknown> = {};
+			recordExecutionStarted(state, true);
+			vi.advanceTimersByTime(1250);
+			const live = getStateElapsedMs(state);
+			expect(live).toBeGreaterThanOrEqual(1250);
+			recordExecutionEnded(state);
+			const frozen = getStateElapsedMs(state);
+			vi.advanceTimersByTime(5000);
+			expect(getStateElapsedMs(state)).toBe(frozen);
+			expect(frozen).toBeGreaterThanOrEqual(1250);
+		} finally {
+			vi.useRealTimers();
 		}
 	});
 });
