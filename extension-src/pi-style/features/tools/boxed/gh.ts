@@ -13,7 +13,7 @@
 // table/rich text format is parsed.
 
 import type { Component } from "@earendil-works/pi-tui";
-import { type BoxTheme, renderBoxedToolResult } from "../../../shared/box.js";
+import { dimLine, type BoxTheme, renderBoxedToolResult } from "../../../shared/box.js";
 import { formatElapsedMs } from "../../../shared/elapsed.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import { parseSimpleBashCommand } from "./command-shape.js";
@@ -780,7 +780,7 @@ function checkStateColor(state: string): string {
 
 function renderMoreRow(theme: BoxTheme, unit: string, more: number, width: number): string {
 	return safeTruncateToWidth(
-		`${TREE_INDENT}${theme.fg("borderMuted", "└─")} ${theme.fg("dim", `… ${more} more ${pluralForm(unit, more)}`)}`,
+		`${TREE_INDENT}${dimLine("└─")} ${theme.fg("dim", `… ${more} more ${pluralForm(unit, more)}`)}`,
 		width,
 		"…",
 	);
@@ -807,7 +807,7 @@ function renderListCard(theme: BoxTheme, parsed: GhListParsed, out: string[], wi
 		const title = theme.fg("toolOutput", row.title);
 		const stateSuffix = row.state !== "OPEN" ? theme.fg("dim", ` (${row.state.toLowerCase()})`) : "";
 		const branchPart = row.branch ? theme.fg("dim", `  ${row.branch}`) : "";
-		const line = `${TREE_INDENT}${theme.fg("borderMuted", branchGlyph)} ${num}  ${title}${stateSuffix}${branchPart}`;
+		const line = `${TREE_INDENT}${dimLine(branchGlyph)} ${num}  ${title}${stateSuffix}${branchPart}`;
 		out.push(safeTruncateToWidth(line, width, "…"));
 	}
 	if (more > 0) out.push(renderMoreRow(theme, noun, more, width));
@@ -887,7 +887,7 @@ function renderChecksCard(theme: BoxTheme, parsed: GhChecksParsed, out: string[]
 		const name = theme.fg("toolOutput", row.name);
 		const state = theme.fg(checkStateColor(row.state), row.state);
 		const duration = row.duration && row.duration !== "0" ? theme.fg("dim", `  ${row.duration}`) : "";
-		const line = `${TREE_INDENT}${theme.fg("borderMuted", branchGlyph)} ${name}  ${state}${duration}`;
+		const line = `${TREE_INDENT}${dimLine(branchGlyph)} ${name}  ${state}${duration}`;
 		out.push(safeTruncateToWidth(line, width, "…"));
 	}
 	if (more > 0) out.push(renderMoreRow(theme, "check", more, width));
@@ -916,7 +916,7 @@ function renderRunListCard(theme: BoxTheme, parsed: GhRunListParsed, out: string
 		const workflow = theme.fg("text", row.workflow || row.title);
 		const branch = theme.fg("dim", `  ${row.branch}`);
 		const id = theme.fg("dim", `  ${row.id}`);
-		const line = `${TREE_INDENT}${theme.fg("borderMuted", branchGlyph)} ${glyph} ${workflow}${branch}${id}`;
+		const line = `${TREE_INDENT}${dimLine(branchGlyph)} ${glyph} ${workflow}${branch}${id}`;
 		out.push(safeTruncateToWidth(line, width, "…"));
 	}
 	if (more > 0) out.push(renderMoreRow(theme, "run", more, width));
@@ -937,7 +937,7 @@ function renderRunViewCard(theme: BoxTheme, parsed: GhRunViewParsed, out: string
 		const glyph = runStateGlyph(theme, job.state);
 		const name = theme.fg("toolOutput", `${job.name}${job.count !== undefined ? ` (${job.count})` : ""}`);
 		const detail = theme.fg("dim", `${job.duration ? ` ${job.duration}` : ""}${job.id ? ` · ${job.id}` : ""}`);
-		const line = `${TREE_INDENT}${theme.fg("borderMuted", branchGlyph)} ${glyph} ${name}${detail}`;
+		const line = `${TREE_INDENT}${dimLine(branchGlyph)} ${glyph} ${name}${detail}`;
 		out.push(safeTruncateToWidth(line, width, "…"));
 	}
 	if (moreJobs > 0) out.push(renderMoreRow(theme, "job", moreJobs, width));
@@ -945,7 +945,7 @@ function renderRunViewCard(theme: BoxTheme, parsed: GhRunViewParsed, out: string
 		const annotation = parsed.annotations[i];
 		if (!annotation) continue;
 		const branchGlyph = i < parsed.annotations.length - 1 ? "├─" : "└─";
-		const line = `${TREE_INDENT}${theme.fg("borderMuted", branchGlyph)} ${theme.fg("warning", "!")} ${theme.fg("dim", annotation.text)}`;
+		const line = `${TREE_INDENT}${dimLine(branchGlyph)} ${theme.fg("warning", "!")} ${theme.fg("dim", annotation.text)}`;
 		out.push(safeTruncateToWidth(line, width, "…"));
 	}
 	return out;

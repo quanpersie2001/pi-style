@@ -12,7 +12,7 @@
 
 import { getLanguageFromPath } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { type BoxTheme, boxBlankLine, boxLabeledBorder, boxWidth, renderBoxedToolResult } from "../../../shared/box.js";
+import { dimLine, type BoxTheme, boxBlankLine, boxLabeledBorder, boxWidth, renderBoxedToolResult } from "../../../shared/box.js";
 import { formatElapsedMs } from "../../../shared/elapsed.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import { AdaptiveDiffComponent, buildSplitRows, countDiffStats } from "../../../shared/split-diff.js";
@@ -1622,13 +1622,13 @@ function renderStatusFileRows(
 		if (!file) continue;
 		const branch = i < lastIndex || more > 0 ? "├─" : "└─";
 		const mark = statusMarker(file);
-		const line = `${TREE_INDENT}${theme.fg("borderMuted", branch)} ${theme.fg(statusMarkColor(file), mark)}  ${theme.fg("toolOutput", file.path)}`;
+		const line = `${TREE_INDENT}${dimLine(branch)} ${theme.fg(statusMarkColor(file), mark)}  ${theme.fg("toolOutput", file.path)}`;
 		out.push(safeTruncateToWidth(line, width, "…"));
 	}
 	if (more > 0) {
 		out.push(
 			safeTruncateToWidth(
-				`${TREE_INDENT}${theme.fg("borderMuted", "└─")} ${theme.fg("dim", `… ${more} more ${pluralForm("file", more)}`)}`,
+				`${TREE_INDENT}${dimLine("└─")} ${theme.fg("dim", `… ${more} more ${pluralForm("file", more)}`)}`,
 				width,
 				"…",
 			),
@@ -1664,13 +1664,13 @@ function renderDiffStatCard(theme: BoxTheme, parsed: DiffStatSummary, out: strin
 		const branch = i < lastIndex || more > 0 ? "├─" : "└─";
 		const changes = file.changes ?? 0;
 		const detail = theme.fg("dim", file.binary ? "· binary" : `· ${changes} ${pluralForm("change", changes)}`);
-		const line = `${TREE_INDENT}${theme.fg("borderMuted", branch)} ${theme.fg("toolOutput", file.path)} ${detail}`;
+		const line = `${TREE_INDENT}${dimLine(branch)} ${theme.fg("toolOutput", file.path)} ${detail}`;
 		out.push(safeTruncateToWidth(line, width, "…"));
 	}
 	if (more > 0) {
 		out.push(
 			safeTruncateToWidth(
-				`${TREE_INDENT}${theme.fg("borderMuted", "└─")} ${theme.fg("dim", `… ${more} more ${pluralForm("file", more)}`)}`,
+				`${TREE_INDENT}${dimLine("└─")} ${theme.fg("dim", `… ${more} more ${pluralForm("file", more)}`)}`,
 				width,
 				"…",
 			),
@@ -1695,13 +1695,13 @@ function renderLogCard(theme: BoxTheme, parsed: GitLogParsed, out: string[], wid
 		const branch = i < lastIndex || more > 0 ? "├─" : "└─";
 		const refs = commit.refs ? ` (${commit.refs})` : "";
 		const subject = commit.subject ? `  ${commit.subject}` : "";
-		const line = `${TREE_INDENT}${theme.fg("borderMuted", branch)} ${theme.fg("accent", commit.hash)}${theme.fg("dim", refs)}${theme.fg("toolOutput", subject)}`;
+		const line = `${TREE_INDENT}${dimLine(branch)} ${theme.fg("accent", commit.hash)}${theme.fg("dim", refs)}${theme.fg("toolOutput", subject)}`;
 		out.push(line);
 	}
 	if (more > 0) {
 		out.push(
 			safeTruncateToWidth(
-				`${TREE_INDENT}${theme.fg("borderMuted", "└─")} ${theme.fg("dim", `… ${more} more ${pluralForm("commit", more)}`)}`,
+				`${TREE_INDENT}${dimLine("└─")} ${theme.fg("dim", `… ${more} more ${pluralForm("commit", more)}`)}`,
 				width,
 				"…",
 			),
