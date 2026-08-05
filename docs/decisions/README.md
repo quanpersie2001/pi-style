@@ -17,6 +17,7 @@ Decision records capture durable choices that should not be rediscovered during 
 | [0002](0002-native-pi-layout-ownership.md) | Accepted | Keep native Pi layout ownership for v1. |
 | [0003](0003-semantic-theme-and-style-presets.md) | Accepted | Separate code-defined layout presets from semantic themes. |
 | [0004](0004-compatibility-tiers-and-patch-policy.md) | Accepted | Classify integrations by compatibility tier and restrict core patches. |
+| [0006](0006-file-anchored-output-trees.md) | Accepted | File-anchored output trees for Grep / List / Glob. |
 
 ## When a new ADR is required
 

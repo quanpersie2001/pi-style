@@ -112,28 +112,83 @@ The panel has **no surrounding box and never collapses** — the tree stays open
 - **Running** header `◌ Read (N) · k/N`; tree shows `✓`/`◌` per member.
 - **Done** header ` Read (N) · 0.08s` (open-tree glyph; `●` unicode fallback, nerd `\u{F111}`); tree keeps the first 5 members and a `└─ N more` row.
 - **Per-file color**: files read successfully render in the primary (accent) color; failed members render in the error color with the error text indented beneath, and the header becomes `✗ Read (N) · 1 failed`. Errors stay open.
-- **`read` lone call**: a single read is a batch of one — ` Read (1) · 0.08s` with a single `└─ path` row. No boxed special case.
+- **`read` lone call**: a single read collapses to one inline line — ` Read <path:range> · <elapsed>` (pending `➔ Read <path:range>`, failed `✗ Read <path:range>` with the error beneath). No tree row, no `(1)` count.
 
 #### ls / find output trees
 
-A lone `ls`/`find` renders its parsed output as a **flat boxless tree** under a `List:`/`Glob:` summary header; batched (2+) calls render **nested per-member subtrees**. Pending/failed calls without output fall back to the path-row tree above.
+A lone `ls`/`find` renders its parsed output as a **file-anchored boxless tree** (ADR 0006) under a `List:`/`Glob:` summary header; batched (2+) calls render **nested per-member subtrees**. Pending/failed calls without output fall back to the path-row tree above.
 
 ```text
 Glob: **/*.ts 152 files · in .
-  ├─ test/unit/
-  ├─ test/integration/resume-render.test.ts
-  ├─ extension-src/pi-style/features/tools/index.ts
-  ├─ docs/ui/MESSAGES-AND-TOOLS.md
-  ├─ extension-src/pi-style/features/tools/boxed/read.ts
-  └─ … 147 more files
+src/
+  pi/index.ts
+  features/tools/index.ts
+test/
+  unit/output-trees.test.ts
+  … 149 more files
 ```
 
 - Header: `List: <N> files · in <path>` (ls) / `Glob: <pattern> <N> files · in <path>` (find); directories keep their `/` suffix.
-- Body: the first ~6 entries as `├─`/`└─` rows, then a `└─ … N more files` row when truncated.
-- Batched calls use the `<glyph> Glob/List (N) · <total> files` header with one subtree per member (`├─ <path> · <n> files` → indented entries).
+- Body: clean indented rows (no `├─/└─` glyphs). `find` path entries group under their directory as a header row with nested entry rows; single-directory `ls` renders flat. The first ~6 entries show, then a `… N more files` row when truncated.
+- Batched calls use the `<glyph> Glob/List (N) · <total> files` header with one subtree per member (`├─ <path> · <n> files` → clean indented entries).
 - **File-type icons** (Nerd Font mode only): each entry is prefixed with its file icon — ` ` (folder), ` ` (TypeScript), ` ` (Markdown), … — via `theme.n` glyph mode; Unicode/ASCII modes render plain entries.
 
+#### grep output tree
+
+`grep` renders a **file-anchored boxless tree** (ADR 0006): a summary header, then one section per file — the file path as a standalone header, with its matches as `*line: content` rows and adjacent context (from raw `file:line-` output) as ` line:` rows beneath it. A dim `...` gap row marks elided line ranges within a file. `grep` is unbatched so match previews are never hidden.
+
+```text
+Grep: createConfig 3 matches · 2 files · in .
+src/config.ts
+  11: import { createConfig } from
+*14: export const createConfig = (opts) => {
+...
+*42: 	return createConfig(opts);
+test/config.test.ts
+*8: 	createConfig({ preset: "native" })
+```
+
+- Match rows render `*<line>: <content>` (the `*` marks the hit); context rows render ` <line>: <content>` (leading space, dim). The marker distinguishes a hit from context without color alone (TOOL-002).
+- Context rows adjacent to a shown match are free of the match budget; the budget counts matches only. A trailing `… N more matches` row collapses long results.
+
 Header requirements: stable human-readable tool label (`formatToolName`); concise primary argument; pending/success/error via `✓`/`✗` (the native `toolPendingBg`/`toolErrorBg`/`toolSuccessBg` container fill is neutralized for boxed rendering); no leaking of hidden/sensitive values beyond native Pi behavior; incomplete streaming arguments render safely; labels and glyphs remain meaningful in ASCII/no-color mode.
+
+#### git / gh semantic views
+
+`git` and `gh` results render as **semantic views** ([ADR 0005](../decisions/0005-git-github-semantic-renderers.md)) when the command is a plain invocation (same gate as bash trees: no pipes, redirects, `;`, `&&`, or command substitution), otherwise the boxed command/response shell renders unchanged. A parser that cannot produce structured records always falls back to the raw shell — approximate rendering is never used. Execution, environment, timeout, and shell behavior are never changed.
+
+Three presentation tiers, matching the bash tree pattern:
+
+| Content | Box | Shape |
+| --- | --- | --- |
+| `git status`, `add`, `commit`, `push`, `pull`, `fetch`, `restore`, `reset`, `switch`/`checkout`, `diff --stat`, `show --stat`, short `log` | Boxless compact card | summary header + `├─/└─` rows + `… N more` (same family as `List`/`Glob`/`Grep`) |
+| `git diff`, `git show`, conflict, CI logs | Box on the content only | `renderBoxedToolResult` + the same adaptive diff component `Edit` uses (`Diff · +N -M` divider, one frame per file) |
+| `gh pr list/view/checks/create`, `issue list/view`, `run list/view` | Boxless compact card | summary header + state-colored `├─/└─` rows + `… N more` (same family as the git cards) |
+| `gh run view --job=<id>` job log | Box on the content only | `renderBoxedToolResult` + a `Log · <id>` divider (one frame, head/tail budget for long logs) |
+
+```text
+Git status · main
+
+  15 modified   1 untracked   0 staged
+  +370 −71 across 16 files
+
+  M  extension-src/pi-style/features/editor/index.ts
+  M  extension-src/pi-style/features/messages/index.ts
+  ?  test/unit/message-thinking-collapse.test.ts
+  … 13 more
+
+  d diff   f files   Ctrl+O raw
+```
+
+Rules:
+
+- **No double-box.** The Git header lives outside the box; only viewer content (diff, log, error) gets a frame.
+- **Branch only when it affects the result** (push/merge/ahead-behind/PR base-head) — the status line owns `⎇ main`.
+- **Nonzero exit** keeps the raw stderr; a semantic error view only when the output still parses, otherwise raw fallback.
+- **Git vs GitHub** is icon + title (`git` / `PR` / `Issue` / `Checks`), not a separate component system.
+- **Action lines** (`d diff`, `c checks`, `Enter details`, `Ctrl+O raw`) are hints only — no keybinding registration.
+- **Icons** are gated by Nerd Font mode like `List`/`Glob` file icons.
+- **Out of scope:** plumbing (`git cat-file`, `rev-parse`, `for-each-ref`), `gh api`, extensions, and free-form JSON stay raw.
 
 ## Tool result body
 
@@ -161,8 +216,8 @@ Edit, quick-edit, substitute-edit, and target-edit render their diff **adaptivel
 | Read | Badge + normalized path, optional line range; native syntax-highlighted content when possible; truncation notice preserved. Consecutive reads batch into one boxless tree panel. |
 | Write | Path in the header; numbered preview of the written content (cat -n style, `Ctrl+O for more` hint when truncated, expanded reveals more); concise success/error. |
 | Edit | Path in the header; adaptive diff (unified/split) with collapsed unchanged context; failed unique-match errors prominent. |
-| Find/list/grep | Boxless output tree: `ls`/`find` render a flat `List:`/`Glob: <pattern> <N> files · in <path>` tree (nested per call when batched); `grep` renders a `Grep: <pattern> <N> matches · <M> files · in <path>` tree with `*line│content` rows grouped by file. `ls`/`find` batch like reads; `grep` is unbatched so match previews are never hidden. Pending/failed calls without output fall back to the path-row tree; a trailing `└─ … N more` row collapses long lists. |
-| Bash | Concise command header, running/exit status (including timeout/cancelled), stdout/stderr distinction where host data supports it. When the command is a plain `ls`/`find`/`grep`/`rg` (no pipes, redirects, `;`, `&&`, or command substitution), its output renders as the same boxless output tree as the native tool — including `ls -l`/`ls -la` long format (parsed into names) and single-file `rg`/`grep` (`line: content` attributed to the file). Unparseable output (e.g. `rg -c`, `rg -l`) falls back to the boxed command/response shell. Execution, environment, timeout, and shell behavior are never changed. |
+| Find/list/grep | Boxless file-anchored tree (ADR 0006): `ls`/`find` render a `List:`/`Glob: <pattern> <N> files · in <path>` tree (clean rows; `find` paths grouped by directory; nested per call when batched); `grep` renders a `Grep: <pattern> <N> matches · <M> files · in <path>` tree with per-file headers, `*line: content` match rows, and ` line:` context rows. `ls`/`find` batch like reads; `grep` is unbatched so match previews are never hidden. Pending/failed calls without output fall back to the path-row tree; a trailing `… N more` row collapses long lists. |
+| Bash | Concise command header, running/exit status (including timeout/cancelled), stdout/stderr distinction where host data supports it. When the command is a plain `ls`/`find`/`grep`/`rg` (no pipes, redirects, `;`, `&&`, or command substitution), its output renders as the same boxless output tree as the native tool — including `ls -l`/`ls -la` long format (parsed into names) and single-file `rg`/`grep` (`line: content` attributed to the file). `git`/`gh` invocations render as semantic views (status/diff/log cards, boxed diffs, PR/issue/run summaries; see [git / gh semantic views](#git--gh-semantic-views)) with the same gate. Unparseable output (e.g. `rg -c`, `rg -l`) falls back to the boxed command/response shell. Execution, environment, timeout, and shell behavior are never changed. |
 
 ## Expansion and collapse
 
@@ -205,6 +260,12 @@ If another extension already owns a message/tool renderer: compose only through 
 - **TOOL-005:** renderer conflict/failure falls back to the existing/native renderer.
 - **TOOL-006:** patches/overrides are idempotent, reversible, and identity-safe.
 - **TOOL-007:** renderers perform no filesystem/process work.
+- **GIT-001:** `git status`/`add`/`commit`/`push`/`pull`/`fetch`/`restore`/`reset`/`switch`/`checkout`/`merge`/`rebase`/`diff --stat`/`show --stat`/short `log` render as a boxless compact card (summary + grouped `├─/└─` rows + `… N more`), not a full boxed shell.
+- **GIT-002:** `git diff`/`git show`/conflict render the diff in a content box using the same adaptive diff component as `Edit` (per-file frame, `Diff · +N -M` divider), without a second diff visual language.
+- **GIT-003:** a `git`/`gh` command with pipes/redirects/`&&`/`;`/command substitution, an unparseable result, or a plumbing/`gh api` scope renders the raw boxed Bash shell unchanged.
+- **GIT-004:** nonzero exit preserves raw stderr; a semantic error view renders only when the output still parses.
+- **GH-001:** `gh pr list/view/checks/create` and `issue list/view` render as boxless summary cards (table output or `gh --json`); `gh run list/view` render as boxless run cards, `gh run view --job=<id>` renders the job log in a boxed result (`Log · <id>` divider), and `gh run watch`/`gh api` stay raw.
+- **GH-002:** action hints (`d diff`, `c checks`, `Enter details`, `Ctrl+O raw`) are presentation only — no keybinding registration.
 
 ## Certified and fallback tests
 
@@ -212,11 +273,13 @@ If another extension already owns a message/tool renderer: compose only through 
 - thinking-only/tool-only/mixed messages; each special block collapsed/expanded;
 - built-in tools with incomplete args, partial updates, success, error, cancellation, truncation;
 - diff and syntax-highlight preservation; no-color/ASCII/theme invalidation;
+- git/gh parsers (long and `--short` status, `diff --stat`, `log`, `gh --json` records) accept valid output and return `null` on hostile input;
+- git/gh render snapshots: compact card, boxed diff reuse, raw fallback, nonzero-exit stderr preservation;
 - unsupported target shapes; repeated reload and later-owner replacement; native fallback snapshots.
 
 ## Roadmap coverage
 
-- Implemented in: Phase 5.
+- Implemented in: Phase 5; git/gh semantic views: Phase 8.
 - Full conflict/config controls: Phase 6.
 - Performance/platform/release proof: Phase 7; manual evidence pending.
-- Requirement IDs: `MSG-001` through `MSG-006`, `TOOL-001` through `TOOL-007`.
+- Requirement IDs: `MSG-001` through `MSG-006`, `TOOL-001` through `TOOL-007`, `GIT-001` through `GIT-004`, `GH-001` through `GH-002`.

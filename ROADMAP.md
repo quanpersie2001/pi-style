@@ -35,6 +35,7 @@ The product contract lives in [`docs/PRODUCT.md`](docs/PRODUCT.md). Detailed beh
 | 5 | Messages and tool presentation | **Completed — Peer accepted** |
 | 6 | Full configurability and extension composition | **Completed — independently Peer accepted and Root validated** |
 | 7 | Hardening, platform validation, and v1 release | **Verified** — terminal-global background synchronization unsupported/off for technical v1 |
+| 8 | Git and GitHub semantic renderers | **Planned** |
 
 ---
 
@@ -552,6 +553,62 @@ Phases 0–6.
 
 ---
 
+## Phase 8 — Git and GitHub semantic renderers
+
+**Status:** Planned. Design accepted as [ADR 0005](docs/decisions/0005-git-github-semantic-renderers.md) (2026-08-05).
+
+### Objective
+
+Render `git` and `gh` results semantically as **presentation adapters of the Bash result**: the Bash tool keeps executing the command unchanged, and only the presentation of the result changes. Git/GitHub views reuse the existing boxless tree family (`List`/`Glob`/`Grep`), the boxed result shell, and the `Edit` adaptive diff component — no new tool registration, no "Git mode", no second diff visual language. Anything that cannot be parsed safely (pipes/redirects/`&&`/`;`, plumbing, `gh api`, hostile output, nonzero exit with unparseable output) falls back to the raw boxed Bash shell. This phase is **presentation-only** and is distinct from the post-v1 "Shell/Bash mode" research item, which would own input/interpretation.
+
+### Deliverables
+
+#### Phase 8A — Git summary cards (boxless)
+
+- `classifyGitCommand` + registry keyed by `toolCallId` (mirrors `bashTreeStates`; reset on session start/shutdown).
+- Parsers: `git status` (long and `--short`), `git diff --stat`, short `git log`; every parser returns `null` on hostile input.
+- Compact card rendering reusing `renderOutputTree` rows: summary counts (modified/untracked/staged/deleted/renamed/conflicted), grouped `├─/└─` file rows, `… N more` collapse.
+- Branch shown only when it affects the result (push/merge/ahead-behind); the status line owns `⎇ main`.
+- Icons gated by the existing Nerd Font glyph-mode config.
+
+#### Phase 8B — Boxed diffs and content
+
+- `git diff` / `git show` / conflict: split the unified output per file, render each file through the same `AdaptiveDiffComponent` `Edit` uses, framed by `renderBoxedToolResult` with a `Diff · +N -M` divider and `Ctrl+O` expand preservation.
+- `git show --stat` is the exception: a commit header + stat block, so it renders as a diff-stat-style boxless card (not a boxed diff). A plain `git show` keeps the boxed per-file diff.
+- No double-box: Git header outside, frame only around viewer content.
+- Nonzero-exit results preserve raw stderr; semantic error view only when output still parses.
+
+#### Phase 8C — Git state-change commands
+
+- `git commit`, `push`, `pull`, `fetch`, `add`, `restore`, `reset`, `switch`, `checkout`, `merge`, `rebase`: status-summary cards when output parses (staged-file lists, push summaries, ahead/behind), raw fallback otherwise.
+
+#### Phase 8D — `gh` workflow commands
+
+- `gh pr list/view/create/checks`, `issue list/view`, `run list/view/watch` via `gh --json` output: boxless summaries (PR state, base/head, checks, reviews, mergeability) with boxed checks/logs for detail.
+- Action hints (`d diff`, `c checks`, `Enter details`, `Ctrl+O raw`) are presentation only — no keybinding registration.
+- `gh api`, extensions, and free-form JSON stay raw.
+
+### Dependencies
+
+Phase 5 (bash tree classification + boxed result shell + `Edit` diff component); ADR 0005. No new Pi-core patch identity — the renderers extend the already-certified bash renderer surface.
+
+### Exit criteria
+
+- All `GIT-001`–`GIT-004` and `GH-001`–`GH-002` requirements are proven.
+- Parser unit tests accept valid long/`--short`/`diff --stat`/`log`/`gh --json` output and return `null` on hostile input.
+- Render snapshots cover compact cards, boxed diff reuse, raw fallback, and nonzero-exit stderr preservation; `NO_COLOR`/ASCII and Nerd Font modes are readable.
+- Built-in Bash execution and result shapes remain unchanged (`TOOL-001`).
+- Unparseable/unsupported commands render the raw boxed Bash shell (`GIT-003`).
+- `npm run check` passes.
+
+### Primary docs
+
+- [`docs/decisions/0005-git-github-semantic-renderers.md`](docs/decisions/0005-git-github-semantic-renderers.md)
+- [`docs/ui/MESSAGES-AND-TOOLS.md`](docs/ui/MESSAGES-AND-TOOLS.md)
+- [`docs/ui/THEMING.md`](docs/ui/THEMING.md)
+
+---
+
 ## Post-v1 research lane
 
 These items are not silently included in v1. Each requires a new product contract, ADR, compatibility tier, and validation plan.
@@ -579,6 +636,7 @@ These items are not silently included in v1. Each requires a new product contrac
 | 5 | Feed presentation | Messages/tools | Tier C patches | Streaming/patch/fallback tests |
 | 6 | User control/migrations | All configurable surfaces | Conflict/doctor matrix | Persistence/composition tests |
 | 7 | Full product completion | All | Platform/version matrix | Full check, benchmarks, manual smoke |
+| 8 | Git/GitHub semantic renderers | Messages/tools | Certified bash renderer surface | Parser/render/fallback tests, full check |
 
 ## Rules for roadmap updates
 

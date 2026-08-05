@@ -17,6 +17,25 @@ import {
 	shortenPath,
 } from "../../../shared/box.js";
 import { safeTruncateToWidth, truncateAtCodePointBoundary } from "../../../shared/render-budget.js";
+import { parseSimpleBashCommand } from "./command-shape.js";
+import {
+	classifyGhCommand,
+	type GhParsedSemantic,
+	type GhRunJobParsed,
+	type GhSemanticClass,
+	parseGhOutput,
+	renderGhCardLines,
+	renderGhRunJobResult,
+} from "./gh.js";
+import {
+	classifyGitCommand,
+	type GitDiffParsed,
+	type GitParsedSemantic,
+	type GitSemanticClass,
+	parseGitOutput,
+	renderGitCardLines,
+	renderGitDiffResult,
+} from "./git.js";
 import {
 	type GrepMatch,
 	groupMatchesByFile,
@@ -573,59 +592,7 @@ interface BashTreeClass {
 	readonly singlePath?: string;
 }
 
-const BASH_PREFIX_COMMANDS = new Set(["sudo", "env", "time", "nice", "nohup", "command", "stdbuf", "ionice", "watch"]);
 const BASH_GREP_COMMANDS = new Set(["grep", "egrep", "fgrep", "rg"]);
-// Pipes (`|`), `;`, and `&` are excluded here: the classifier validates them
-// explicitly (allowing `cd X && cmd` chains and a trailing `| head/tail`).
-const BASH_SHELL_META_CHARS = new Set(["<", ">", "(", ")", "`"]);
-
-/** Tokenize a single command line, stripping quotes. Returns null on an
- *  unterminated quote. `hasMeta` is true if any shell metacharacter appears
- *  *outside* quotes (so `grep 'a|b' f` stays classifiable). */
-function tokenizeCommandLine(line: string): { tokens: string[]; hasMeta: boolean } | null {
-	const tokens: string[] = [];
-	let current = "";
-	let inToken = false;
-	let quote: string | null = null;
-	let hasMeta = false;
-	for (let i = 0; i < line.length; i++) {
-		const char = line[i] ?? "";
-		if (quote) {
-			if (char === "\\" && quote === '"') {
-				current += line[++i] ?? "";
-				continue;
-			}
-			if (char === quote) {
-				quote = null;
-				continue;
-			}
-			current += char;
-			continue;
-		}
-		if (char === '"' || char === "'") {
-			quote = char;
-			inToken = true;
-			continue;
-		}
-		if (char === " " || char === "\t") {
-			if (inToken) {
-				tokens.push(current);
-				current = "";
-				inToken = false;
-			}
-			continue;
-		}
-		if (BASH_SHELL_META_CHARS.has(char) || (char === "$" && (line[i + 1] ?? "") === "(")) {
-			hasMeta = true;
-			continue;
-		}
-		current += char;
-		inToken = true;
-	}
-	if (quote) return null;
-	if (inToken) tokens.push(current);
-	return { tokens, hasMeta };
-}
 
 /** grep/rg flags that consume a separate value token (`--type ts`). */
 const GREP_VALUE_FLAGS = new Set([
@@ -704,55 +671,11 @@ function classifyByArgs(kind: BashTreeKind, args: string[]): BashTreeClass {
 	};
 }
 
-/** `head [-n N]` / `tail [-n N]` truncation pipe tail (allowed at the end). */
-function isHeadOrTailTail(tokens: readonly string[]): boolean {
-	if (tokens.length === 0 || (tokens[0] !== "head" && tokens[0] !== "tail")) return false;
-	for (let i = 1; i < tokens.length; i++) {
-		const token = tokens[i] ?? "";
-		if (token === "-n") continue;
-		if (/^\d+$/.test(token)) continue;
-		if (/^-\d+$/.test(token)) continue;
-		return false;
-	}
-	return true;
-}
-
 /** Classify a bash command for tree rendering, or null to keep the boxed shell. */
 export function classifyBashCommand(command: string): BashTreeClass | null {
-	const commandText = String(command ?? "").trim();
-	if (!commandText || commandText.includes("\n")) return null;
-	const tokenized = tokenizeCommandLine(commandText);
-	if (!tokenized || tokenized.hasMeta || tokenized.tokens.length === 0) return null;
-	let tokens = tokenized.tokens;
-
-	// Allow a single trailing truncation pipe: `cmd | head [-n] N` / `| tail …`.
-	const pipes = tokens.flatMap((token, i) => (token === "|" ? [i] : []));
-	if (pipes.length > 0) {
-		if (pipes.length > 1) return null;
-		const last = pipes[0] ?? -1;
-		if (!isHeadOrTailTail(tokens.slice(last + 1))) return null;
-		tokens = tokens.slice(0, last);
-	}
-
-	let index = 0;
-	// Skip leading environment assignments (FOO=bar ...) and prefix commands.
-	while (index < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[index] ?? "")) index++;
-	while (index < tokens.length && BASH_PREFIX_COMMANDS.has(tokens[index] ?? "")) index++;
-	// `cd <dir> &&` / `cd <dir>;` chains: the last directory becomes the default
-	// path when the command itself carries none.
-	let cdDir: string | undefined;
-	while (
-		tokens[index] === "cd" &&
-		index + 2 < tokens.length &&
-		tokens[index + 1] !== undefined &&
-		(tokens[index + 2] === "&&" || tokens[index + 2] === ";")
-	) {
-		cdDir = tokens[index + 1];
-		index += 3;
-	}
-	const rest = tokens.slice(index);
-	if (rest.length === 0 || rest.some((token) => token === "&&" || token === ";" || token === "&")) return null;
-
+	const shape = parseSimpleBashCommand(command, { allowTrailingTruncationPipe: true });
+	if (!shape) return null;
+	const rest = shape.tokens;
 	const base = (rest[0] ?? "").split("/").pop() ?? "";
 	let kind: BashTreeKind | null = null;
 	if (base === "ls") kind = "ls";
@@ -761,11 +684,11 @@ export function classifyBashCommand(command: string): BashTreeClass | null {
 	if (!kind) return null;
 
 	const cls = classifyByArgs(kind, rest.slice(1));
-	if (cdDir && cls.pathLabel === "current directory") {
+	if (shape.cdDir && cls.pathLabel === "current directory") {
 		return {
 			kind,
 			...(cls.pattern !== undefined ? { pattern: cls.pattern } : {}),
-			pathLabel: shortenPath(cdDir),
+			pathLabel: shortenPath(shape.cdDir),
 			...(cls.singlePath !== undefined ? { singlePath: cls.singlePath } : {}),
 		};
 	}
@@ -832,22 +755,86 @@ function parseBashTreeOutput(cls: BashTreeClass, output: string): ParsedBashTree
 }
 
 interface BashTreeState {
-	readonly cls: BashTreeClass;
+	readonly cls: BashSemanticClass;
 	/** Raw command, so the call panel can render the boxed bash call on fallback. */
 	readonly command: string;
 	/** `parsed` once the result arrives; `fallback` when the boxed shell takes over. */
-	parsed?: ParsedBashTree;
+	parsed?: ParsedSemantic;
 	fallback?: boolean;
 }
 
-const bashTreeStates = new Map<string, BashTreeState>();
+/** Classified semantic command: a bash tree (ls/find/grep), a git card, or a
+ *  gh card (pr/issue/run). */
+export type BashSemanticClass = BashTreeClass | GitSemanticClass | GhSemanticClass;
+type ParsedSemantic = ParsedBashTree | GitParsedSemantic | GhParsedSemantic;
 
-/** Reset all bash tree state (session start/shutdown, new message). */
-export function resetBashTreeRegistry(): void {
-	bashTreeStates.clear();
+/** Classify a bash command for semantic rendering (tree, git card, or gh
+ *  card), or null to keep the boxed command/response shell. */
+export function classifyBashSemantic(command: string): BashSemanticClass | null {
+	return classifyBashCommand(command) ?? classifyGitCommand(command) ?? classifyGhCommand(command);
 }
 
-function renderBashTreeLines(theme: BoxTheme, state: BashTreeState, width: number): string[] {
+function isBashTreeClass(cls: BashSemanticClass): cls is BashTreeClass {
+	return cls.kind === "ls" || cls.kind === "find" || cls.kind === "grep";
+}
+
+/** Type guard for the gh semantic classes (pr/issue/run list/view/checks/
+ *  create/job). */
+function isGhClass(cls: BashSemanticClass): cls is GhSemanticClass {
+	switch (cls.kind) {
+		case "pr-list":
+		case "pr-view":
+		case "pr-checks":
+		case "pr-create":
+		case "issue-list":
+		case "issue-view":
+		case "run-list":
+		case "run-view":
+		case "run-job":
+			return true;
+		default:
+			return false;
+	}
+}
+
+/** `gh run view --job=<id>` renders a boxed log result (Phase 8D); the other gh
+ *  classes render their whole panel in the call card. */
+function isGhRunJobClass(cls: BashSemanticClass): boolean {
+	return cls.kind === "run-job";
+}
+
+/** `git diff` / `git show` render a boxed adaptive-diff result (Phase 8B); the
+ *  other semantic classes render their whole panel in the call card. */
+function isGitDiffClass(cls: BashSemanticClass): boolean {
+	return !isBashTreeClass(cls) && (cls as GitSemanticClass).kind === "diff";
+}
+
+/** `git commit`/`push`/`pull`/`fetch` may produce informational exit-1 output
+ *  (e.g. `git commit` with nothing staged) that still parses to a card. Their
+ *  parsers are fail-closed, so genuine errors (push rejected, hook failure)
+ *  return null and fall back to the raw boxed shell (ADR 0005). */
+function isGitActionClass(cls: BashSemanticClass): boolean {
+	return !isBashTreeClass(cls) && (cls as GitSemanticClass).kind === "action";
+}
+
+function parseSemanticOutput(cls: BashSemanticClass, output: string): ParsedSemantic | null {
+	if (isBashTreeClass(cls)) return parseBashTreeOutput(cls, output);
+	if (isGhClass(cls)) return parseGhOutput(cls, output);
+	return parseGitOutput(cls, output);
+}
+
+const semanticStates = new Map<string, BashTreeState>();
+
+/** Reset all semantic bash state (session start/shutdown, new message). */
+export function resetBashTreeRegistry(): void {
+	semanticStates.clear();
+}
+
+function renderBashTreeLines(
+	theme: BoxTheme,
+	state: { cls: BashTreeClass; parsed?: ParsedBashTree },
+	width: number,
+): string[] {
 	const safeWidth = Math.max(1, width);
 	const cls = state.cls;
 	if (state.parsed && "entries" in state.parsed) {
@@ -881,13 +868,13 @@ const EMPTY_BASH_TREE_RESULT: Component = {
 };
 
 /** Live panel component for a classified bash command: pending header until the
- *  result arrives, then the parsed output tree. When the result falls back to
- *  the boxed shell, the call renders the boxed bash call instead, so call and
+ *  result arrives, then the parsed output tree/card. When the result falls back
+ *  to the boxed shell, the call renders the boxed bash call instead, so call and
  *  result form one complete box and never duplicate. The state reference is
  *  captured at creation so a registry clear on session reset/resume does not
  *  blank already-rendered panels. */
-function renderBashTreePanel(theme: BoxTheme, toolCallId: string, context: BoxedToolContext): Component {
-	const state = bashTreeStates.get(toolCallId);
+function renderSemanticPanel(theme: BoxTheme, toolCallId: string, context: BoxedToolContext): Component {
+	const state = semanticStates.get(toolCallId);
 	return {
 		invalidate() {},
 		render(width: number): string[] {
@@ -900,7 +887,21 @@ function renderBashTreePanel(theme: BoxTheme, toolCallId: string, context: Boxed
 					bashWidthKey(state.command, context?.args?.timeout),
 				).render(width);
 			}
-			return renderBashTreeLines(theme, state, width);
+			if (isBashTreeClass(state.cls)) {
+				const treeState: { cls: BashTreeClass; parsed?: ParsedBashTree } = { cls: state.cls };
+				if (state.parsed !== undefined) treeState.parsed = state.parsed as ParsedBashTree;
+				return renderBashTreeLines(theme, treeState, width);
+			}
+			// Git classes only ever carry git parsed values (parseSemanticOutput
+			// dispatches on the class), so the narrowed cast is exact.
+			if (isGhClass(state.cls)) {
+				const ghState: { cls: GhSemanticClass; parsed?: GhParsedSemantic } = { cls: state.cls };
+				if (state.parsed !== undefined) ghState.parsed = state.parsed as GhParsedSemantic;
+				return renderGhCardLines(theme, ghState, width);
+			}
+			const gitState: { cls: GitSemanticClass; parsed?: GitParsedSemantic } = { cls: state.cls };
+			if (state.parsed !== undefined) gitState.parsed = state.parsed as GitParsedSemantic;
+			return renderGitCardLines(theme, gitState, width);
 		},
 	};
 }
@@ -908,10 +909,10 @@ function renderBashTreePanel(theme: BoxTheme, toolCallId: string, context: Boxed
 export const bashTool: BoxedToolDefinition = {
 	call(args, theme, context) {
 		noteExecutionStart(context);
-		const cls = classifyBashCommand(String(args?.command ?? ""));
+		const cls = classifyBashSemantic(String(args?.command ?? ""));
 		if (cls) {
-			bashTreeStates.set(context.toolCallId, { cls, command: String(args?.command ?? "") });
-			return renderBashTreePanel(theme, context.toolCallId, context);
+			semanticStates.set(context.toolCallId, { cls, command: String(args?.command ?? "") });
+			return renderSemanticPanel(theme, context.toolCallId, context);
 		}
 		noteBoxedCallState(context);
 		const rawCommand = String(args?.command ?? "...");
@@ -920,25 +921,48 @@ export const bashTool: BoxedToolDefinition = {
 	result(result, options, theme, context) {
 		const firstResultPass = !isResultSeen(context.state);
 		markResultSeen(context.state);
-		const cls = classifyBashCommand(String(context?.args?.command ?? ""));
-		if (cls && !context.isError) {
-			// Tree-classified commands render in the call panel; the result adds
-			// nothing. Keep terminal state in sync without an elapsed ticker.
+		const cls = classifyBashSemantic(String(context?.args?.command ?? ""));
+		// Action classes (commit/push/pull/fetch) also attempt parsing on exit-1
+		// results so informational states like `git commit` with nothing staged
+		// render as a card; the fail-closed parser keeps genuine errors raw.
+		if (cls && (!context.isError || isGitActionClass(cls))) {
+			// Semantic-classified commands render in the call panel; the result adds
+			// nothing. Keep terminal state in sync without an elapsed ticker. Git
+			// parsers only run on the terminal result: streaming partial output may
+			// hold a truncated line that would fail parsing and wrongly fall back.
 			if (!options.isPartial) {
 				recordExecutionEnded(context.state);
 				stopElapsedTicker(context.state);
 			}
-			const output = stripBashToolNoticeLines(stripAnsi(getTextOutput(result)));
-			const parsed = parseBashTreeOutput(cls, output);
-			const state = bashTreeStates.get(context.toolCallId);
-			if (parsed) {
-				if (state) state.parsed = parsed;
-				else bashTreeStates.set(context.toolCallId, { cls, command: String(context?.args?.command ?? ""), parsed });
-				return EMPTY_BASH_TREE_RESULT;
+			if (!options.isPartial || isBashTreeClass(cls)) {
+				const output = stripBashToolNoticeLines(stripAnsi(getTextOutput(result)));
+				const parsed = parseSemanticOutput(cls, output);
+				const state = semanticStates.get(context.toolCallId);
+				if (parsed) {
+					if (state) state.parsed = parsed;
+					else
+						semanticStates.set(context.toolCallId, {
+							cls,
+							command: String(context?.args?.command ?? ""),
+							parsed,
+						});
+					// `git diff` / `git show` render a boxed adaptive-diff result (one frame
+					// per file); `gh run view --job=<id>` renders a boxed log result. Every
+					// other semantic class renders its whole panel in the call card, so the
+					// result adds nothing.
+					if (isGitDiffClass(cls)) {
+						return renderGitDiffResult(theme, parsed as GitDiffParsed, options, context);
+					}
+					if (isGhRunJobClass(cls)) {
+						return renderGhRunJobResult(theme, parsed as GhRunJobParsed, options, context);
+					}
+					return EMPTY_BASH_TREE_RESULT;
+				}
+				// Unparseable output (ls -l, raw rg summary, non-git output): the boxed
+				// shell owns the result; flag the call panel to render nothing so the
+				// two don't duplicate.
+				if (state) state.fallback = true;
 			}
-			// Unparseable output (ls -l, raw rg summary): the boxed shell owns the
-			// result; flag the call panel to render nothing so the two don't duplicate.
-			if (state) state.fallback = true;
 		} else if (options.isPartial) {
 			startElapsedTicker(context.state, context.invalidate);
 		} else {
