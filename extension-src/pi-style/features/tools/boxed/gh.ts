@@ -13,7 +13,7 @@
 // table/rich text format is parsed.
 
 import type { Component } from "@earendil-works/pi-tui";
-import { dimLine, type BoxTheme, renderBoxedToolResult } from "../../../shared/box.js";
+import { type BoxTheme, dimLine, renderBoxedToolResult } from "../../../shared/box.js";
 import { formatElapsedMs } from "../../../shared/elapsed.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import { parseSimpleBashCommand } from "./command-shape.js";
@@ -622,7 +622,7 @@ function parseGhRunView(text: string): GhRunViewParsed | null {
 			}
 			// Location-reference row following a `! …` message (`check (22):
 			// .github#2`) — a dim source pointer, not a new annotation.
-			const sourceMatch = /^[A-Za-z0-9_ ./()\-]+\(\d+\): \S+#\d+$/.exec(line);
+			const sourceMatch = /^[A-Za-z0-9_ ./()-]+\(\d+\): \S+#\d+$/.exec(line);
 			if (sourceMatch) {
 				annotations.push({ text: line });
 				idx++;

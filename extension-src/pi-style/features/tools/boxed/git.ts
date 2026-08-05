@@ -12,7 +12,14 @@
 
 import { getLanguageFromPath } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { dimLine, type BoxTheme, boxBlankLine, boxLabeledBorder, boxWidth, renderBoxedToolResult } from "../../../shared/box.js";
+import {
+	type BoxTheme,
+	boxBlankLine,
+	boxLabeledBorder,
+	boxWidth,
+	dimLine,
+	renderBoxedToolResult,
+} from "../../../shared/box.js";
 import { formatElapsedMs } from "../../../shared/elapsed.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import { AdaptiveDiffComponent, buildSplitRows, countDiffStats } from "../../../shared/split-diff.js";

@@ -13,7 +13,7 @@
 
 import type { Component } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
-import { dimLine, type BoxTheme, getTextOutput, shortenPath } from "../../../shared/box.js";
+import { type BoxTheme, dimLine, getTextOutput, shortenPath } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import {
 	type GrepMatch,

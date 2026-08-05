@@ -13,9 +13,9 @@
 import type { Component } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
 import {
-	dimLine,
 	type BoxTheme,
 	boxedToolWidthKey,
+	dimLine,
 	getTextOutput,
 	renderBoxedToolResult,
 	renderCompactBoxedToolCall,

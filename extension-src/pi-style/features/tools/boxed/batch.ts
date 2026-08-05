@@ -28,7 +28,7 @@
 
 import type { Component } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
-import { dimLine, type BoxTheme, formatToolTitlePrefix } from "../../../shared/box.js";
+import { type BoxTheme, dimLine, formatToolTitlePrefix } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import {
 	fileIcon,
@@ -408,11 +408,7 @@ function renderOutputBatchPanel(theme: BoxTheme, batch: BatchState, status: Batc
 	});
 	if (more > 0) {
 		out.push(
-			safeTruncateToWidth(
-				`${BATCH_TREE_INDENT}${dimLine("└─")} ${theme.fg("dim", `${more} more`)}`,
-				safeWidth,
-				"…",
-			),
+			safeTruncateToWidth(`${BATCH_TREE_INDENT}${dimLine("└─")} ${theme.fg("dim", `${more} more`)}`, safeWidth, "…"),
 		);
 	}
 	return out;

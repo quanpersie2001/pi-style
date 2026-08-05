@@ -7,8 +7,8 @@ import { highlightCode } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 
 import { stripAnsi } from "./ansi.js";
-import { safeTruncateToWidth, safeVisibleWidth } from "./render-budget.js";
 import { dimLine } from "./box.js";
+import { safeTruncateToWidth, safeVisibleWidth } from "./render-budget.js";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -885,8 +885,7 @@ class SplitDiffRenderer {
 			// Keep marker+space columns, then place label inside the line-number column.
 			const markerPad = "  ";
 			const lineNumberLabel = fitToWidth(label, this.ctx.lineNumberWidth);
-			const prefixAnsi =
-				dimLine(markerPad) + this.ctx.fg("dim", lineNumberLabel) + dimLine(" │ ");
+			const prefixAnsi = dimLine(markerPad) + this.ctx.fg("dim", lineNumberLabel) + dimLine(" │ ");
 			const prefixPlain = `${markerPad}${stripAnsi(lineNumberLabel)} │ `;
 			const codeWidth = Math.max(0, columnWidth - safeVisibleWidth(prefixPlain));
 			return padRenderedLineWidth(prefixAnsi + " ".repeat(codeWidth), columnWidth);

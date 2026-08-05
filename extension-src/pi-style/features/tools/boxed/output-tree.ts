@@ -350,9 +350,7 @@ export function renderGrepTree(
 	}
 
 	if (truncated) {
-		push(
-			`${indent}${dimLine("└─")} ${theme.fg("dim", `… ${remaining} more ${pluralForm("match", remaining)}`)}`,
-		);
+		push(`${indent}${dimLine("└─")} ${theme.fg("dim", `… ${remaining} more ${pluralForm("match", remaining)}`)}`);
 	}
 	return out;
 }
