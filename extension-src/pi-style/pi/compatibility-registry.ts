@@ -5,7 +5,8 @@ export type CompatibilitySubtype =
 	| "native-skill-message"
 	| "native-custom-message"
 	| "tool-call-renderer"
-	| "tool-result-renderer";
+	| "tool-result-renderer"
+	| "native-bash-execution";
 
 type CompatibilityShape = "supported" | "unsupported" | "conflict" | "installed" | "skipped";
 
@@ -171,6 +172,13 @@ function validateInstall(
 	if (!options.shape) return skippedResult(options, "unsupported", options.diagnostic ?? "unsupported shape", current);
 	const conflict = existing && activeConflict(existing, current, options.generation);
 	if (conflict) return conflict;
+	if (options.kind === "add-method") {
+		// Additive install: the slot must be unowned (the method is inherited); the
+		// delegate receives the inherited native function as its fallback identity.
+		if (current !== undefined || ownDescriptor !== undefined)
+			return skippedResult(options, "conflict", "target already owns the additive method", current);
+		return undefined;
+	}
 	if (typeof current !== "function")
 		return skippedResult(
 			options,
@@ -225,6 +233,8 @@ export function installDelegatingPatch(options: {
 	expectedIdentity?: unknown;
 	hasExpectedIdentity?: boolean;
 	diagnostic?: string | undefined;
+	/** "add-method" installs a new own method on the prototype (nothing may already own the slot); the delegate receives the inherited native function as the fallback. */
+	kind?: "method" | "add-method";
 	delegate: (original: unknown, thisArg: object, args: unknown[]) => unknown;
 }): InstallResult {
 	const { target, method } = options;
@@ -235,7 +245,9 @@ export function installDelegatingPatch(options: {
 	const validation = validateInstall(options, current, records.get(method), inspection.descriptor);
 	if (validation) return validation;
 	const originalDescriptor = Object.getOwnPropertyDescriptor(target, method);
-	const originalIdentity = current;
+	// Additive installs have no current owner; the captured inherited native
+	// function (expectedIdentity) is both the fallback and the delegate's original.
+	const originalIdentity = options.kind === "add-method" ? options.expectedIdentity : current;
 	let active = true;
 	const installed = function (this: object, ...args: unknown[]): unknown {
 		if (!active) return Reflect.apply(originalIdentity as (...values: unknown[]) => unknown, this, args);
@@ -260,7 +272,11 @@ export function installDelegatingPatch(options: {
 	};
 	try {
 		Object.defineProperty(installed, "__piStyleCompatibilityRecord", { value: record, configurable: false });
-		const descriptor = { ...originalDescriptor, value: installed };
+		// Additive installs have no original descriptor; write a fresh writable,
+		// configurable, non-enumerable own method so the slot stays reversible.
+		const descriptor = originalDescriptor
+			? { ...originalDescriptor, value: installed }
+			: { value: installed, writable: true, enumerable: false, configurable: true };
 		const wrote = Reflect.defineProperty(target, method, descriptor);
 		registryTestHooks.afterWrite?.();
 		const currentDescriptor = Object.getOwnPropertyDescriptor(target, method);

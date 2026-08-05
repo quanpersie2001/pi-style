@@ -4,6 +4,7 @@ import type { ConfigFilePort } from "../app/config-storage.js";
 import { createPiStyleApp, type PiStyleApp } from "../app/index.js";
 import { resolveTheme } from "../domain/theme.js";
 import { setSpecialBlockTheme } from "../features/messages/special-blocks.js";
+import { setBashExecutionTheme } from "../features/tools/bash-execution.js";
 import { resetBashTreeRegistry } from "../features/tools/boxed/bash.js";
 import { resetBatchRegistry } from "../features/tools/boxed/batch.js";
 import { resetGrepRegistry } from "../features/tools/boxed/grep.js";
@@ -191,6 +192,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			applyToolsRenderConfig(app.config);
 			applyMessagesConfig(app.config);
 			if (ctx.ui?.theme) setSpecialBlockTheme(ctx.ui.theme as never);
+			if (ctx.ui?.theme) setBashExecutionTheme(ctx.ui.theme as never);
 			const toolDetails = collectToolDetails(pi.getActiveTools?.(), pi.getAllTools?.());
 			app.sessionStart(
 				{

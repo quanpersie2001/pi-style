@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	AssistantMessageComponent,
+	BashExecutionComponent,
 	BranchSummaryMessageComponent,
 	CompactionSummaryMessageComponent,
 	CustomMessageComponent,
@@ -15,6 +16,7 @@ import {
 	type MessageDecorationSnapshot,
 } from "../features/messages/index.js";
 import { renderSpecialMessageBlock, type SpecialBlockSubtype } from "../features/messages/special-blocks.js";
+import { renderBashExecutionBox } from "../features/tools/bash-execution.js";
 import { createToolDecorationOwner } from "../features/tools/index.js";
 import {
 	type CompatibilityRecord,
@@ -42,6 +44,7 @@ export const TRUSTED_NATIVE_FINGERPRINTS: Readonly<Record<string, string>> = Obj
 	"native-custom-message:rebuild": "76ae2e3a",
 	"tool-call-renderer:getCallRenderer": "951ea0e0",
 	"tool-result-renderer:getResultRenderer": "8a25cd71",
+	"native-bash-execution:render": "a5b5abca",
 });
 
 export const CERTIFICATION_TABLE = Object.freeze({
@@ -138,6 +141,23 @@ export const CERTIFICATION_TABLE = Object.freeze({
 			adapterId: "message-block-boxed-v1",
 			status: "certified" as const,
 		}),
+		"native-bash-execution:render": Object.freeze({
+			feature: "tools",
+			subtype: "native-bash-execution",
+			target: BashExecutionComponent.prototype,
+			method: "render",
+			writable: true,
+			configurable: true,
+			// The additive render patch is certified by the class constructor identity
+			// (name/arity/source fingerprint): the class defines no own `render`, so
+			// the installed own method is the only one and the inherited Container
+			// render is the native fallback.
+			name: "BashExecutionComponent",
+			arity: 2,
+			fingerprint: TRUSTED_NATIVE_FINGERPRINTS["native-bash-execution:render"],
+			adapterId: "bash-execution-box-v1",
+			status: "certified" as const,
+		}),
 	}),
 });
 
@@ -205,6 +225,12 @@ export interface TargetSpec {
 	adapterId: string | undefined;
 	status: "certified" | "native-fallback";
 	fallbackReason?: string;
+	/** "add-method" installs a new own method; the class constructor fingerprint certifies the target. */
+	kind?: "method" | "add-method";
+	/** Function name to verify (defaults to `method`; additive patches verify the class constructor name). */
+	identityName?: string;
+	/** Expected arity (defaults to the standard per-method rule; additive patches verify the constructor arity). */
+	arity?: number;
 }
 
 export function fingerprint(value: unknown): string | undefined {
@@ -219,15 +245,33 @@ export function fingerprint(value: unknown): string | undefined {
 
 function trustedNativeIdentity(spec: TargetSpec, piVersion: string | undefined): unknown {
 	if (piVersion !== TRUSTED_PI_VERSION) return undefined;
+	if (spec.kind === "add-method") {
+		// Additive install: the prototype must not already own the method (it is
+		// inherited), the class constructor identity must match the recorded build,
+		// and the inherited method becomes the native fallback for the delegate.
+		if (Object.getOwnPropertyDescriptor(spec.target, spec.method)) return undefined;
+		const ctor = Object.getOwnPropertyDescriptor(spec.target, "constructor")?.value;
+		const key = `${spec.subtype}:${spec.method}`;
+		if (
+			typeof ctor !== "function" ||
+			ctor.name !== (spec.identityName ?? spec.method) ||
+			ctor.length !== (spec.arity ?? 0) ||
+			fingerprint(ctor) !== TRUSTED_NATIVE_FINGERPRINTS[key]
+		)
+			return undefined;
+		const inherited = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(spec.target), spec.method)?.value;
+		return typeof inherited === "function" ? inherited : undefined;
+	}
 	const descriptor = Object.getOwnPropertyDescriptor(spec.target, spec.method);
 	const value = descriptor?.value;
 	const key = `${spec.subtype}:${spec.method}`;
+	const expectedArity = spec.arity ?? (spec.method === "render" || spec.method === "updateContent" ? 1 : 0);
 	if (
 		descriptor?.writable !== true ||
 		descriptor.configurable !== true ||
 		typeof value !== "function" ||
-		value.name !== spec.method ||
-		value.length !== (spec.method === "render" || spec.method === "updateContent" ? 1 : 0) ||
+		value.name !== (spec.identityName ?? spec.method) ||
+		value.length !== expectedArity ||
 		fingerprint(value) !== TRUSTED_NATIVE_FINGERPRINTS[key]
 	)
 		return undefined;
@@ -297,6 +341,17 @@ export const targetSpecs: readonly TargetSpec[] = [
 		target: ToolExecutionComponent.prototype,
 		method: "getResultRenderer",
 		adapterId: "tool-renderer-component-v1",
+		status: "certified",
+	},
+	{
+		feature: "tools",
+		subtype: "native-bash-execution",
+		target: BashExecutionComponent.prototype,
+		method: "render",
+		kind: "add-method",
+		identityName: "BashExecutionComponent",
+		arity: 2,
+		adapterId: "bash-execution-box-v1",
 		status: "certified",
 	},
 ];
@@ -399,8 +454,11 @@ function versionInRange(version: string | undefined): boolean {
 	return version === TRUSTED_PI_VERSION;
 }
 
-function shape(target: object, method: string): boolean {
-	const descriptor = Object.getOwnPropertyDescriptor(target, method);
+function shape(spec: TargetSpec): boolean {
+	const descriptor = Object.getOwnPropertyDescriptor(spec.target, spec.method);
+	// Additive installs need an unowned slot (the method is inherited); every
+	// other patch requires the native own writable/configurable method.
+	if (spec.kind === "add-method") return descriptor === undefined;
 	return typeof descriptor?.value === "function" && descriptor.writable === true && descriptor.configurable === true;
 }
 
@@ -444,7 +502,7 @@ function createFallbackRecord(
 
 function probeDiagnostic(spec: TargetSpec, piVersion: string | undefined, identity: unknown): string {
 	if (!versionInRange(piVersion)) return "Pi version is unknown or outside the recorded 0.83.0 support build";
-	if (!shape(spec.target, spec.method)) return "target method shape is not an own writable/configurable function";
+	if (!shape(spec)) return "target method shape is not an own writable/configurable function";
 	if (identity === undefined) return "recorded 0.83.0 native fingerprint, name, or arity did not match";
 	return "exact native identity verified; certified guarded decoration enabled";
 }
@@ -484,13 +542,19 @@ function probeSpec(options: {
 		method: spec.method,
 		piVersion: piVersion ?? "unknown",
 		versionRange: PI_VERSION_RANGE,
-		shape: identity !== undefined && versionInRange(piVersion) && shape(spec.target, spec.method),
+		shape: identity !== undefined && versionInRange(piVersion) && shape(spec),
 		generation,
 		expectedIdentity: identity,
 		hasExpectedIdentity: true,
 		diagnostic,
+		...(spec.kind ? { kind: spec.kind } : {}),
 		delegate: (original, target, args) => {
 			markers.add(`${spec.subtype}:delegated`);
+			if (spec.subtype === "native-bash-execution")
+				return (
+					renderBashExecutionBox(target, args) ??
+					Reflect.apply(original as (...values: unknown[]) => unknown, target, args)
+				);
 			if (spec.feature === "tools")
 				return (
 					toolOwner?.decorateToolRendererSelection(

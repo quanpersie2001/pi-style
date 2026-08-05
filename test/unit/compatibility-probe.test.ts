@@ -150,11 +150,11 @@ describe("Pi 0.83 compatibility probe", () => {
 	it.each([
 		// Core/message/tool surfaces are default-on (fingerprint-certified, fail-closed,
 		// conflict-preserving); explicit flags and the ASCII override still work.
-		[{}, 8],
+		[{}, 9],
 		[{ "pi-style-core-patches": false }, 0],
-		[{ "pi-style-ascii": true }, 8],
+		[{ "pi-style-ascii": true }, 9],
 		[{ "pi-style-tools": false }, 6],
-		[{ "pi-style-message-special-blocks": false }, 4],
+		[{ "pi-style-message-special-blocks": false }, 5],
 	] as const)("enables certified surfaces by default with explicit flag overrides %#", async (flags, expected) => {
 		const host = new FakePiHost({ flags });
 		piStyleExtension(host.extensionApi);
@@ -172,7 +172,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		initTheme("dark", false);
 		const markers = new Set<string>();
 		const report = probePiCompatibility("0.83.0", markers);
-		expect(report.recordSnapshots).toHaveLength(8);
+		expect(report.recordSnapshots).toHaveLength(9);
 		expect(report.recordSnapshots.every((record) => record.piVersion === "0.83.0")).toBe(true);
 		expect(report.recordSnapshots.every((record) => record.shape === "installed")).toBe(true);
 		expect(report.recordSnapshots.every((record) => record.disposed === false)).toBe(true);
@@ -494,7 +494,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		await host.sessionStart();
 		expect(
 			targetSpecs.filter((spec) => getCompatibilityRecords(spec.target).some((record) => !record.disposed)).length,
-		).toBe(8);
+		).toBe(9);
 		await host.sessionShutdown();
 		// Tier C patches are retained across session switches (Pi renders the restored
 		// chat with renderBeforeBind before the next session_start, which restores and
@@ -503,7 +503,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		await host.sessionStart();
 		expect(
 			targetSpecs.filter((spec) => getCompatibilityRecords(spec.target).some((record) => !record.disposed)).length,
-		).toBe(8);
+		).toBe(9);
 		await host.sessionShutdown();
 
 		// OFF switch: `compatibility.allowCorePatches: false` in config denies all core patches.
@@ -560,9 +560,9 @@ describe("Pi 0.83 compatibility probe", () => {
 		).toBeUndefined();
 		for (const version of [undefined, "0.84.0"]) {
 			const report = probePiCompatibility(version);
-			expect(report.recordSnapshots).toHaveLength(8);
+			expect(report.recordSnapshots).toHaveLength(9);
 			expect(report.recordSnapshots.every((record) => record.shape === "unsupported")).toBe(true);
-			expect(report.unsupported).toHaveLength(8);
+			expect(report.unsupported).toHaveLength(9);
 		}
 	});
 
@@ -642,11 +642,23 @@ describe("Pi 0.83 compatibility probe", () => {
 
 	it("enforces generation and incomplete lifecycle cleanup", () => {
 		for (const spec of targetSpecs) {
+			if (spec.kind === "add-method") {
+				// Additive patch: no own method may exist (it is inherited), and the
+				// recorded identity is the class constructor.
+				expect(Object.getOwnPropertyDescriptor(spec.target, spec.method)).toBeUndefined();
+				const ctor = Object.getOwnPropertyDescriptor(spec.target, "constructor")?.value;
+				expect(ctor?.name).toBe(spec.identityName ?? spec.method);
+				expect(ctor?.length).toBe(spec.arity ?? 0);
+				expect(fingerprint(ctor)).toBe(TRUSTED_NATIVE_FINGERPRINTS[`${spec.subtype}:${spec.method}`]);
+				continue;
+			}
 			const descriptor = Object.getOwnPropertyDescriptor(spec.target, spec.method);
 			expect(descriptor?.writable).toBe(true);
 			expect(descriptor?.configurable).toBe(true);
-			expect(descriptor?.value?.name).toBe(spec.method);
-			expect(descriptor?.value?.length).toBe(spec.method === "render" || spec.method === "updateContent" ? 1 : 0);
+			expect(descriptor?.value?.name).toBe(spec.identityName ?? spec.method);
+			expect(descriptor?.value?.length).toBe(
+				spec.arity ?? (spec.method === "render" || spec.method === "updateContent" ? 1 : 0),
+			);
 			expect(fingerprint(descriptor?.value)).toBe(TRUSTED_NATIVE_FINGERPRINTS[`${spec.subtype}:${spec.method}`]);
 		}
 		const beforeDescriptors = descriptors();
@@ -658,7 +670,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		disposePiCompatibilityProbe(report);
 		expect(descriptors()).toEqual(beforeDescriptors);
 		const replacement = probePiCompatibility("0.83.0");
-		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(8);
+		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(9);
 		expect(markers).not.toContain("native-assistant-message:delegated");
 		const snapshots: readonly CompatibilityRecordSnapshot[] = report.recordSnapshots;
 		expect(snapshots.every((record) => record.generation > 0)).toBe(true);

@@ -77,6 +77,22 @@ Default prompt `❯`; Unicode/ASCII fallback `>`.
 - editable input is wrapped, never truncated;
 - very narrow width removes optional frame/padding before harming input usability.
 
+## Bash mode (`!` prefix)
+
+Pi treats an input starting with `!` as a direct bash command and switches the editor border to the `bashMode` color. pi-style makes that mode visible in the input itself:
+
+```text
+╭─  echo "zz" ─────────────────────────────────────────────╮
+│  continuation / cursor                                    │
+╰──────────────────────────────────────────────────────────╯
+```
+
+- Prompt glyph becomes `` (Nerd Font; `$` in Unicode/ASCII modes; `theme.glyphs.bashPrompt` override), colored with the live bash border color.
+- The leading `!` (and the `!!` context-exclusion run) is hidden from the display; the cursor stays correctly aligned (the hardware-cursor marker rides along). A cursor sitting on a hidden `!` keeps the native cursor block.
+- Emptying the input returns to the normal `❯` prompt and the thinking-synced border automatically (Pi's `isBashMode` rule).
+- A bare bang submit (`!` / `!!` with no command after it) is dropped instead of being sent to the agent as a literal message: Pi's submit path already cleared the editor, so the input just returns to the normal prompt. Real bash commands (`!echo hi`) and non-interactive input sources are never touched.
+- Display-only: the real editor text keeps the `!` prefix, so submit/history/undo and Pi's execution path are untouched.
+
 ## Input behavior
 
 - Unhandled keys call `super.handleInput(data)`.

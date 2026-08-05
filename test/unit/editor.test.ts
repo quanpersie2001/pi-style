@@ -152,4 +152,69 @@ describe("styled editor renderer", () => {
 		expect(plain(lines.join("\n")).includes("Ask Pi anything")).toBe(true);
 		expect(lines.every((line) => visibleWidth(line) <= 60)).toBe(true);
 	});
+
+	it("switches the prompt to the bash icon and hides the leading `!` in bash mode", () => {
+		const editor = new StyledEditor(fakeTui(), fakeTheme(), fakeKeys(), {
+			config: normalizeConfig({ editor: { style: "dock", frame: "rounded" }, theme: { nerdFonts: "on" } }),
+			snapshot: {},
+			theme: fakeTheme(),
+			onSnapshot: () => {},
+		});
+		editor.setText("!echo hi");
+		const lines = editor.render(80);
+		const plain = (line: string) => line.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "");
+		const body = plain(lines.join("\n"));
+		// The `!` is replaced by the Nerd-Font bash icon; the command text follows.
+		expect(body).toContain(" echo hi");
+		expect(body).not.toContain("!echo hi");
+		// The frame is still the rounded dock box.
+		expect(plain(lines[0] ?? "")).toBe(`╭${"─".repeat(78)}╮`);
+		expect(plain(lines[lines.length - 1] ?? "")).toBe(`╰${"─".repeat(78)}╯`);
+		expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
+	});
+
+	it("uses the `$` glyph and hides `!` in unicode mode, and `!!` hides both", () => {
+		const editor = new StyledEditor(fakeTui(), fakeTheme(), fakeKeys(), {
+			config: normalizeConfig({ editor: { style: "dock", frame: "rounded" } }),
+			snapshot: {},
+			theme: fakeTheme(),
+			onSnapshot: () => {},
+		});
+		const plain = (line: string) => line.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "");
+		editor.setText("!echo hi");
+		expect(plain(editor.render(80).join("\n"))).toContain("$ echo hi");
+		expect(plain(editor.render(80).join("\n"))).not.toContain("!echo hi");
+		editor.setText("!!git status");
+		const both = plain(editor.render(80).join("\n"));
+		expect(both).toContain("$ git status");
+		expect(both).not.toContain("!!git status");
+	});
+
+	it("returns to the normal prompt when the input is cleared", () => {
+		const editor = new StyledEditor(fakeTui(), fakeTheme(), fakeKeys(), {
+			config: normalizeConfig({ editor: { style: "dock", frame: "rounded" } }),
+			snapshot: {},
+			theme: fakeTheme(),
+			onSnapshot: () => {},
+		});
+		const plain = (line: string) => line.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "");
+		editor.setText("!pwd");
+		expect(plain(editor.render(80).join("\n"))).toContain("$ pwd");
+		editor.setText("");
+		const empty = plain(editor.render(80).join("\n"));
+		expect(empty).toContain("❯");
+		expect(empty).not.toContain("$ pwd");
+	});
+
+	it("does not hide the `!` in native editor style (no decorated prompt)", () => {
+		const editor = new StyledEditor(fakeTui(), fakeTheme(), fakeKeys(), {
+			config: normalizeConfig({ editor: { style: "native" } }),
+			snapshot: {},
+			theme: fakeTheme(),
+			onSnapshot: () => {},
+		});
+		editor.setText("!echo hi");
+		const plain = (line: string) => line.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "");
+		expect(plain(editor.render(80).join("\n"))).toContain("!echo hi");
+	});
 });

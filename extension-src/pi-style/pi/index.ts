@@ -66,7 +66,24 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		await coordinator.start(event, ctx);
 	});
 	pi.on("agent_start", () => coordinator.app.runtime.current?.dismissStartup());
-	pi.on("input", () => coordinator.app.runtime.current?.dismissStartup());
+	pi.on("input", (event, _ctx) => {
+		coordinator.app.runtime.current?.dismissStartup();
+		// Bare `!`/`!!` submit guard: Pi treats `!`-prefixed input as a direct bash
+		// command but falls through to normal message submission when the bang has
+		// no command after it — sending a literal `!` to the agent. Drop those
+		// accidental submits instead; Pi's submit path already cleared the editor
+		// (onChange("") resets isBashMode), so the input returns to the normal
+		// prompt without sending anything. Only the interactive input box is
+		// guarded; rpc/extension sources keep sending text verbatim.
+		if (event.source === "interactive") {
+			const trimmed = event.text.trimStart();
+			if (trimmed.startsWith("!")) {
+				const bangLength = trimmed.startsWith("!!") ? 2 : 1;
+				if (trimmed.slice(bangLength).trim() === "") return { action: "handled" };
+			}
+		}
+		return undefined;
+	});
 	pi.on("tool_execution_start", () => coordinator.app.runtime.current?.dismissStartup());
 	pi.on("model_select", (event) =>
 		coordinator.app.update(

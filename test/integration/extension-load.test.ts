@@ -747,4 +747,30 @@ describe("pi-style extension lifecycle foundation", () => {
 			await host.sessionShutdown();
 		}
 	});
+
+	it("drops bare `!`/`!!` interactive submits and keeps real bash commands", async () => {
+		const host = new FakePiHost({ mode: "tui" });
+		piStyleExtension(host.extensionApi);
+		await host.sessionStart();
+		const inputHandlers = host.handlers.get("input") ?? [];
+		expect(inputHandlers.length).toBeGreaterThan(0);
+		const handler = inputHandlers[inputHandlers.length - 1] as unknown as (
+			event: { type: "input"; text: string; source: string },
+			ctx: never,
+		) => Promise<unknown>;
+		const invoke = (text: string, source = "interactive") =>
+			handler({ type: "input", text, source }, host.extensionContext as never);
+		// Bare bangs (no command after the prefix) are blocked…
+		expect(await invoke("!")).toEqual({ action: "handled" });
+		expect(await invoke("!!")).toEqual({ action: "handled" });
+		expect(await invoke("!  ")).toEqual({ action: "handled" });
+		expect(await invoke("!!\t")).toEqual({ action: "handled" });
+		// …real bash commands, normal messages, and non-interactive sources pass through.
+		expect(await invoke("!echo hi")).toBeUndefined();
+		expect(await invoke("!!git status")).toBeUndefined();
+		expect(await invoke("hello")).toBeUndefined();
+		expect(await invoke("!", "rpc")).toBeUndefined();
+		expect(await invoke("!", "extension")).toBeUndefined();
+		await host.sessionShutdown();
+	});
 });

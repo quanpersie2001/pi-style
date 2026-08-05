@@ -219,6 +219,24 @@ Edit, quick-edit, substitute-edit, and target-edit render their diff **adaptivel
 | Find/list/grep | Boxless file-anchored tree (ADR 0006): `ls`/`find` render a `List:`/`Glob: <pattern> <N> files · in <path>` tree (clean rows; `find` paths grouped by directory; nested per call when batched); `grep` renders a `Grep: <pattern> <N> matches · <M> files · in <path>` tree with per-file headers, `*line: content` match rows, and ` line:` context rows. `ls`/`find` batch like reads; `grep` is unbatched so match previews are never hidden. Pending/failed calls without output fall back to the path-row tree; a trailing `… N more` row collapses long lists. |
 | Bash | Concise command header, running/exit status (including timeout/cancelled), stdout/stderr distinction where host data supports it. When the command is a plain `ls`/`find`/`grep`/`rg` (no pipes, redirects, `;`, `&&`, or command substitution), its output renders as the same boxless output tree as the native tool — including `ls -l`/`ls -la` long format (parsed into names) and single-file `rg`/`grep` (`line: content` attributed to the file). `git`/`gh` invocations render as semantic views (status/diff/log cards, boxed diffs, PR/issue/run summaries; see [git / gh semantic views](#git--gh-semantic-views)) with the same gate. Unparseable output (e.g. `rg -c`, `rg -l`) falls back to the boxed command/response shell. Execution, environment, timeout, and shell behavior are never changed. |
 
+## Direct bash execution (`!command`)
+
+Pi's direct bash execution (the `!`/`!!` input prefix, separate from the agent Bash tool) renders natively with plain full-width bars. pi-style re-frames it into the same rounded box as the boxed tools via a fingerprint-certified additive `render` patch on `BashExecutionComponent` (exact 0.83.0; the patch certifies the class constructor identity and installs the only own `render`, so it is active from the first frame):
+
+```text
+╭─ ➔ Bash ◌ ───────────────────────────────────────────────╮
+│                                                          │
+│  $ echo "zz"                                             │
+│                                                          │
+│  zz                                                      │
+│                                                          │
+╰─ ◌ Running · 0.0s ───────────────────────────────────────╯
+```
+
+- Title `➔ Bash` carries the live state glyph (`◌` running / `✓` done / `✗` failed or cancelled) and the `bashPromptColor` extra / `bashMode` color.
+- The `$ command` header, streamed output, loader, and native status lines keep their native content and colors inside the box; the footer shows `◌ Running · Ns` (elapsed from the first boxed render) or the terminal state (`Exit 0` / `Exit N` / `Cancelled`). The `!!` context-exclusion variant gets the same box (its native dim border distinction is not carried into the box).
+- While no session theme is cached or the component shape is unsupported, the native bars render unchanged (fail-closed). No execution, streaming, expansion, or truncation behavior is changed.
+
 ## Expansion and collapse
 
 - Use Pi's configured tool expansion state where available; default collapsed line count is configurable.

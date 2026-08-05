@@ -53,6 +53,58 @@ function isNativeBorderLine(line: string): boolean {
 	return /^─{2,}$/.test(stripped) || /^─── [↑↓] \d+ more /.test(stripped);
 }
 
+/**
+ * Remove `count` leading visible characters from an ANSI-rendered editor line,
+ * preserving escape sequences (CSI/OSC/APC/DCS) verbatim. Used to hide the
+ * bash-mode `!` prefix; the CURSOR_MARKER and cursor-block sequences pass
+ * through unchanged so hardware-cursor placement stays aligned.
+ */
+function stripLeadingVisibleChars(line: string, count: number): string {
+	if (count <= 0 || line.length === 0) return line;
+	let output = "";
+	let stripped = 0;
+	let index = 0;
+	while (index < line.length) {
+		const char = line[index] ?? "";
+		if (char === "\x1b") {
+			const start = index;
+			index++;
+			const intro = line[index];
+			if (intro === "[") {
+				index++;
+				while (index < line.length) {
+					const byte = line[index] ?? "";
+					index++;
+					if (byte >= "@" && byte <= "~") break;
+				}
+			} else if (intro === "]" || intro === "_" || intro === "^" || intro === "P") {
+				index++;
+				while (index < line.length) {
+					const byte = line[index] ?? "";
+					if (byte === "\x1b" && line[index + 1] === "\\") {
+						index += 2;
+						break;
+					}
+					index++;
+					if (byte === "\x07") break;
+				}
+			} else if (intro !== undefined) {
+				index++;
+			}
+			output += line.slice(start, index);
+			continue;
+		}
+		if (stripped < count) {
+			stripped++;
+			index++;
+			continue;
+		}
+		output += char;
+		index++;
+	}
+	return output;
+}
+
 function semanticTheme(theme: PiEditorTheme, config: NormalizedPiStyleConfig): ResolvedTheme {
 	const editorTheme = theme;
 	return resolveTheme(
@@ -140,9 +192,11 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 			const sideColor = kind === "rounded" ? this.borderColorFor() : undefined;
 			const wrap = (line: string) =>
 				kind === "rounded" && sideColor ? `${sideColor("│")}${line}${sideColor("│")}` : line;
-			const renderedBody = body.map((line, index) =>
-				wrap(widthSafe(`${index === 0 ? prefix : continuation}${line}`, renderWidth)),
-			);
+			const bashHidden = this.bashHiddenCount();
+			const renderedBody = body.map((line, index) => {
+				const source = index === 0 && bashHidden > 0 ? stripLeadingVisibleChars(line, bashHidden) : line;
+				return wrap(widthSafe(`${index === 0 ? prefix : continuation}${source}`, renderWidth));
+			});
 			const dropdownLines = dropdown.map((line) => wrap(widthSafe(line, renderWidth)));
 			if (kind === "rounded") {
 				return [
@@ -171,9 +225,11 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		const continuation = " ".repeat(padding + promptWidth);
 		const hint = this.config.editor.hint;
 		const showHint = hint !== "" && this.getText() === "";
+		const bashHidden = this.bashHiddenCount();
 		const renderedBody = body.map((line, index) => {
 			const lead = index === 0 ? prefix : continuation;
-			let content = `${lead}${line}`;
+			const source = index === 0 && bashHidden > 0 ? stripLeadingVisibleChars(line, bashHidden) : line;
+			let content = `${lead}${source}`;
 			// Empty-input hint: the cursor block (first cell of the native empty
 			// line) stays at the input position, the dim hint trails it. The native
 			// line is pre-padded to renderWidth with literal spaces; drop them from
@@ -200,9 +256,39 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	}
 
 	private prompt(): string {
+		if (this.isBashMode()) {
+			// Bash mode (`!` prefix): the prompt glyph becomes the bash icon and the
+			// leading `!` is hidden from the input text. The glyph takes the live
+			// border color (pi sets editor.borderColor to the bashMode color).
+			const glyph = this.semantic.glyph("bashPrompt");
+			return this.borderColor(glyph);
+		}
 		const configured = this.config.theme.glyphs.prompt;
 		if (configured) return configured;
 		return this.semantic.mode === "ascii" ? ">" : "❯";
+	}
+
+	/** Pi's bash mode: the input starts with `!` after optional whitespace. */
+	private isBashMode(): boolean {
+		return this.getText().trimStart().startsWith("!");
+	}
+
+	/**
+	 * Number of leading `!` characters to hide from the displayed input while
+	 * bash mode is active. Characters under the cursor are never hidden, so the
+	 * native cursor block stays visible when the cursor sits on a `!`.
+	 */
+	private bashHiddenCount(): number {
+		const text = this.getText();
+		let index = 0;
+		while (index < text.length && (text[index] === " " || text[index] === "\t")) index++;
+		const runStart = index;
+		while (index < text.length && text[index] === "!") index++;
+		const run = index - runStart;
+		if (run === 0) return 0;
+		const cursor = this.getCursor();
+		const position = cursor.line === 0 ? cursor.col : Number.POSITIVE_INFINITY;
+		return Math.min(run, Math.max(0, position - runStart));
 	}
 
 	private styleFor(width: number): "compact" | "boxed" | "dock" | "native" {
@@ -242,6 +328,10 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 
 	/** Raw border color function (thinking-synced) WITHOUT full-width padding, for single glyphs. */
 	private borderColorFor(): (line: string) => string {
+		// While bash mode is active pi keeps editor.borderColor set to the
+		// bashMode color (its native updateEditorBorderColor path); prefer it over
+		// the thinking-level color so the whole frame switches to the bash color.
+		if (this.isBashMode()) return this.borderColor;
 		const level = this.snapshot.thinkingLevel;
 		const thinking = this.fullTheme?.getThinkingBorderColor?.(level ?? "off");
 		return thinking ?? this.piTheme.borderColor;
