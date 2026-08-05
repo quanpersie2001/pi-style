@@ -128,7 +128,7 @@ describe("fileIcon", () => {
 		const ctx1 = context({ toolCallId: "fi", args: { pattern: "**/*", path: "." }, cwd: "/fake" });
 		const findCall = dispatchCall("find", { pattern: "**/*", path: "." }, theme, ctx1);
 		dispatchResult("find", textResult("a.ts\nb.ts"), { expanded: false, isPartial: false }, theme, ctx1);
-		expect(plain(findCall.render(80))[0]).toBe(`${SEARCH_ICON} Glob: **/* 2 files · in current directory`);
+		expect(plain(findCall.render(80))[0]).toBe(`${SEARCH_ICON} Find: **/* 2 files · in current directory`);
 
 		const ctx2 = context({ toolCallId: "gi", args: { pattern: "foo", path: "src" }, cwd: "/fake" });
 		const grepCall = dispatchCall("grep", { pattern: "foo", path: "src" }, theme, ctx2);
@@ -145,15 +145,15 @@ describe("fileIcon", () => {
 		const ctx1 = context({ toolCallId: "fi2", args: { pattern: "**/*", path: "." }, cwd: "/fake" });
 		const findCall = dispatchCall("find", { pattern: "**/*", path: "." }, theme, ctx1);
 		dispatchResult("find", textResult("a.ts"), { expanded: false, isPartial: false }, theme, ctx1);
-		expect(plain(findCall.render(80))[0]).toBe("Glob: **/* 1 file · in current directory");
+		expect(plain(findCall.render(80))[0]).toBe("Find: **/* 1 file · in current directory");
 	});
 });
 
 describe("renderOutputTree / renderGrepTree", () => {
 	it("renders a flat tree with a head limit and a 'more' row", () => {
 		const entries = Array.from({ length: 10 }, (_, i) => `f${i}.ts`);
-		const lines = plain(renderOutputTree(theme, "Glob: **/*.ts 10 files · in .", entries, 80));
-		expect(lines[0]).toBe("Glob: **/*.ts 10 files · in .");
+		const lines = plain(renderOutputTree(theme, "Find: **/*.ts 10 files · in .", entries, 80));
+		expect(lines[0]).toBe("Find: **/*.ts 10 files · in .");
 		expect(lines[1]).toBe("  ├─ f0.ts");
 		expect(lines.at(-1)).toBe("  └─ … 4 more files");
 	});
@@ -218,12 +218,12 @@ describe("ls/find output-tree panels", () => {
 		expect(lines.some((line) => line.startsWith("  └─ … "))).toBe(true);
 	});
 
-	it("renders a lone find result as a flat Glob tree with the pattern", () => {
+	it("renders a lone find result as a flat Find tree with the pattern", () => {
 		const ctx1 = context({ toolCallId: "f1", args: { pattern: "**/*.ts", path: "." }, cwd: "/fake" });
 		const call = dispatchCall("find", { pattern: "**/*.ts", path: "." }, theme, ctx1);
 		dispatchResult("find", textResult("a.ts\nb.ts"), { expanded: false, isPartial: false }, theme, ctx1);
 		const lines = plain(call.render(80));
-		expect(lines[0]).toBe("Glob: **/*.ts 2 files · in current directory");
+		expect(lines[0]).toBe("Find: **/*.ts 2 files · in current directory");
 		expect(lines[1]).toBe("  ├─ a.ts");
 	});
 
@@ -242,20 +242,21 @@ describe("ls/find output-tree panels", () => {
 		dispatchResult("find", textResult("a.ts\nb.ts"), { expanded: false, isPartial: false }, theme, c1);
 		dispatchResult("find", textResult("spec.ts"), { expanded: false, isPartial: false }, theme, c2);
 		const joined = plain(leader.render(80)).join("\n");
-		expect(joined).toContain("● Glob (2)");
+		expect(joined).toContain("● Find (2)");
 		expect(joined).toContain("src · 2 files");
 		expect(joined).toContain("├─ a.ts");
 		expect(joined).toContain("test · 1 file");
 		expect(joined).toContain("spec.ts");
 	});
 
-	it("keeps read calls as path-only batch panels (unchanged)", () => {
+	it("renders a lone read as a single inline path line", () => {
 		const ctx1 = context({ toolCallId: "r1", args: { path: "a.ts" }, cwd: "/fake" });
 		const call = dispatchCall("read", { path: "a.ts" }, theme, ctx1);
 		dispatchResult("read", textResult("file contents here"), { expanded: false, isPartial: false }, theme, ctx1);
 		const joined = plain(call.render(80)).join("\n");
-		expect(joined).toContain("● Read (1)");
-		expect(joined).toContain("└─ a.ts");
+		expect(joined).toContain("➔ Read a.ts");
+		expect(joined).not.toContain("(1)");
+		expect(joined).not.toContain("└─");
 		expect(joined).not.toContain("files");
 	});
 });

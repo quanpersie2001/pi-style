@@ -696,7 +696,7 @@ export function classifyBashCommand(command: string): BashTreeClass | null {
 }
 
 function bashTreeHeader(theme: BoxTheme, cls: BashTreeClass, counts?: { files?: number; matches?: number }): string {
-	const label = cls.kind === "find" ? "Glob" : cls.kind === "ls" ? "List" : "Grep";
+	const label = cls.kind === "find" ? "Find" : cls.kind === "ls" ? "List" : "Grep";
 	const hasDetail = Boolean(cls.pattern) || Boolean(counts);
 	// ls/find/grep headers carry the magnifying-glass icon in Nerd Font mode.
 	const icon = getToolsRenderConfig().nerdFonts ? `${SEARCH_ICON} ` : "";

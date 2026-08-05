@@ -1,7 +1,7 @@
 // Boxed find tool renderer.
 //
 // find calls render as a boxless tree panel — a lone find shows its parsed
-// output as a flat `Glob: <pattern> <N> files · in <path>` tree; consecutive
+// output as a flat `Find: <pattern> <N> files · in <path>` tree; consecutive
 // find calls group into one panel with per-member nested subtrees (see
 // batch.ts). Pending/failed calls without output fall back to a path row.
 
@@ -21,7 +21,7 @@ import { type BoxedToolDefinition, noteExecutionStart } from "./shared.js";
 const FIND_META: BatchToolMeta = Object.freeze({
 	toolName: "find",
 	label: "Find",
-	headerLabel: "Glob",
+	headerLabel: "Find",
 });
 
 function pathLabel(rawPath: string): string {
