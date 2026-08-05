@@ -1,9 +1,9 @@
 // Boxed read tool renderer
 // (renderCall/renderResult only; no tool re-registration).
 //
-// Read calls render as a boxless tree panel — a lone read is a batch of one,
-// consecutive reads group into one panel (see batch.ts). There is no boxed
-// single-call special case.
+// Read calls render boxless: a lone read is a single inline line
+// (`➔ Read <path>`), consecutive reads group into one tree panel (see
+// batch.ts).
 
 import { stripAnsi } from "../../../shared/ansi.js";
 import { getTextOutput } from "../../../shared/box.js";

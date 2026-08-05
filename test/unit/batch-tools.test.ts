@@ -72,18 +72,19 @@ describe("batch grouping for quiet tools", () => {
 		expectLinesFit(lines, 80);
 	});
 
-	it("a lone read renders the same boxless tree panel", () => {
+	it("a lone read renders a single inline line", () => {
 		const r1 = readCall("a.ts", "r1");
 		const pending = plain(r1.component.render(80)).join("\n");
-		expect(pending).toContain("➔ Read (1)");
-		expect(pending).toContain("└─ ◌ a.ts");
+		expect(pending).toContain("➔ Read ◌ a.ts");
+		expect(pending).not.toContain("(1)");
+		expect(pending).not.toContain("└─");
 		expect(pending).not.toContain("╭");
 		expect(pending).not.toContain("Path:");
-		// After the result: done header + path, still boxless.
+		// After the result: done inline line, still boxless.
 		readResult("r1", "a.ts", "hello world");
 		const done = plain(r1.component.render(80)).join("\n");
-		expect(done).toContain("● Read (1)");
-		expect(done).toContain("└─ a.ts");
+		expect(done).toContain("➔ Read a.ts");
+		expect(done).not.toContain("└─");
 		expect(done).not.toContain("╭");
 	});
 
@@ -196,11 +197,11 @@ describe("batch grouping for quiet tools", () => {
 		readCall("a.ts", "r1");
 		readCall("b.ts", "r2");
 		dispatchCall("bash", { command: "ls" }, theme, context({ toolCallId: "bash1" }));
-		// A later read starts a fresh single-member batch (own tree panel).
+		// A later read starts a fresh single-member batch (own inline line).
 		const r3 = readCall("c.ts", "r3");
 		const lines = plain(r3.component.render(80)).join("\n");
-		expect(lines).toContain("Read (1)");
-		expect(lines).toContain("c.ts");
+		expect(lines).toContain("➔ Read ◌ c.ts");
+		expect(lines).not.toContain("(1)");
 	});
 
 	it("closeActiveBatch prevents further joins but keeps the panel rendering", () => {

@@ -86,7 +86,7 @@ describe("pi-style extension lifecycle foundation", () => {
 		await host.emit("message_start", { type: "message_start", message: { role: "assistant", content: [] } });
 		const next = dispatchCall("read", { path: "c.ts" }, theme as never, boxed("r3", "c.ts"));
 		const joined = stripAnsi(next.render(80).join(""));
-		expect(joined).toContain("Read (1)"); // lone call: own boxless tree panel, not the previous batch
+		expect(joined).toContain("➔ Read ◌ c.ts"); // lone call: own inline line, not the previous batch
 		expect(joined).not.toContain("Read (2)");
 		resetBatchRegistry();
 	});

@@ -15,16 +15,19 @@
 // - Batch boundaries: a new batch starts when the active batch is closed. The
 //   active batch closes when a non-batchable tool call is dispatched
 //   (boxed/index.ts), when a new message starts (pi/index.ts), and on session
-//   reset (session-coordinator.ts). Lone calls render the same boxless tree
-//   (a batch of one) — there is no boxed single-call special case.
+//   reset (session-coordinator.ts). A lone `read` call renders as a single
+//   inline line (`➔ Read <path>`); lone ls/find calls render a flat output
+//   tree (a batch of one).
 // - No surrounding box: indentation and tree glyphs (├─/└─) carry the
-//   hierarchy; the header line is the summary (` Read (N) · 0.08s`).
+//   hierarchy; the header line of a batched panel is the summary
+//   (` Read (N) · 0.08s`).
 // - Errors stay visible: failed members are always rendered inline (even in the
 //   collapsed state), with their error text indented beneath the path.
-// - read members render a single path row. ls/find members render their parsed
-//   output as a file subtree (flat for a lone call, nested per member when
-//   batched) — see renderOutputBatchPanel. Pending/failed members without output
-//   fall back to the path row.
+// - read members render a single path row (a lone read collapses to one inline
+//   line). ls/find members render their parsed output as a file subtree (flat
+//   for a lone call, nested per member when batched) — see
+//   renderOutputBatchPanel. Pending/failed members without output fall back to
+//   the path row.
 
 import type { Component } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
@@ -53,7 +56,7 @@ export interface BatchToolMeta {
 	readonly toolName: string;
 	/** Human label shown in the batch header (e.g. "Read", "List", "Find"). */
 	readonly label: string;
-	/** Header label for output-tree panels: "Glob" for find, "List" for ls. */
+	/** Header label for output-tree panels: "Find" for find, "List" for ls. */
 	readonly headerLabel?: string;
 }
 
@@ -321,7 +324,7 @@ function renderBatchTree(theme: BoxTheme, batch: BatchState, status: BatchStatus
 	return out;
 }
 
-/** Header for a lone (batch-of-one) ls/find output panel: `Glob: <pattern> <N> files · in <path>`. */
+/** Header for a lone (batch-of-one) ls/find output panel: `Find: <pattern> <N> files · in <path>`. */
 function formatLoneOutputHeader(theme: BoxTheme, meta: BatchToolMeta, member: BatchMember): string {
 	const label = meta.headerLabel ?? meta.label;
 	const count = member.outputEntries?.length ?? 0;
@@ -381,7 +384,7 @@ function renderMemberSubtree(theme: BoxTheme, member: BatchMember, isLastMember:
 function renderOutputBatchPanel(theme: BoxTheme, batch: BatchState, status: BatchStatus, width: number): string[] {
 	const safeWidth = Math.max(1, width);
 
-	// Lone successful call with output: flat tree under a `Glob:/List:` header.
+	// Lone successful call with output: flat tree under a `Find:/List:` header.
 	if (batch.members.length === 1) {
 		const member = batch.members[0];
 		if (member && member.outputEntries !== undefined && !member.isError) {
@@ -414,9 +417,33 @@ function renderOutputBatchPanel(theme: BoxTheme, batch: BatchState, status: Batc
 	return out;
 }
 
+/** Lone `read` call: single inline line `➔ Read <path>` — no count, no tree. */
+function isLoneRead(batch: BatchState): boolean {
+	return batch.meta.toolName === "read" && batch.members.length === 1;
+}
+
+/** Lone read renders `➔ Read <path>` on one line; errors keep their error text. */
+function renderLoneReadPanel(theme: BoxTheme, batch: BatchState, status: BatchStatus, width: number): string[] {
+	const member = batch.members[0];
+	if (!member) return [];
+	const prefix = bold(theme, formatToolTitlePrefix(theme, batch.meta.label));
+	const glyph = memberGlyph(theme, member, !status.allDone || status.failed > 0);
+	const pathColor = member.isError ? "error" : member.status === "done" ? "accent" : "text";
+	const out = [
+		safeTruncateToWidth(
+			`${prefix}${glyph ? ` ${glyph}` : ""} ${theme.fg(pathColor, member.detail)}`,
+			Math.max(1, width),
+			"…",
+		),
+	];
+	if (member.isError && member.errorText) out.push(...renderErrorLines(theme, member.errorText, width));
+	return out;
+}
+
 function renderBatchPanelLines(theme: BoxTheme, batch: BatchState, status: BatchStatus, width: number): string[] {
-	// The tree stays open in every state, including for a lone call: no boxed
-	// single-call special case, no collapsed single-line summary.
+	// Lone read collapses to a single inline line; batched reads and lone
+	// ls/find calls keep their tree panels.
+	if (isLoneRead(batch)) return renderLoneReadPanel(theme, batch, status, width);
 	if (isOutputTool(batch.meta) && batch.members.some((member) => member.outputEntries !== undefined)) {
 		return renderOutputBatchPanel(theme, batch, status, width);
 	}

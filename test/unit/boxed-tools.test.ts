@@ -181,13 +181,14 @@ describe("boxed tool renderers", () => {
 		setToolsRenderConfig({ maxCollapsedLines: 10, maxExpandedLines: 50, dimOutput: false, showElapsed: true });
 	});
 
-	it("renders a read call as a boxless batch tree panel", () => {
+	it("renders a read call as a boxless inline line", () => {
 		const ctx = context({ args: { path: "/fake/src/index.ts" } });
 		const call = dispatchCall("read", { path: "/fake/src/index.ts" }, theme, ctx);
 		for (const width of [40, 80, 120]) {
 			const lines = call.render(width);
-			expect(lines[0]).toContain("Read (1)");
-			expect(lines.join("\n")).toContain("index.ts");
+			expect(lines[0]).toContain("➔ Read");
+			expect(lines[0]).toContain("index.ts");
+			expect(lines[0]).not.toContain("(1)");
 			expect(lines.join("\n")).not.toContain("╭");
 			assertFit(lines, Math.max(12, width));
 		}
@@ -809,8 +810,9 @@ describe("boxed tool decoration owner", () => {
 			context(),
 		);
 		const lines = component.render(80);
-		expect(lines[0]).toContain("Read (1)");
-		expect(lines.join("\n")).toContain("a.ts");
+		expect(lines[0]).toContain("➔ Read");
+		expect(lines[0]).toContain("a.ts");
+		expect(lines[0]).not.toContain("(1)");
 		expect(lines.join("\n")).not.toContain("╭");
 		assertFit(lines, 80);
 	});
