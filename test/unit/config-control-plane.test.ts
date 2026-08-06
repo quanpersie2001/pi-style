@@ -364,15 +364,10 @@ describe("configuration control plane and composition", () => {
 
 	it("keeps Tier C deny-only without original session authorization", () => {
 		const config = normalizeConfig({ enabled: true, messages: { enabled: true } });
-		expect(
-			isTierCAuthorized({ certifiedHost: true, coreFlag: false, surfaceFlag: true, surface: "messages", config }),
-		).toBe(false);
-		expect(
-			isTierCAuthorized({ certifiedHost: true, coreFlag: true, surfaceFlag: true, surface: "messages", config }),
-		).toBe(true);
+		expect(isTierCAuthorized({ coreFlag: false, surfaceFlag: true, surface: "messages", config })).toBe(false);
+		expect(isTierCAuthorized({ coreFlag: true, surfaceFlag: true, surface: "messages", config })).toBe(true);
 		expect(
 			isTierCAuthorized({
-				certifiedHost: true,
 				coreFlag: true,
 				surfaceFlag: true,
 				surface: "messages",

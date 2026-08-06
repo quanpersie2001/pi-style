@@ -30,19 +30,19 @@ Examples: reading an existing editor factory, preserving an internal autocomplet
 
 ## Tier C surfaces
 
-Certification is exact Pi `0.83.0`, governed by policy range `>=0.83.0 <0.84.0`. An immutable certification table records expected native targets, fingerprints, method shapes, adapter identities, and certified status. Installation requires own-descriptor shape and writable/configurable ownership gates; cleanup restores the exact captured descriptor only while pi-style still owns the installed identity. Unknown or mismatched versions fail closed to native behavior.
+Certification is identity-first, never version-pinned: each surface is certified when the runtime method (or class constructor, for additive installs) matches a recorded name/arity/source-fingerprint identity in the immutable identity registry. The registry documents which supported Pi versions (`0.83.0`, `0.84.0`) carry each identity, but the version string is informational only — it never gates installation. Installation requires own-descriptor shape and writable/configurable ownership gates; cleanup restores the exact captured descriptor only while pi-style still owns the installed identity. An unrecorded or drifted identity degrades that single surface to its native fallback while every other surface keeps running.
 
-Certified surfaces: user-message render, assistant-message render, tool call renderer, tool result renderer, and the four special message blocks (compaction, branch, skill, custom/MCP). The core/message/tool surface flags are default-on (`default: true`) — patches are fingerprint-verified and fail closed elsewhere — and non-persistent. The OFF switch is `compatibility.allowCorePatches: false` (or `enabled: false`). ASCII changes markers only on an authorized surface.
+Certified surfaces: assistant-message render, assistant-message `updateContent` (thinking-label collapse), tool call renderer, tool result renderer, the four special message blocks (compaction, branch, skill, custom/MCP), and the additive bash-execution box. The core/message/tool surface flags are default-on (`default: true`) — patches are identity-verified per surface, with native fallback for any surface whose runtime identity is not recorded — and non-persistent. The OFF switch is `compatibility.allowCorePatches: false` (or `enabled: false`). ASCII changes markers only on an authorized surface.
 
-Lifecycle: installs at interactive `session_start`, retains incomplete probes when exact restoration is rejected, retries before a new generation, preserves later owners, and exposes frozen runtime/final diagnostics. Recertification is required for any Pi build outside exact `0.83.0` evidence.
+Lifecycle: installs at interactive `session_start`, retains incomplete probes when exact restoration is rejected, retries before a new generation, preserves later owners, and exposes frozen runtime/final diagnostics. New Pi builds are supported automatically when their native identities still match a recorded fingerprint; identities that change simply fall back natively per surface until a new identity is recorded.
 
-Approved native fallbacks: special blocks without a certified adapter, generic cancelled/truncated tool distinction without reliable host state, images without decoration claim, malformed/unsafe shapes, disabled surfaces, and unknown/mismatched versions.
+Approved native fallbacks: special blocks without a certified adapter, generic cancelled/truncated tool distinction without reliable host state, images without decoration claim, malformed/unsafe shapes, disabled surfaces, and surfaces whose runtime identity matches no recorded fingerprint (including future Pi builds).
 
 A Tier C feature is accepted only when it has: a documented user-visible requirement; a known Pi version/capability range; idempotent installation; identity-safe restoration; shape mismatch tests; another-extension conflict behavior; native fallback; doctor diagnostics; and no change to core execution semantics.
 
 ## Pi version policy
 
-The package declares an explicit peer dependency range based on tested versions; capability detection remains required inside that range.
+The package declares an explicit peer dependency range based on tested versions; certification itself is decided per surface by recorded identities, so builds outside the tested range keep working (or degrade per surface) instead of failing wholesale.
 
 | Capability | Minimum tested | Detection | Fallback |
 | --- | --- | --- | --- |
@@ -50,8 +50,8 @@ The package declares an explicit peer dependency range based on tested versions;
 | Editor getter/composition | Phase 7 verified | method existence | prefer existing/native editor |
 | Footer data branch/status | Phase 6 verified | injected capability-safe provider | hide affected segments; no footer takeover |
 | Header API | Phase 7 verified | method existence | startup widget or off |
-| Message component shape | 0.83.0 | exact version + shape/fingerprint | native messages |
-| Built-in renderer integration | 0.83.0 | exact version + selector/fingerprint | native tools |
+| Message component shape | 0.83.0 / 0.84.0 | recorded identity (name/arity/fingerprint) | native messages |
+| Built-in renderer integration | 0.83.0 / 0.84.0 | recorded identity (name/arity/fingerprint) | native tools |
 
 ## Coexistence with other extensions
 
@@ -85,13 +85,13 @@ Terminal-global background synchronization is unsupported/off for technical v1: 
 
 | Problem | Fallback |
 | --- | --- |
-| Unknown Pi version | Tier A only; compatibility surfaces disabled. |
+| Unknown Pi version | Identity-certified surfaces still install when fingerprints match; unrecorded identities degrade per-surface. |
 | Missing widget placement support | Supported placement or no secondary row. |
 | Existing custom editor | Preserve it by default; status/theme remain active. |
 | Missing footer data | Hide branch/extension-status segments. |
 | No Nerd Font | Unicode/ASCII glyphs and separators. |
 | `NO_COLOR` | Structural monochrome rendering. |
-| Tool/message patch mismatch | Native tool/message rendering. |
+| Tool/message patch mismatch | Native tool/message rendering for the affected surface only. |
 | Terminal-global background sync unsupported/off | No OSC output, query/polling, widget, or ownership. |
 | Git unavailable / not a repo | Hide Git segment. |
 | Very narrow width | Keep essential text, hide optional segments, never overflow. |

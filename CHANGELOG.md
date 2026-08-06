@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Compatibility certification is now identity-first and never version-pinned: each Tier C surface (assistant-message render, `updateContent` thinking-label collapse, tool call/result renderers, the four special message blocks, the additive bash-execution box) is certified when the runtime method matches a recorded name/arity/source-fingerprint identity, independent of the detected Pi version string. The identity registry covers Pi `0.83.0` and `0.84.0` (0.84.0 changed `AssistantMessageComponent.updateContent` — added an `isStreaming` default parameter and per-part markdown transforms — its new fingerprint is recorded). Unknown or future builds keep every surface whose identity still matches and degrade only the changed surface to native, instead of failing closed wholesale. Version detection remains for diagnostics/doctor output only.
+
 ## [0.1.5] - 2026-08-05
 
 ### Bug Fixes

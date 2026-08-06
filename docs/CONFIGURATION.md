@@ -123,14 +123,14 @@ Values only select an existing extension status and presentation options; they c
 | --- | --- | --- | --- |
 | `messages.assistantPrefix` | boolean | `true` | Prepend the `│` prefix to assistant messages. Requires `--pi-style-message-assistant` plus `--pi-style-core-patches`. |
 | `messages.specialBlocks` | boolean | `true` | Boxed presentation for compaction, skill, branch, and custom (MCP) message blocks. Requires `--pi-style-message-special-blocks` plus `--pi-style-core-patches`. |
-| `messages.hideThinkingLabel` | boolean | `true` | Hide Pi's `Thinking...` placeholder label for hidden thinking blocks with zero trace: the certified 0.83.0 `updateContent` patch drops the invisible label row and its trailing spacer, leaving the same single top padding as a text-only assistant message. Set `false` to restore the default label. |
+| `messages.hideThinkingLabel` | boolean | `true` | Hide Pi's `Thinking...` placeholder label for hidden thinking blocks with zero trace: the certified `updateContent` patch (recorded for Pi `0.83.0` and `0.84.0`) drops the invisible label row and its trailing spacer, leaving the same single top padding as a text-only assistant message. Set `false` to restore the default label. |
 | `tools.style` | `marker \| compact-box` | `compact-box` | `marker` prefixes tool lines (`[tool]`, `[tool:result]`); `compact-box` renders boxed call headers and compact/expanded result boxes for read, write, edit, bash, ls, find, grep, quick-edit, substitute-edit, target-edit, and a boxed generic fallback. |
 | `tools.maxCollapsedLines` | number | `10` | Line budget for collapsed tool results (head/tail). |
 | `tools.maxExpandedLines` | number | `50` | Maximum body lines for expanded results (read/bash/grep/fallback). |
 | `tools.dimOutput` | boolean | `false` | Render tool output lines in the dim semantic color instead of `toolOutput`. |
 | `tools.showElapsed` | boolean | `true` | Include wall-clock elapsed time in tool result footers. |
 
-The boxed tool and special-block adapters are fingerprint-certified against Pi `0.83.0` and install through the same reversible, generation-tracked compatibility wrapper as message prefixes and tool markers; shutdown restores the native identities exactly.
+The boxed tool and special-block adapters are identity-certified per surface against recorded fingerprints (observed on Pi `0.83.0` and `0.84.0`) and install through the same reversible, generation-tracked compatibility wrapper as message prefixes and tool markers; shutdown restores the native identities exactly. A surface whose runtime identity matches no recorded fingerprint renders natively until the identity is recorded.
 
 ## Theme configuration
 

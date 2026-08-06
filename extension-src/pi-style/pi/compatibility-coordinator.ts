@@ -6,6 +6,7 @@ import {
 	detectPiVersion,
 	disposePiCompatibilityProbe,
 	probePiCompatibility,
+	SUPPORTED_VERSION_RANGE,
 } from "./compatibility-probe.js";
 
 export interface CompatibilityCoordinator {
@@ -60,8 +61,10 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 					report?.unsupported.filter((item) =>
 						feature === "messages" ? item.subtype.includes("message") : item.subtype.includes("tool"),
 					) ?? [];
-				const failed = records.some((item) => /identity|failed|unsupported shape/i.test(item.reason));
-				const fallback = records.some((item) => /fallback|authorization|disabled/i.test(item.reason));
+				// Identity drift degrades only the affected surface to native (graceful);
+				// a feature is only "failed" when an install/shape error occurred.
+				const failed = records.some((item) => /failed|rejected|rolled back|shape is not/i.test(item.reason));
+				const fallback = records.some((item) => /fallback|authorization|disabled|identity/i.test(item.reason));
 				const authorized = Boolean(authorization?.core && surfaceAuthorized);
 				const installedRecord = report?.recordSnapshots.some(
 					(item) => item.feature === feature && !item.disposed && (subtype === undefined || item.subtype === subtype),
@@ -69,7 +72,7 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 				return {
 					configured,
 					authorized,
-					installed: Boolean(installedRecord && !failed && authorized && configured),
+					installed: Boolean(installedRecord && authorized && configured),
 					conflicted: records.some((item) => item.reason.includes("owner")),
 					failed,
 					cleanupPending,
@@ -81,12 +84,13 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 				configured: messagesConfigured || toolsConfigured,
 				authorized: authorization?.core ?? false,
 				installed: report !== undefined,
-				conflicted: report?.unsupported.some((item) => item.reason.includes("identity")) ?? false,
-				failed: report?.unsupported.some((item) => item.reason.includes("failed")) ?? false,
+				conflicted: report?.unsupported.some((item) => item.reason.includes("owner")) ?? false,
+				failed: report?.unsupported.some((item) => /failed|rejected|rolled back/i.test(item.reason)) ?? false,
 				cleanupPending,
-				nativeFallbacks: report?.unsupported.filter((item) => item.reason.includes("fallback")).length ?? 0,
+				nativeFallbacks: report?.unsupported.filter((item) => /fallback|identity/i.test(item.reason)).length ?? 0,
 				piVersion: version.version ?? report?.piVersion ?? "unknown",
-				versionRange: report?.versionRange ?? ">=0.83.0 <0.84.0",
+				versionRange: report?.versionRange ?? SUPPORTED_VERSION_RANGE,
+				supportedVersions: report?.supportedVersions ?? [],
 				assistantMessage: surface(
 					"messages",
 					config.enabled && config.messages.enabled && config.messages.assistantPrefix,
@@ -105,11 +109,13 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 			const productDenied = productGate === "deny";
 			if (cleanupPending && !report) cleanupPending = false;
 			if (cleanupPending || !tui || !config.enabled || !authorization?.core || productDenied) return undefined;
-			const certifiedHost = detectPiVersion().version === "0.83.0";
+			// Certification is per-surface identity (fingerprint) based, never pinned to
+			// a Pi version: authorization only needs the session flags + config. Version
+			// drift that preserves identities keeps working; changed identities degrade
+			// per-surface inside the probe.
 			const assistantEnabled =
 				authorization.assistant &&
 				isTierCAuthorized({
-					certifiedHost,
 					coreFlag: authorization.core,
 					surfaceFlag: true,
 					surface: "assistantMessage",
@@ -118,7 +124,6 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 			const specialBlocksEnabled =
 				authorization.specialBlocks &&
 				isTierCAuthorized({
-					certifiedHost,
 					coreFlag: authorization.core,
 					surfaceFlag: true,
 					surface: "specialBlocks",
@@ -133,7 +138,6 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 					config.messages.enabled &&
 					config.messages.hideThinkingLabel &&
 					isTierCAuthorized({
-						certifiedHost,
 						coreFlag: authorization.core,
 						surfaceFlag: true,
 						surface: "messages",
@@ -142,7 +146,7 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 			);
 			const toolsEnabled =
 				authorization.tools &&
-				isTierCAuthorized({ certifiedHost, coreFlag: authorization.core, surfaceFlag: true, surface: "tools", config });
+				isTierCAuthorized({ coreFlag: authorization.core, surfaceFlag: true, surface: "tools", config });
 			if (!messagesEnabled && !toolsEnabled) return undefined;
 			const detected = detectPiVersion();
 			report = probePiCompatibility(detected.version, {

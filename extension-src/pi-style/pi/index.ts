@@ -40,8 +40,9 @@ export function __setCompatibilityTestHooks(hooks: CompatibilityTestHooks): () =
 
 /** Thin Pi adapter: register flags, commands, and forward lifecycle events. */
 export default function piStyleExtension(pi: ExtensionAPI): void {
-	// The core/message/tool surfaces are default-on (safe: fingerprint-certified against
-	// exact Pi 0.83.0, fail-closed elsewhere, conflict-preserving). The OFF switch is the
+	// The core/message/tool surfaces are default-on (identity-certified per surface by
+	// name/arity/source fingerprint, graceful native fallback for any surface whose
+	// runtime identity is not recorded, conflict-preserving). The OFF switch is the
 	// product gate `compatibility.allowCorePatches: false` (or `enabled: false`) in config.
 	for (const [name, description] of [
 		["pi-style-core-patches", "Enable pi-style message/tool core patches"],

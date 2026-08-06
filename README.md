@@ -50,7 +50,7 @@ No configuration is required. The `default` preset enables:
 - `dock` editor (rounded input box) with metadata ownership resolved so the status line and editor do not duplicate text;
 - `compact` startup header (gradient logo block only; resource chips are opt-in);
 - the `titanium` theme auto-applied at session start (`theme.autoApply`, default `"titanium"`; set `"off"` to keep your active Pi theme);
-- certified message prefixes and boxed tool presentation when compatible with the exact Pi version.
+- certified message prefixes and boxed tool presentation when the runtime surface identity matches a recorded fingerprint.
 
 Override any documented leaf through global/project `piStyle` settings, environment, or session commands. Precedence:
 
@@ -142,7 +142,7 @@ Ordinary mutations are session-only; persistence requires an explicit `global` o
 ## Compatibility
 
 - Public Pi APIs (widgets, editor, header, footer bridge) are preferred and enabled by default.
-- Tier C core patches (message prefixes, special blocks, tool selectors) are certified for exact Pi `0.83.0` within `>=0.83.0 <0.84.0`, isolated, reversible, and version/capability gated; native fallback otherwise.
+- Tier C core patches (message prefixes, special blocks, tool selectors) are identity-certified per surface against recorded fingerprints (Pi `0.83.0`/`0.84.0` observed), isolated, reversible, and flag/config gated; any surface whose runtime identity is not recorded falls back natively on its own.
 - No render-time I/O: filesystem, Git, settings, and session data flow through cached providers into immutable snapshots.
 - Terminal-global background synchronization is unsupported/off for technical v1; explicit cell backgrounds and Pi theme APIs remain supported.
 

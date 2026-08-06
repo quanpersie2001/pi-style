@@ -25,7 +25,9 @@ import {
 	detectPiVersion,
 	disposePiCompatibilityProbe,
 	fingerprint,
+	KNOWN_NATIVE_IDENTITIES,
 	probePiCompatibility,
+	SUPPORTED_PI_VERSIONS,
 	TRUSTED_NATIVE_FINGERPRINTS,
 	targetSpecs,
 } from "../../extension-src/pi-style/pi/compatibility-probe.js";
@@ -123,7 +125,7 @@ function toolDefinitionSnapshot(definition: Record<string, unknown>) {
 	};
 }
 
-describe("Pi 0.83 compatibility probe", () => {
+describe("identity-certified compatibility probe", () => {
 	it("prefixes only the first nonblank line with one reduced native call", () => {
 		let calls = 0;
 		let width = 0;
@@ -165,7 +167,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		await host.sessionShutdown();
 	});
 	it("detects the installed host version without render-time work", () => {
-		expect(detectPiVersion().version).toBe("0.83.0");
+		expect(SUPPORTED_PI_VERSIONS).toContain(detectPiVersion().version);
 	});
 
 	it("records every attempted subtype and delegates real native targets", () => {
@@ -488,7 +490,7 @@ describe("Pi 0.83 compatibility probe", () => {
 	});
 
 	it("installs certified surfaces by default and honors the config product gate", async () => {
-		// Default-on: no flags needed for the certified 0.83.0 surfaces.
+		// Default-on: certified surfaces need no flags beyond their session defaults.
 		const host = new FakePiHost();
 		piStyleExtension(host.extensionApi);
 		await host.sessionStart();
@@ -533,7 +535,7 @@ describe("Pi 0.83 compatibility probe", () => {
 		}
 	});
 
-	it("fails closed for unknown and mismatched versions", () => {
+	it("certifies by identity regardless of unknown versions and degrades per surface", () => {
 		const files: Record<string, string> = {
 			"/tmp/pkg/dist/package.json": JSON.stringify({ name: "other", version: "9.9.9" }),
 			"/tmp/pkg/package.json": JSON.stringify({ name: "@earendil-works/pi-coding-agent", version: "0.83.0" }),
@@ -558,11 +560,51 @@ describe("Pi 0.83 compatibility probe", () => {
 				},
 			}).version,
 		).toBeUndefined();
-		for (const version of [undefined, "0.84.0"]) {
+		// The version string is informational: an unknown version still certifies
+		// every surface whose runtime identity matches a recorded fingerprint.
+		for (const version of [undefined, "9.9.9"]) {
 			const report = probePiCompatibility(version);
 			expect(report.recordSnapshots).toHaveLength(9);
-			expect(report.recordSnapshots.every((record) => record.shape === "unsupported")).toBe(true);
-			expect(report.unsupported).toHaveLength(9);
+			expect(report.recordSnapshots.every((record) => record.shape === "installed")).toBe(true);
+			expect(report.unsupported).toHaveLength(0);
+			// Certified surfaces carry the matched pre-install identity in the certificate.
+			expect(
+				report.certification.every(
+					(item) => item.status === "certified" && item.matchedIdentity?.fingerprint !== undefined,
+				),
+			).toBe(true);
+			disposePiCompatibilityProbe(report);
+		}
+		// A changed runtime identity degrades only that surface to its native
+		// fallback while every other certified surface keeps working.
+		const key = "native-assistant-message:updateContent";
+		const target = targetSpecs.find((spec) => `${spec.subtype}:${spec.method}` === key);
+		expect(target).toBeDefined();
+		const targetSpec = target as (typeof targetSpecs)[number];
+		const original = Object.getOwnPropertyDescriptor(targetSpec.target, targetSpec.method);
+		const stub = function updateContent() {
+			return "drifted native";
+		};
+		Object.defineProperty(targetSpec.target, targetSpec.method, {
+			value: stub,
+			writable: true,
+			configurable: true,
+			enumerable: original?.enumerable ?? false,
+		});
+		try {
+			const report = probePiCompatibility("0.85.0");
+			expect(report.recordSnapshots).toHaveLength(9);
+			expect(report.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(8);
+			expect(report.recordSnapshots.find((record) => `${record.subtype}:${record.method}` === key)?.shape).toBe(
+				"unsupported",
+			);
+			expect(report.unsupported.some((item) => `${item.subtype}:${String(item.method)}` === key)).toBe(true);
+			expect(
+				report.certification.find((item) => `${item.subtype}:${item.method}` === key)?.matchedIdentity,
+			).toBeUndefined();
+			disposePiCompatibilityProbe(report);
+		} finally {
+			if (original) Object.defineProperty(targetSpec.target, targetSpec.method, original);
 		}
 	});
 
@@ -659,7 +701,11 @@ describe("Pi 0.83 compatibility probe", () => {
 			expect(descriptor?.value?.length).toBe(
 				spec.arity ?? (spec.method === "render" || spec.method === "updateContent" ? 1 : 0),
 			);
-			expect(fingerprint(descriptor?.value)).toBe(TRUSTED_NATIVE_FINGERPRINTS[`${spec.subtype}:${spec.method}`]);
+			expect(
+				KNOWN_NATIVE_IDENTITIES[`${spec.subtype}:${spec.method}`].some(
+					(identity) => identity.fingerprint === fingerprint(descriptor?.value),
+				),
+			).toBe(true);
 		}
 		const beforeDescriptors = descriptors();
 		const markers = new Set<string>();

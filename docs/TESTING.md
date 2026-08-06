@@ -34,7 +34,7 @@ test/
 │   ├── startup-resources.test.ts     — startup tool resource collection
 │   ├── session-usage.test.ts         — session usage aggregation
 │   ├── boxed-tools.test.ts           — box primitives, boxed tools, special blocks
-│   └── compatibility-probe.test.ts   — Pi 0.83 compatibility probe and patch lifecycle
+│   └── compatibility-probe.test.ts   — identity-certified compatibility probe and patch lifecycle
 ├── render/           surface-rendering-widths.test.ts
 ├── integration/      extension-load.test.ts, startup.test.ts
 ├── performance/      scheduler-runtime-lifecycle.test.ts, git-provider-cache.test.ts,
