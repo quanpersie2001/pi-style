@@ -630,7 +630,7 @@ When a turn completes, collapse that turn's finalized tool blocks into a single 
 
 - Leader renders the summary line; other tool items of the turn render zero lines (batch-member pattern).
 - `➔ Read 2 files, ran 4 shell commands · 3.1s` format with `pluralForm`, wall-clock elapsed, `safeTruncateToWidth`; Nerd/Unicode/ASCII glyph variants.
-- Never collapsed: errors, partial/pending, interrupted turns, the running turn, `user_bash` blocks. Error blocks stay visible; optional `· N failed` marker.
+- Never collapsed: errors, partial/pending, interrupted turns, the running turn, `user_bash` blocks. Error blocks stay visible; optional `· N failure(s)` marker.
 - `expanded` override: full boxes when Pi's global toggle is on; summaries when off.
 
 #### Configuration

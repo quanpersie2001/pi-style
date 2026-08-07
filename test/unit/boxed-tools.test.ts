@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setSpecialBlockTheme } from "../../extension-src/pi-style/features/messages/special-blocks.js";
+import { EMPTY_BATCH_COMPONENT } from "../../extension-src/pi-style/features/tools/boxed/batch.js";
 import {
 	renderBoxedToolCall as dispatchCall,
 	renderBoxedToolResult as dispatchResult,
@@ -20,6 +21,12 @@ import {
 	stopAllElapsedTickers,
 } from "../../extension-src/pi-style/features/tools/boxed/session-config.js";
 import type { BoxedToolContext } from "../../extension-src/pi-style/features/tools/boxed/shared.js";
+import {
+	beginAgentRun,
+	finishAgentRun,
+	registerTurnFromMessage,
+	resetTurnRegistry,
+} from "../../extension-src/pi-style/features/tools/boxed/turn-summary.js";
 import { createToolDecorationOwner } from "../../extension-src/pi-style/features/tools/index.js";
 import {
 	type CompatibilityProbeReport,
@@ -56,6 +63,18 @@ import { createFakeTheme } from "../helpers/fake-theme.js";
 
 const theme = createFakeTheme();
 const widths = [0, 1, 12, 20, 40, 60, 80, 120, 160];
+
+function toolCall(id: string, name = "read"): { type: "toolCall"; id: string; name: string; arguments: object } {
+	return { type: "toolCall", id, name, arguments: {} };
+}
+
+function result(id: string, isError = false): { toolCallId: string; isError: boolean } {
+	return { toolCallId: id, isError };
+}
+
+function message(calls: readonly ReturnType<typeof toolCall>[]) {
+	return { role: "assistant", content: calls };
+}
 
 function context(overrides: Partial<BoxedToolContext> = {}): BoxedToolContext {
 	return {
@@ -815,6 +834,61 @@ describe("boxed tool decoration owner", () => {
 		expect(lines[0]).not.toContain("(1)");
 		expect(lines.join("\n")).not.toContain("╭");
 		assertFit(lines, 80);
+	});
+
+	it("hides collapsed turn members that render through the no-native-renderer fallback", () => {
+		// Extension tools (TaskCreate/TaskUpdate/ask_user_question) have no
+		// renderCall/renderResult; their collapsed turn members must still be
+		// hidden — otherwise Pi leaves a stray native placeholder row per block
+		// after the turn collapse.
+		try {
+			setToolsRenderConfig({ collapseAfterTurn: true, collapseMutatingTools: false });
+			const owner = createToolDecorationOwner({ style: "compact-box" });
+			const native = () => undefined;
+			const instance = { toolName: "TaskUpdate" };
+			const callRenderer = owner.decorateToolRendererSelection("tool-call-renderer", native, instance, []);
+			const resultRenderer = owner.decorateToolRendererSelection("tool-result-renderer", native, instance, []);
+			expect(typeof callRenderer).toBe("function");
+			expect(typeof resultRenderer).toBe("function");
+
+			beginAgentRun();
+			registerTurnFromMessage(message([toolCall("t1", "TaskUpdate"), toolCall("t2", "TaskUpdate")]), [
+				result("t1"),
+				result("t2"),
+			]);
+			finishAgentRun();
+
+			// The leader renders the summary; the other member collapses to the
+			// hidden batch singleton.
+			const leaderComponent = (callRenderer as (a: unknown, t: unknown, c: unknown) => { render(w: number): string[] })(
+				{ taskId: "2" },
+				theme,
+				context({ toolCallId: "t1" }),
+			);
+			expect(leaderComponent).not.toBe(EMPTY_BATCH_COMPONENT);
+			expect(stripAnsi(leaderComponent.render(80).join("\n"))).toContain("TaskUpdate");
+
+			const callComponent = (callRenderer as (a: unknown, t: unknown, c: unknown) => { render(w: number): string[] })(
+				{ taskId: "3" },
+				theme,
+				context({ toolCallId: "t2" }),
+			);
+			expect(callComponent).toBe(EMPTY_BATCH_COMPONENT);
+			expect((instance as { hideComponent?: boolean }).hideComponent).toBe(true);
+
+			const resultComponent = (
+				resultRenderer as (r: unknown, o: unknown, t: unknown, c: unknown) => { render(w: number): string[] }
+			)(
+				{ content: [{ type: "text", text: "ok" }], details: {} },
+				{ expanded: false, isPartial: false },
+				theme,
+				context({ toolCallId: "t2" }),
+			);
+			expect(resultComponent).toBe(EMPTY_BATCH_COMPONENT);
+			expect((instance as { hideComponent?: boolean }).hideComponent).toBe(true);
+		} finally {
+			resetTurnRegistry();
+		}
 	});
 });
 

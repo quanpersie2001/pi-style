@@ -165,8 +165,49 @@ describe("turn summary through the boxed dispatcher", () => {
 		noteTurnMemberElapsed("r1", 50);
 		const leader = dispatchCall("read", { path: "a.ts" }, theme, context({ toolCallId: "r1" }));
 		const line = stripAnsi(leader.render(80)[0]);
-		expect(line).toContain("· 1 failed");
+		expect(line).toContain("· 1 failure");
 		expect(line).toContain("· 0.05s");
+	});
+
+	it("pluralizes the failure marker ('failures' for many)", () => {
+		beginAgentRun();
+		registerTurnFromMessage(
+			message([toolCall("r1", "read"), toolCall("b1", "bash"), toolCall("b2", "bash"), toolCall("g1", "grep")]),
+			[result("r1"), result("b1", true), result("b2", true), result("g1", true)],
+		);
+		finishAgentRun();
+		const leader = dispatchCall("read", { path: "a.ts" }, theme, context({ toolCallId: "r1" }));
+		expect(stripAnsi(leader.render(80)[0])).toContain("· 3 failures");
+	});
+
+	it("uses neutral phrasing for unknown (extension) tools", () => {
+		completedTurn([toolCall("t1", "TaskCreate"), toolCall("t2", "ask_user_question")]);
+		const leader = dispatchCall("TaskCreate", { subject: "x" }, theme, context({ toolCallId: "t1" }));
+		expect(stripAnsi(leader.render(80)[0])).toContain("used 1 TaskCreate, used 1 ask_user_question");
+	});
+
+	it("error results with embedded newlines keep their box frame intact", () => {
+		beginAgentRun();
+		registerTurnFromMessage(message([toolCall("e1", "edit")]), [result("e1", true)]);
+		finishAgentRun();
+		const errorText =
+			'Validation failed for tool "edit":\n  - path: must have required properties path\n  - edits.1: must be object';
+		const errorResult = dispatchResult(
+			"edit",
+			{ content: [{ type: "text", text: errorText }], details: {} },
+			{ expanded: false, isPartial: false },
+			theme,
+			context({ toolCallId: "e1", isError: true }),
+		);
+		const lines = errorResult.render(80);
+		const body = stripAnsi(lines.join("\n"));
+		// Every fragment of the raw error message becomes its own bordered row.
+		expect(body).toContain("│    - edits.1: must be object");
+		expect(body).toContain('│  Validation failed for tool "edit":');
+		// No rendered row may carry an embedded newline (that is what breaks the
+		// frame: the box border only appears on the first and last row).
+		for (const line of lines) expect(stripAnsi(line).split("\n")).toHaveLength(1);
+		expectLinesFit(lines, 80);
 	});
 
 	it("truncates the summary at narrow widths", () => {

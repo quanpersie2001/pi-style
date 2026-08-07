@@ -423,16 +423,31 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 				if (typeof renderer !== "function") {
 					neutralizeToolContainerBackground(instance);
 					if (subtype === "tool-call-renderer")
-						return (callArgs: unknown, theme: unknown, context: unknown) =>
-							renderBoxedToolCall(toolName, callArgs as Record<string, unknown>, theme as never, context as never);
-					return (result: unknown, options: unknown, theme: unknown, context: unknown) =>
-						renderBoxedToolResult(
+						return (callArgs: unknown, theme: unknown, context: unknown) => {
+							const component = renderBoxedToolCall(
+								toolName,
+								callArgs as Record<string, unknown>,
+								theme as never,
+								context as never,
+							);
+							// Same batch-member contract as the native-renderer path: a
+							// collapsed turn member (or quiet batch member) returns the
+							// singleton and must be hidden, or Pi leaves a stray native
+							// placeholder row per block after the collapse.
+							if (component === EMPTY_BATCH_COMPONENT) hideBatchMember(instance);
+							return component;
+						};
+					return (result: unknown, options: unknown, theme: unknown, context: unknown) => {
+						const component = renderBoxedToolResult(
 							toolName,
 							result as { content?: readonly unknown[]; details?: unknown },
 							options as { expanded: boolean; isPartial: boolean },
 							theme as never,
 							context as never,
 						);
+						if (component === EMPTY_BATCH_COMPONENT) hideBatchMember(instance);
+						return component;
+					};
 				}
 				return function (this: unknown, ...rendererArgs: unknown[]) {
 					const valid = subtype === "tool-call-renderer" ? validCallArgs(rendererArgs) : validResultArgs(rendererArgs);

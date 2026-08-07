@@ -262,6 +262,18 @@ describe("turnSummaryParts", () => {
 		expect(parts.failedCount).toBe(1);
 	});
 
+	it("tracks the failed count across all-error members", () => {
+		const run = completedRun([
+			{
+				calls: [toolCall("a", "read"), toolCall("b", "bash"), toolCall("c", "bash")],
+				results: [result("a", true), result("b", true), result("c", true)],
+			},
+		]);
+		const parts = turnSummaryParts(run);
+		expect(parts.failedCount).toBe(3);
+		expect(parts.parts).toEqual([]);
+	});
+
 	it("sums frozen member elapsed; first write wins", () => {
 		const run = completedRun([
 			{ calls: [toolCall("a", "read"), toolCall("b", "bash")], results: [result("a"), result("b")] },
@@ -320,10 +332,10 @@ describe("turnSummaryParts", () => {
 		expect(turnSummaryParts(run).parts).toEqual(["ran 1 shell command"]);
 	});
 
-	it("falls back to '<tool> call' phrasing for unknown tools", () => {
+	it("falls back to neutral phrasing for unknown tools", () => {
 		const run = completedRun([
 			{ calls: [toolCall("a", "gh"), toolCall("b", "gh")], results: [result("a"), result("b")] },
 		]);
-		expect(turnSummaryParts(run).parts).toEqual(["ran 2 gh calls"]);
+		expect(turnSummaryParts(run).parts).toEqual(["used 2 gh"]);
 	});
 });

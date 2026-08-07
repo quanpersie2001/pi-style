@@ -366,8 +366,10 @@ export function turnSummaryParts(turn: TurnState): TurnSummaryParts {
 	}
 	const parts = order.map((toolName) => {
 		const count = counts.get(toolName) ?? 0;
-		const style = TURN_SUMMARY_STYLE[toolName] ?? { verb: "ran", unit: `${toolName} call` };
-		return `${style.verb} ${count} ${pluralForm(style.unit, count)}`;
+		const style = TURN_SUMMARY_STYLE[toolName];
+		// Unknown tools (extension tools like TaskCreate/ask_user_question) use a
+		// neutral phrasing with the invariant tool name: `used 5 TaskCreate`.
+		return style ? `${style.verb} ${count} ${pluralForm(style.unit, count)}` : `used ${count} ${toolName}`;
 	});
 	return { parts, failedCount, elapsedMs };
 }
@@ -380,7 +382,7 @@ function formatTurnSummaryLine(theme: BoxTheme, turn: TurnState): string {
 	const parts = summary.parts.join(", ");
 	let line = `${theme.fg("dim", `➔ ${parts}`)}`;
 	if (summary.failedCount > 0)
-		line += theme.fg("error", ` · ${summary.failedCount} ${pluralForm("failed", summary.failedCount)}`);
+		line += theme.fg("error", ` · ${summary.failedCount} ${pluralForm("failure", summary.failedCount)}`);
 	if (summary.elapsedMs !== undefined) line += theme.fg("dim", ` · ${(summary.elapsedMs / 1000).toFixed(2)}s`);
 	return line;
 }

@@ -567,8 +567,20 @@ function renderBoxedOutputLines(
 	let truncated = false;
 
 	for (; nextInputIndex < outputLines.length; nextInputIndex++) {
-		const line = boxedTruncatedLine(theme, outputLines[nextInputIndex] ?? "", width);
-		if (!pushBoundedLines(head, [line], headLimit)) {
+		// An output "line" may carry embedded newlines (raw tool error messages,
+		// JSON payloads). Split before boxing so every fragment gets its own
+		// border and truncation — otherwise the box frame visually breaks on the
+		// embedded rows.
+		const fragments = (outputLines[nextInputIndex] ?? "").split("\n");
+		let headExceeded = false;
+		for (const fragment of fragments) {
+			const line = boxedTruncatedLine(theme, fragment, width);
+			if (!pushBoundedLines(head, [line], headLimit)) {
+				headExceeded = true;
+				break;
+			}
+		}
+		if (headExceeded) {
 			truncated = true;
 			nextInputIndex++;
 			break;
@@ -580,9 +592,12 @@ function renderBoxedOutputLines(
 	const tail: string[] = [];
 	const tailStart = Math.max(nextInputIndex, outputLines.length - tailLimit);
 	for (let i = tailStart; i < outputLines.length; i++) {
-		const line = boxedTruncatedLine(theme, outputLines[i] ?? "", width);
-		tail.push(line);
-		if (tail.length > tailLimit) tail.splice(0, tail.length - tailLimit);
+		const fragments = (outputLines[i] ?? "").split("\n");
+		for (const fragment of fragments) {
+			const line = boxedTruncatedLine(theme, fragment, width);
+			tail.push(line);
+			if (tail.length > tailLimit) tail.splice(0, tail.length - tailLimit);
+		}
 	}
 
 	const skippedInputLines = Math.max(0, tailStart - nextInputIndex);
@@ -764,6 +779,10 @@ export function renderBoxedToolResult(
 				bodyLines.length > 0
 					? [...errorPrefix, ...bodyLines]
 					: [theme.fg("muted", `∅ ${options.emptyText ?? "(no output)"}`)];
+			// Split embedded newlines before budgeting so raw multi-line messages
+			// (tool validation errors, JSON payloads) render as proper bordered
+			// rows instead of one "line" whose embedded rows break the frame.
+			const outputFragments = outputLines.flatMap((line) => line.split("\n"));
 			const footerText = (options.footerLines ?? []).join(" · ");
 			const dividerText =
 				typeof options.dividerLabel === "function"
@@ -783,7 +802,12 @@ export function renderBoxedToolResult(
 							),
 						]),
 				boxBlankLine(theme, renderedWidth),
-				...renderBoxedOutputLines(theme, outputLines, renderedWidth, options.renderLineBudget ?? outputLines.length),
+				...renderBoxedOutputLines(
+					theme,
+					outputFragments,
+					renderedWidth,
+					options.renderLineBudget ?? outputFragments.length,
+				),
 				boxBlankLine(theme, renderedWidth),
 				boxLabeledBorder(
 					theme,

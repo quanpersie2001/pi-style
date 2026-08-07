@@ -255,7 +255,7 @@ showSummary(call) =
 ```
 
 - `turnEnded` is derived from the session tree (message completed, a subsequent message or session end exists) — never from runtime event flags — so scroll-back and session resume render identically.
-- Never collapsed: error results, partial/pending blocks, interrupted turns, the running turn. Error blocks stay visible below the summary; the summary may carry a `· N failed` marker.
+- Never collapsed: error results, partial/pending blocks, interrupted turns, the running turn. Error blocks stay visible below the summary; the summary may carry a `· N failure(s)` marker.
 - **Mutating tools** (`edit`/`write`/`quick_edit`/`substitute_edit`/`target_edit`) are never summarized by default (`tools.collapseMutatingTools: "off"`): their blocks are the record of what was done to the user's files, so they stay visible as compact previews beside the summary line. Only read-only tools (`read`/`ls`/`find`/`grep`/`bash`) collapse. A turn made of mutating tools only collapses nothing. `bash` is deliberately exempt from the classification — read-only and mutating commands are indistinguishable without parsing.
 - `user_bash` (`!command`) blocks are never summarized.
 - Expansion is Pi's existing global toggle (`app.tools.expand`, Ctrl+O): when expanded, every block renders in full; pi-style only reads `options.expanded` and never calls `setExpanded`.
@@ -297,7 +297,7 @@ If another extension already owns a message/tool renderer: compose only through 
 - **TOOL-006:** patches/overrides are idempotent, reversible, and identity-safe.
 - **TOOL-007:** renderers perform no filesystem/process work.
 - **SUM-001:** when the agent run completes, that run's finalized collapsible tool blocks collapse into a single summary line (leader renders the summary; other collapsible tool items render zero lines) when `tools.collapseAfterTurn` is enabled; a turn made of mutating tools only collapses nothing.
-- **SUM-002:** the summary aggregates per-tool counts with total elapsed; error/partial/interrupted blocks are never collapsed and remain visible (a `· N failed` marker may reference them).
+- **SUM-002:** the summary aggregates per-tool counts with total elapsed; error/partial/interrupted blocks are never collapsed and remain visible (a `· N failure(s)` marker may reference them).
 - **SUM-003:** collapse state is derived from session content, so scroll-back and session resume render identically without in-process `turn_end` events.
 - **SUM-004:** Pi's global expansion state is preserved — when expanded (Ctrl+O) every block renders in full and toggling back restores summaries; pi-style never mutates Pi's expansion state.
 - **SUM-005:** `user_bash` blocks and the running turn are never summarized; rendering performs no filesystem/process work and no new Pi-core patch identity.
