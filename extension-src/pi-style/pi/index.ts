@@ -1,6 +1,14 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { StatusSnapshot } from "../domain/status.js";
 import { closeActiveBatch } from "../features/tools/boxed/batch.js";
+import {
+	beginAgentRun,
+	finishAgentRun,
+	invalidateTurnMembers,
+	rebuildTurnRegistryFromEntries,
+	registerTurnFromMessage,
+} from "../features/tools/boxed/turn-summary.js";
+import { requestToolPresentationRender } from "../features/tools/index.js";
 import { registerPiStyleCommand } from "./commands.js";
 import { type CompatibilityTestHooks, createPiStyleSessionCoordinator } from "./session-coordinator.js";
 import { usageFromSession } from "./session-usage.js";
@@ -66,7 +74,12 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		}
 		await coordinator.start(event, ctx);
 	});
-	pi.on("agent_start", () => coordinator.app.runtime.current?.dismissStartup());
+	pi.on("agent_start", () => {
+		coordinator.app.runtime.current?.dismissStartup();
+		// Turn summary (ADR 0007): a summary group spans the whole agent run
+		// (user request → agent_end), not pi's per-message turn_end.
+		beginAgentRun();
+	});
 	pi.on("input", (event, _ctx) => {
 		coordinator.app.runtime.current?.dismissStartup();
 		// Bare `!`/`!!` submit guard: Pi treats `!`-prefixed input as a direct bash
@@ -111,9 +124,30 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	// message/turn boundaries, mirroring Pi's native footer; per-chunk updates
 	// stay usage-free to keep streaming cheap.
 	pi.on("message_end", (_event, ctx) => coordinator.app.update({ ...usagePatch(ctx) }, "coalesced"));
-	pi.on("turn_end", (_event, ctx) => coordinator.app.update({ ...usagePatch(ctx) }, "deferred"));
+	pi.on("turn_end", (event, ctx) => {
+		// Append the finalized assistant message's tool batch to the current run.
+		registerTurnFromMessage(event.message, event.toolResults);
+		coordinator.app.update({ ...usagePatch(ctx) }, "deferred");
+	});
+	pi.on("agent_end", () => {
+		// The run is complete: collapse its tool blocks into one summary line.
+		// Pi only re-invokes the tool renderer selectors from updateDisplay(), so
+		// the captured per-block invalidate callbacks force the collapse and the
+		// captured Tui repaints. Interrupted runs (a call without a result) stay
+		// expanded.
+		const run = finishAgentRun();
+		if (run) {
+			invalidateTurnMembers(run);
+			requestToolPresentationRender();
+		}
+	});
 	pi.on("agent_settled", (_event, ctx) => coordinator.app.update({ ...usagePatch(ctx) }, "coalesced"));
-	pi.on("session_tree", (_event, ctx) => coordinator.app.update({ ...usagePatch(ctx) }, "deferred"));
+	pi.on("session_tree", (_event, ctx) => {
+		// Rebuild the turn registry from session content so restored/branched
+		// history renders collapsed consistently (no in-process turn_end events).
+		rebuildTurnRegistryFromEntries(ctx.sessionManager.getEntries());
+		coordinator.app.update({ ...usagePatch(ctx) }, "deferred");
+	});
 	pi.on("session_compact", (_event, ctx) => coordinator.app.update({ ...usagePatch(ctx) }, "deferred"));
 	pi.on("tool_result", (event, ctx) => {
 		if (["write", "edit", "bash"].includes(event.toolName)) {

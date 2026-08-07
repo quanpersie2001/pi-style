@@ -28,7 +28,13 @@ export const DEFAULT_CONFIG: NormalizedPiStyleConfig = Object.freeze({
 		contextBarWidth: 10,
 	}),
 	editor: Object.freeze({ enabled: true, style: "dock", frame: "rounded", showMetadata: false, hint: "" }),
-	messages: Object.freeze({ enabled: true, assistantPrefix: true, specialBlocks: true, hideThinkingLabel: true }),
+	messages: Object.freeze({
+		enabled: true,
+		assistantPrefix: true,
+		specialBlocks: true,
+		hideThinkingLabel: true,
+		hideInterimText: true,
+	}),
 	tools: Object.freeze({
 		enabled: true,
 		style: "compact-box",
@@ -36,6 +42,7 @@ export const DEFAULT_CONFIG: NormalizedPiStyleConfig = Object.freeze({
 		maxExpandedLines: 50,
 		dimOutput: false,
 		showElapsed: true,
+		collapseAfterTurn: true,
 	}),
 	theme: Object.freeze({
 		nerdFonts: "auto",
@@ -169,6 +176,7 @@ export function normalizeConfig(
 			assistantPrefix: bool(messages.assistantPrefix, defaults.messages.assistantPrefix),
 			specialBlocks: bool(messages.specialBlocks, defaults.messages.specialBlocks),
 			hideThinkingLabel: bool(messages.hideThinkingLabel, defaults.messages.hideThinkingLabel),
+			hideInterimText: bool(messages.hideInterimText, defaults.messages.hideInterimText),
 		}),
 		tools: Object.freeze({
 			enabled: bool(tools.enabled, defaults.tools.enabled),
@@ -177,6 +185,7 @@ export function normalizeConfig(
 			maxExpandedLines: maxExpanded,
 			dimOutput: bool(tools.dimOutput, defaults.tools.dimOutput),
 			showElapsed: bool(tools.showElapsed, defaults.tools.showElapsed),
+			collapseAfterTurn: bool(tools.collapseAfterTurn, defaults.tools.collapseAfterTurn),
 		}),
 		theme: Object.freeze({
 			nerdFonts: stringEnum(theme.nerdFonts, ["auto", "on", "off"], defaults.theme.nerdFonts),
@@ -227,9 +236,11 @@ const BOOL_PATHS = new Set([
 	"messages.assistantPrefix",
 	"messages.specialBlocks",
 	"messages.hideThinkingLabel",
+	"messages.hideInterimText",
 	"tools.enabled",
 	"tools.showElapsed",
 	"tools.dimOutput",
+	"tools.collapseAfterTurn",
 	"compatibility.allowSafePatches",
 	"compatibility.allowCorePatches",
 	"compatibility.preferExistingEditor",

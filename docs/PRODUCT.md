@@ -29,7 +29,7 @@ Its information architecture uses native Pi layout with a responsive, segment-ba
 | Editor | Compact/boxed/dock/native `CustomEditor` treatments preserving Pi keybindings; prompt glyph and continuation alignment; thinking-level border; optional metadata rows fed by the shared status snapshot; previous-editor composition. |
 | Startup | Compact gradient logo header by default; optional overlay with System & Context / Available Tools panels; quiet/off modes; snapshot-only rendering; width-safe dismissal and timeout. |
 | Messages | Assistant prefix; thinking and tool-only assistant states; boxed compaction/skill/branch/custom (MCP) blocks; native rich content preserved. |
-| Tools | Compact boxed call/result presentation for built-in tools with pending/running/error markers; elapsed metrics; native expansion/truncation/diff preserved. |
+| Tools | Compact boxed call/result presentation for built-in tools with pending/running/error markers; elapsed metrics; native expansion/truncation/diff preserved; completed turns collapse into a single summary line with global Ctrl+O expand (ADR 0007). |
 | Theme | Shared semantic resolver over the active Pi theme; Nerd/Unicode/ASCII glyph sets; `NO_COLOR` and ANSI-safe output; explicit overrides. |
 | Operations | Global/project settings, `/pi-style` commands, reload-safe lifecycle, `/pi-style doctor` diagnostics, automated unit/integration/render/performance tests. |
 

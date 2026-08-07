@@ -244,6 +244,21 @@ Pi's direct bash execution (the `!`/`!!` input prefix, separate from the agent B
 - Custom key hints use Pi keybinding helpers rather than hardcoded keys.
 - No independent scrollable fixed tool box in v1.
 
+## Turn tool summary
+
+When the agent run completes (user request → `agent_end`), the run's finalized tool blocks collapse into a single summary line (ADR 0007): `➔ Read 2 files, ran 4 shell commands · 3.1s`. The first tool item of the run renders the summary; the remaining tool items render zero lines (the batch-member pattern). Pi emits `turn_end` per assistant message, so every tool batch of the request is appended to the same summary group. The summary is a pure function of session content plus Pi's `expanded` state:
+
+```ts
+showSummary(call) =
+  turnEnded(call.toolCallId) && !options.expanded && config.tools.collapseAfterTurn === "on";
+```
+
+- `turnEnded` is derived from the session tree (message completed, a subsequent message or session end exists) — never from runtime event flags — so scroll-back and session resume render identically.
+- Never collapsed: error results, partial/pending blocks, interrupted turns, the running turn. Error blocks stay visible below the summary; the summary may carry a `· N failed` marker.
+- `user_bash` (`!command`) blocks are never summarized.
+- Expansion is Pi's existing global toggle (`app.tools.expand`, Ctrl+O): when expanded, every block renders in full; pi-style only reads `options.expanded` and never calls `setExpanded`.
+- Config leaf `tools.collapseAfterTurn: "off" | "on"` (default `on`; `off` for the `minimal`/`native` presets).
+
 ## Streaming correctness
 
 Message/tool renderers must distinguish partial from finalized state; cached finalized output cannot replace newer partial output or vice versa. `context.lastComponent` may be reused only when component state is explicitly updated and invalidated.
@@ -268,6 +283,7 @@ If another extension already owns a message/tool renderer: compose only through 
 - **MSG-004:** unsupported shapes use native rendering.
 - **MSG-005:** message patches are idempotent and reversible.
 - **MSG-006:** images and native rich content remain usable.
+- **MSG-007:** the text of assistant messages that carry tool calls is hidden when `messages.hideInterimText` is enabled (interim narration); messages without tool calls, errors, and truncation notices stay visible, and the hiding is deterministic per content across streaming, scroll-back, and resume.
 
 ## Requirements — tools
 
@@ -278,6 +294,11 @@ If another extension already owns a message/tool renderer: compose only through 
 - **TOOL-005:** renderer conflict/failure falls back to the existing/native renderer.
 - **TOOL-006:** patches/overrides are idempotent, reversible, and identity-safe.
 - **TOOL-007:** renderers perform no filesystem/process work.
+- **SUM-001:** when the agent run completes, that run's finalized tool blocks collapse into a single summary line (leader renders the summary; other tool items render zero lines) when `tools.collapseAfterTurn` is enabled.
+- **SUM-002:** the summary aggregates per-tool counts with total elapsed; error/partial/interrupted blocks are never collapsed and remain visible (a `· N failed` marker may reference them).
+- **SUM-003:** collapse state is derived from session content, so scroll-back and session resume render identically without in-process `turn_end` events.
+- **SUM-004:** Pi's global expansion state is preserved — when expanded (Ctrl+O) every block renders in full and toggling back restores summaries; pi-style never mutates Pi's expansion state.
+- **SUM-005:** `user_bash` blocks and the running turn are never summarized; rendering performs no filesystem/process work and no new Pi-core patch identity.
 - **GIT-001:** `git status`/`add`/`commit`/`push`/`pull`/`fetch`/`restore`/`reset`/`switch`/`checkout`/`merge`/`rebase`/`diff --stat`/`show --stat`/short `log` render as a boxless compact card (summary + grouped `├─/└─` rows + `… N more`), not a full boxed shell.
 - **GIT-002:** `git diff`/`git show`/conflict render the diff in a content box using the same adaptive diff component as `Edit` (per-file frame, `Diff · +N -M` divider), without a second diff visual language.
 - **GIT-003:** a `git`/`gh` command with pipes/redirects/`&&`/`;`/command substitution, an unparseable result, or a plumbing/`gh api` scope renders the raw boxed Bash shell unchanged.
@@ -293,11 +314,14 @@ If another extension already owns a message/tool renderer: compose only through 
 - diff and syntax-highlight preservation; no-color/ASCII/theme invalidation;
 - git/gh parsers (long and `--short` status, `diff --stat`, `log`, `gh --json` records) accept valid output and return `null` on hostile input;
 - git/gh render snapshots: compact card, boxed diff reuse, raw fallback, nonzero-exit stderr preservation;
+- turn summary render snapshots: Nerd/Unicode/ASCII/no-color line formats, zero-line members, leader rendering, `expanded` override, error-block preservation;
+- turn registry unit tests: grouping, leader selection, counts/elapsed, resume rebuild, session-boundary resets;
+- lifecycle/e2e: `turn_end` → deferred collapse, scroll-back consistency, Ctrl+O expand/restore round-trip;
 - unsupported target shapes; repeated reload and later-owner replacement; native fallback snapshots.
 
 ## Roadmap coverage
 
-- Implemented in: Phase 5; git/gh semantic views: Phase 8.
+- Implemented in: Phase 5; git/gh semantic views: Phase 8; turn tool summaries: Phase 9.
 - Full conflict/config controls: Phase 6.
 - Performance/platform/release proof: Phase 7; manual evidence pending.
-- Requirement IDs: `MSG-001` through `MSG-006`, `TOOL-001` through `TOOL-007`, `GIT-001` through `GIT-004`, `GH-001` through `GH-002`.
+- Requirement IDs: `MSG-001` through `MSG-007`, `TOOL-001` through `TOOL-007`, `GIT-001` through `GIT-004`, `GH-001` through `GH-002`, `SUM-001` through `SUM-005`.

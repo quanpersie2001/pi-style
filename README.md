@@ -17,6 +17,8 @@
 - **Editor** — compact/boxed/dock `CustomEditor` treatments with prompt glyph, metadata rows, and thinking-level border, preserving Pi keybindings and autocomplete.
 - **Startup** — compact gradient logo header and optional overlay with System & Context / Available Tools panels, rendered from snapshot data collected before mount.
 - **Messages** — assistant prefix and boxed compaction/skill/branch/MCP special blocks, and certified tool call/result selectors with pending/running/error markers.
+- **Interim narration hiding** — the text of assistant messages that also carry tool calls is hidden (`messages.hideInterimText`): the feed shows only the tool blocks, the run summary, and the final answer.
+- **Turn summaries** — when a turn completes, its finalized tool blocks collapse into one summary line (`➔ Read 2 files, ran 4 shell commands · 3.1s`); errors and interrupted turns stay visible, and Pi's global Ctrl+O toggle expands everything again (`tools.collapseAfterTurn`).
 - **Auto theme** — the `titanium` palette is applied at TUI session start when no other theme is active (configurable via `theme.autoApply`, disable with `"off"`).
 - **One visual system** — shared semantic theme, glyph sets (Nerd/Unicode/ASCII), and ANSI-safe rendering across every surface.
 
@@ -187,7 +189,7 @@ npm run check
 
 `npm run check` runs all required automated gates in order.
 
-Current test suite: 195 tests across 18 files.
+Current test suite: 686 tests across 31 files.
 
 ---
 

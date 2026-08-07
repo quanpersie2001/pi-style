@@ -168,6 +168,7 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 					assistantPrefix: authorization.ascii ? "[assistant] " : "│ ",
 					assistantEnabled,
 					collapseHiddenThinking: thinkingCollapseEnabled,
+					hideInterimText: config.messages.hideInterimText && messagesEnabled,
 				},
 				toolSnapshot: {
 					callMarker: authorization.ascii ? "[tool] " : "[tool] ",

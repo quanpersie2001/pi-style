@@ -18,6 +18,7 @@ Decision records capture durable choices that should not be rediscovered during 
 | [0003](0003-semantic-theme-and-style-presets.md) | Accepted | Separate code-defined layout presets from semantic themes. |
 | [0004](0004-compatibility-tiers-and-patch-policy.md) | Accepted | Classify integrations by compatibility tier and restrict core patches. |
 | [0006](0006-file-anchored-output-trees.md) | Accepted | File-anchored output trees for Grep / List / Glob. |
+| [0007](0007-turn-tool-summaries.md) | Accepted | Collapse completed turns into one summary line; expand via Pi's existing Ctrl+O. |
 
 ## When a new ADR is required
 

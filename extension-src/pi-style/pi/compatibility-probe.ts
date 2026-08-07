@@ -369,7 +369,13 @@ function shape(spec: TargetSpec): boolean {
 export interface CompatibilityProbeOptions {
 	markers?: Set<string>;
 	config?: Readonly<{
-		messages: { enabled: boolean; assistantPrefix: boolean; specialBlocks: boolean; hideThinkingLabel: boolean };
+		messages: {
+			enabled: boolean;
+			assistantPrefix: boolean;
+			specialBlocks: boolean;
+			hideThinkingLabel: boolean;
+			hideInterimText: boolean;
+		};
 		tools: { enabled: boolean; style: string; maxCollapsedLines: number; maxExpandedLines: number; dimOutput: boolean };
 		preset: string;
 	}>;
@@ -417,7 +423,7 @@ function surfaceDisabled(spec: TargetSpec, config: CompatibilityProbeOptions["co
 	if (!config.messages.enabled) return true;
 	if (spec.subtype === "native-assistant-message" && spec.method === "render") return !config.messages.assistantPrefix;
 	if (spec.subtype === "native-assistant-message" && spec.method === "updateContent")
-		return !config.messages.hideThinkingLabel;
+		return !config.messages.hideThinkingLabel && !config.messages.hideInterimText;
 	if (isSpecialBlock(spec)) return !config.messages.specialBlocks;
 	return true;
 }

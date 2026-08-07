@@ -128,10 +128,12 @@ describe("configuration control plane and composition", () => {
 			["messages.enabled", false, "bad"],
 			["messages.assistantPrefix", false, "bad"],
 			["messages.specialBlocks", false, "bad"],
+			["messages.hideInterimText", false, "bad"],
 			["tools.enabled", false, "bad"],
 			["tools.style", "wide", 1],
 			["tools.maxCollapsedLines", 0, -1],
 			["tools.showElapsed", false, "bad"],
+			["tools.collapseAfterTurn", false, "bad"],
 			["theme.nerdFonts", "off", "bad"],
 			["theme.terminalBackgroundSync", "on", "bad"],
 			["theme.autoApply", "titanium", 3],
@@ -217,6 +219,16 @@ describe("configuration control plane and composition", () => {
 		expect(result.sources["editor.style"]).toBe("session");
 		expect(result.sources["statusLine.layout.left"]).toBe("project");
 		expect(result.sources["editor.frame"]).toContain("preset:");
+	});
+
+	it("maps collapseAfterTurn by preset: off for minimal/native, on otherwise", () => {
+		for (const preset of ["default", "compact", "full", "ascii"] as const)
+			expect(resolveConfigDetailed({ global: { preset } }).config.tools.collapseAfterTurn).toBe(true);
+		for (const preset of ["minimal", "native"] as const)
+			expect(resolveConfigDetailed({ global: { preset } }).config.tools.collapseAfterTurn).toBe(false);
+		expect(
+			resolveConfigDetailed({ global: { tools: { collapseAfterTurn: false } } }).config.tools.collapseAfterTurn,
+		).toBe(false);
 	});
 
 	it("reports malformed leaf fields and preserves explicit empty arrays", () => {

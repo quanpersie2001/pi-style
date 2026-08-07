@@ -13,6 +13,7 @@ import {
 	stopAllElapsedTickers,
 	type ToolsRenderConfig,
 } from "../features/tools/boxed/session-config.js";
+import { rebuildTurnRegistryFromEntries, resetTurnRegistry } from "../features/tools/boxed/turn-summary.js";
 import { createCompatibilityCoordinator } from "./compatibility-coordinator.js";
 import {
 	type CompatibilityCleanupResult,
@@ -175,6 +176,11 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			resetBatchRegistry();
 			resetGrepRegistry();
 			resetBashTreeRegistry();
+			// Turn summaries (ADR 0007): rebuild the registry from session content so
+			// restored/forked history renders collapsed before the first render pass
+			// (deterministic; no in-process turn_end events needed).
+			resetTurnRegistry();
+			rebuildTurnRegistryFromEntries(ctx.sessionManager.getEntries());
 			// Stop any 1s elapsed re-render ticker left by a tool that was still
 			// running when the session ended.
 			stopAllElapsedTickers();
@@ -247,6 +253,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			resetBatchRegistry();
 			resetGrepRegistry();
 			resetBashTreeRegistry();
+			resetTurnRegistry();
 			stopAllElapsedTickers();
 			app.sessionShutdown();
 			// Tier C prototype patches stay installed across session switches. Pi renders

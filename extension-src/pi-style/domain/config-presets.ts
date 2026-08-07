@@ -10,7 +10,7 @@ export const CONFIG_PRESETS: Readonly<Record<PresetName, Readonly<PiStyleConfig>
 		editor: { style: "native", frame: "native", showMetadata: false },
 		startup: { mode: "off" },
 		messages: { enabled: false },
-		tools: { enabled: false },
+		tools: { enabled: false, collapseAfterTurn: false },
 		theme: { terminalBackgroundSync: "off" },
 	}),
 	compact: Object.freeze({
@@ -41,7 +41,7 @@ export const CONFIG_PRESETS: Readonly<Record<PresetName, Readonly<PiStyleConfig>
 		editor: { style: "native", frame: "native", showMetadata: false },
 		startup: { mode: "off" },
 		messages: { enabled: false },
-		tools: { enabled: false },
+		tools: { enabled: false, collapseAfterTurn: false },
 		theme: { terminalBackgroundSync: "off", autoApply: "off" },
 	}),
 });

@@ -36,6 +36,7 @@ The product contract lives in [`docs/PRODUCT.md`](docs/PRODUCT.md). Detailed beh
 | 6 | Full configurability and extension composition | **Completed — independently Peer accepted and Root validated** |
 | 7 | Hardening, platform validation, and v1 release | **Verified** — terminal-global background synchronization unsupported/off for technical v1 |
 | 8 | Git and GitHub semantic renderers | **Planned** |
+| 9 | Turn tool summaries | **Planned** |
 
 ---
 
@@ -609,6 +610,54 @@ Phase 5 (bash tree classification + boxed result shell + `Edit` diff component);
 
 ---
 
+## Phase 9 — Turn tool summaries
+
+**Status:** Planned. Design accepted as [ADR 0007](docs/decisions/0007-turn-tool-summaries.md) (2026-08-08).
+
+### Objective
+
+When a turn completes, collapse that turn's finalized tool blocks into a single summary line (`➔ Read 2 files, ran 4 shell commands · 3.1s`), reclaiming feed space without touching Pi's execution, expansion state, or keybinding surface. This is a presentation-only extension of the certified boxed renderer surface — no new Pi-core patch identity, no new keybinding, no new compatibility surface. Expansion is Pi's existing global tool-output toggle (`app.tools.expand`, Ctrl+O): pi-style only reads `options.expanded`.
+
+### Deliverables
+
+#### Turn registry (app layer)
+
+- Turn grouping keyed by `toolCallId`: leader id, per-tool counts, total elapsed, failed count.
+- Populated from the session snapshot at `turn_end`/`session_tree`; rebuilt on resume; reset on session start/shutdown.
+- `turnEnded` derived from session content (message completed, subsequent message or session end exists), never from runtime event flags.
+
+#### Summary rendering (boxed renderer)
+
+- Leader renders the summary line; other tool items of the turn render zero lines (batch-member pattern).
+- `➔ Read 2 files, ran 4 shell commands · 3.1s` format with `pluralForm`, wall-clock elapsed, `safeTruncateToWidth`; Nerd/Unicode/ASCII glyph variants.
+- Never collapsed: errors, partial/pending, interrupted turns, the running turn, `user_bash` blocks. Error blocks stay visible; optional `· N failed` marker.
+- `expanded` override: full boxes when Pi's global toggle is on; summaries when off.
+
+#### Configuration
+
+- Leaf `tools.collapseAfterTurn: "off" | "on"` (default `on`).
+- Preset mapping: `default`/`compact`/`full`/`ascii` → `on`; `minimal`/`native` → `off`.
+- Same precedence ladder, normalization-safe fallback, `/pi-style set` support, doctor diagnostics.
+
+### Dependencies
+
+Phase 5 (boxed renderer, batch registry patterns, `bashTreeStates`); ADR 0007. No new Pi-core patch identity — the feature extends the already-certified boxed renderer surface.
+
+### Exit criteria
+
+- `SUM-001`–`SUM-005` are proven.
+- Resume determinism: history renders collapsed after a session reload with no in-process `turn_end` events.
+- Expand override: Ctrl+O round-trip renders full blocks and restores summaries; pi-style never calls `setExpanded`.
+- Error/partial/interrupted blocks remain visible in every collapsed state.
+- `npm run check` passes.
+
+### Primary docs
+
+- [`docs/decisions/0007-turn-tool-summaries.md`](docs/decisions/0007-turn-tool-summaries.md)
+- [`docs/ui/MESSAGES-AND-TOOLS.md`](docs/ui/MESSAGES-AND-TOOLS.md)
+
+---
+
 ## Post-v1 research lane
 
 These items are not silently included in v1. Each requires a new product contract, ADR, compatibility tier, and validation plan.
@@ -637,6 +686,7 @@ These items are not silently included in v1. Each requires a new product contrac
 | 6 | User control/migrations | All configurable surfaces | Conflict/doctor matrix | Persistence/composition tests |
 | 7 | Full product completion | All | Platform/version matrix | Full check, benchmarks, manual smoke |
 | 8 | Git/GitHub semantic renderers | Messages/tools | Certified bash renderer surface | Parser/render/fallback tests, full check |
+| 9 | Turn tool summaries | Messages/tools | Certified boxed renderer surface | Registry/render/lifecycle tests, full check |
 
 ## Rules for roadmap updates
 

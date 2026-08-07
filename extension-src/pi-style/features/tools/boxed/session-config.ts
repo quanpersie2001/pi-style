@@ -12,6 +12,8 @@ export interface ToolsRenderConfig {
 	batchOpenGlyph: string;
 	/** Nerd Font mode is active: file-type icons render in output trees. */
 	nerdFonts: boolean;
+	/** Collapse a completed turn's tool blocks into one summary line (ADR 0007). */
+	collapseAfterTurn: boolean;
 }
 
 let sessionToolsConfig: ToolsRenderConfig = {
@@ -21,6 +23,7 @@ let sessionToolsConfig: ToolsRenderConfig = {
 	showElapsed: true,
 	batchOpenGlyph: "●",
 	nerdFonts: false,
+	collapseAfterTurn: true,
 };
 
 export function setToolsRenderConfig(config: Partial<ToolsRenderConfig>): void {

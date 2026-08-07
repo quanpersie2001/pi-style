@@ -32,7 +32,13 @@ export interface PiStyleConfig {
 		contextBarWidth?: number;
 	};
 	editor?: { enabled?: boolean; style?: string; frame?: string; showMetadata?: boolean; hint?: string };
-	messages?: { enabled?: boolean; assistantPrefix?: boolean; specialBlocks?: boolean; hideThinkingLabel?: boolean };
+	messages?: {
+		enabled?: boolean;
+		assistantPrefix?: boolean;
+		specialBlocks?: boolean;
+		hideThinkingLabel?: boolean;
+		hideInterimText?: boolean;
+	};
 	tools?: {
 		enabled?: boolean;
 		style?: string;
@@ -40,6 +46,8 @@ export interface PiStyleConfig {
 		maxExpandedLines?: number;
 		dimOutput?: boolean;
 		showElapsed?: boolean;
+		/** Collapse a completed turn's tool blocks into one summary line (ADR 0007). */
+		collapseAfterTurn?: boolean;
 	};
 	theme?: {
 		nerdFonts?: string;
@@ -81,7 +89,13 @@ export interface NormalizedPiStyleConfig {
 		contextBarWidth: number;
 	};
 	readonly editor: { enabled: boolean; style: EditorStyle; frame: EditorFrame; showMetadata: boolean; hint: string };
-	readonly messages: { enabled: boolean; assistantPrefix: boolean; specialBlocks: boolean; hideThinkingLabel: boolean };
+	readonly messages: {
+		enabled: boolean;
+		assistantPrefix: boolean;
+		specialBlocks: boolean;
+		hideThinkingLabel: boolean;
+		hideInterimText: boolean;
+	};
 	readonly tools: {
 		enabled: boolean;
 		style: string;
@@ -89,6 +103,8 @@ export interface NormalizedPiStyleConfig {
 		maxExpandedLines: number;
 		dimOutput: boolean;
 		showElapsed: boolean;
+		/** Collapse a completed turn's tool blocks into one summary line (ADR 0007). */
+		collapseAfterTurn: boolean;
 	};
 	readonly theme: {
 		nerdFonts: NerdFontsMode;
