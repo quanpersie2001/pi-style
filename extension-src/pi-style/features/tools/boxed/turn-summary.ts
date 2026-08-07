@@ -2,10 +2,18 @@
 //
 // When a turn completes, its finalized tool blocks collapse into a single
 // summary line (`➔ Read 2 files, ran 4 shell commands · 3.1s`) rendered by the
-// turn's leader (its first non-error tool call); every other non-error tool
-// item of the turn renders zero lines. Error results stay visible, interrupted
-// turns never collapse, and Pi's global tool-output toggle (Ctrl+O) expands
-// everything again (`options.expanded` is read, never written).
+// turn's leader (its first non-error tool call that collapses under the render
+// config); every other collapsible tool item of the turn renders zero lines.
+// Error results stay visible, interrupted turns never collapse, and Pi's
+// global tool-output toggle (Ctrl+O) expands everything again
+// (`options.expanded` is read, never written).
+//
+// Mutating tools (edit/write/quick_edit/substitute_edit/target_edit) are
+// exempt from the summary by default (`tools.collapseMutatingTools: off`):
+// their blocks are the record of what was done to the user's files, so they
+// always stay visible (compact preview) even in an ended turn — the summary
+// covers only read-only tools (read/ls/find/grep/bash). Turning the leaf on
+// restores the full collapse.
 //
 // Design notes:
 // - The registry is populated from **session content**, never from runtime
@@ -27,6 +35,7 @@ import type { Component } from "@earendil-works/pi-tui";
 import type { BoxTheme } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import { pluralForm } from "./output-tree.js";
+import { getToolsRenderConfig } from "./session-config.js";
 
 export interface TurnMemberInfo {
 	readonly toolCallId: string;
@@ -39,10 +48,35 @@ export interface TurnMemberInfo {
 }
 
 export interface TurnState {
-	/** First non-error member; renders the summary line. Empty when every member errored. */
+	/**
+	 * First non-error member that collapses under the current render config
+	 * (mutating members are skipped unless `tools.collapseMutatingTools` is
+	 * on); renders the summary line. Empty when every member errored or when
+	 * the turn's members are all mutating with the exemption active (such a
+	 * turn collapses nothing).
+	 */
 	leaderId: string;
 	ended: boolean;
 	members: readonly TurnMemberInfo[];
+}
+
+/**
+ * Tools that change the user's files. Their blocks are the record of what was
+ * done — they stay visible after the turn and are excluded from the summary
+ * unless `tools.collapseMutatingTools` is on. bash is deliberately NOT here:
+ * read-only and mutating commands are indistinguishable without parsing the
+ * command text.
+ */
+const MUTATING_TOOLS: ReadonlySet<string> = new Set(["edit", "write", "quick_edit", "substitute_edit", "target_edit"]);
+
+/** Whether the tool changes the user's files (exempt from turn collapse). */
+export function isMutatingTool(toolName: string): boolean {
+	return MUTATING_TOOLS.has(toolName);
+}
+
+/** Whether the summary should also cover mutating tools (render config). */
+function mutatingCollapses(): boolean {
+	return getToolsRenderConfig().collapseMutatingTools;
 }
 
 interface TurnEntry {
@@ -96,7 +130,7 @@ function registerTurn(
 			isError: isErrorById.get(toolCallId) === true,
 		};
 	});
-	const leader = members.find((member) => !member.isError);
+	const leader = members.find((member) => !member.isError && (!isMutatingTool(member.toolName) || mutatingCollapses()));
 	const turn: TurnState = {
 		leaderId: leader?.toolCallId ?? "",
 		ended: ended && complete,
@@ -145,7 +179,9 @@ export function registerTurnFromMessage(message: unknown, toolResults: readonly 
 			isError: isErrorById.get(toolCallId) === true,
 		};
 	});
-	const leader = newMembers.find((member) => !member.isError);
+	const leader = newMembers.find(
+		(member) => !member.isError && (!isMutatingTool(member.toolName) || mutatingCollapses()),
+	);
 	if (!currentRun) {
 		currentRun = {
 			leaderId: leader?.toolCallId ?? "",
@@ -303,17 +339,24 @@ export interface TurnSummaryParts {
 	readonly elapsedMs: number | undefined;
 }
 
-/** Aggregate a turn's non-error members into summary parts (pure). */
+/**
+ * Aggregate a turn's collapsed members into summary parts (pure). Mutating
+ * members are excluded unless `tools.collapseMutatingTools` is on — by default
+ * their visible blocks are the record; the summary describes only what it
+ * hides.
+ */
 export function turnSummaryParts(turn: TurnState): TurnSummaryParts {
 	const counts = new Map<string, number>();
 	const order: string[] = [];
 	let failedCount = 0;
 	let elapsedMs: number | undefined;
+	const collapseMutating = mutatingCollapses();
 	for (const member of turn.members) {
 		if (member.isError) {
 			failedCount++;
 			continue;
 		}
+		if (!collapseMutating && isMutatingTool(member.toolName)) continue;
 		if (member.elapsedMs !== undefined) elapsedMs = (elapsedMs ?? 0) + member.elapsedMs;
 		const existing = counts.get(member.toolName);
 		if (existing === undefined) {

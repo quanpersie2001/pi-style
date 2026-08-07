@@ -20,6 +20,7 @@ import type { BoxedToolContext, BoxedToolDefinition } from "./shared.js";
 import {
 	emptyTurnResult,
 	getTurnEntry,
+	isMutatingTool,
 	noteTurnMemberElapsed,
 	noteTurnMemberRender,
 	renderTurnSummaryCall,
@@ -53,12 +54,16 @@ export function hasBoxedRenderer(toolName: unknown): boolean {
 /**
  * Turn-summary gate (ADR 0007): the member belongs to an ended turn, Pi's
  * global tool-output state is collapsed, the surface is enabled, and the block
- * itself is not an error (errors always stay visible).
+ * itself is not an error (errors always stay visible). Mutating tools
+ * (edit/write/…) are exempt unless `tools.collapseMutatingTools` is on — their
+ * blocks are the record of what was done and stay visible by default.
  */
 function collapsedTurnFor(toolCallId: string, expanded: boolean): TurnState | undefined {
-	if (expanded || !getToolsRenderConfig().collapseAfterTurn) return undefined;
+	const config = getToolsRenderConfig();
+	if (expanded || !config.collapseAfterTurn) return undefined;
 	const entry = getTurnEntry(toolCallId);
 	if (!entry?.turn.ended || entry.member.isError) return undefined;
+	if (isMutatingTool(entry.member.toolName) && !config.collapseMutatingTools) return undefined;
 	return entry.turn;
 }
 

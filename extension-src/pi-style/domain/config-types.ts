@@ -48,6 +48,8 @@ export interface PiStyleConfig {
 		showElapsed?: boolean;
 		/** Collapse a completed turn's tool blocks into one summary line (ADR 0007). */
 		collapseAfterTurn?: boolean;
+		/** Also collapse mutating tools (edit/write/…) into the summary; off keeps them visible. */
+		collapseMutatingTools?: boolean;
 	};
 	theme?: {
 		nerdFonts?: string;
@@ -105,6 +107,8 @@ export interface NormalizedPiStyleConfig {
 		showElapsed: boolean;
 		/** Collapse a completed turn's tool blocks into one summary line (ADR 0007). */
 		collapseAfterTurn: boolean;
+		/** Also collapse mutating tools (edit/write/…) into the summary; off keeps them visible. */
+		collapseMutatingTools: boolean;
 	};
 	readonly theme: {
 		nerdFonts: NerdFontsMode;

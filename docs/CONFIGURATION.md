@@ -131,6 +131,7 @@ Values only select an existing extension status and presentation options; they c
 | `tools.dimOutput` | boolean | `false` | Render tool output lines in the dim semantic color instead of `toolOutput`. |
 | `tools.showElapsed` | boolean | `true` | Include wall-clock elapsed time in tool result footers. |
 | `tools.collapseAfterTurn` | boolean | `true` | After a turn completes, collapse its finalized tool blocks into one summary line (`➔ Read 2 files, ran 4 shell commands · 3.1s`); errors and interrupted turns stay visible, and Pi's global Ctrl+O toggle expands everything again. Off in the `minimal`/`native` presets (ADR 0007). |
+| `tools.collapseMutatingTools` | boolean | `false` | Also collapse mutating tools (`edit`/`write`/`quick_edit`/`substitute_edit`/`target_edit`) into the turn summary. Off (default): those blocks are the record of what was done to your files and stay visible as compact previews beside the summary line — only `read`/`ls`/`find`/`grep`/`bash` collapse. Set `true` to restore full collapse (ADR 0007). |
 
 The boxed tool and special-block adapters are identity-certified per surface against recorded fingerprints (observed on Pi `0.83.0` and `0.84.0`) and install through the same reversible, generation-tracked compatibility wrapper as message prefixes and tool markers; shutdown restores the native identities exactly. A surface whose runtime identity matches no recorded fingerprint renders natively until the identity is recorded.
 

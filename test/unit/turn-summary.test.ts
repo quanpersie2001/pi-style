@@ -9,6 +9,7 @@
 // flagged but never summarized.
 
 import { afterEach, describe, expect, it } from "vitest";
+import { setToolsRenderConfig } from "../../extension-src/pi-style/features/tools/boxed/session-config.js";
 import {
 	beginAgentRun,
 	finishAgentRun,
@@ -91,6 +92,50 @@ describe("registerTurnFromMessage + finishAgentRun (live path)", () => {
 		expect(run?.ended).toBe(true);
 		expect(run?.leaderId).toBe("r1");
 		expect(run?.members.find((m) => m.toolCallId === "b1")?.isError).toBe(true);
+	});
+
+	it("skips mutating members when picking the leader", () => {
+		const run = completedRun([
+			{
+				calls: [toolCall("e", "edit"), toolCall("w", "write"), toolCall("r", "read")],
+				results: [result("e"), result("w"), result("r")],
+			},
+		]);
+		expect(run?.ended).toBe(true);
+		expect(run?.leaderId).toBe("r");
+	});
+
+	it("an all-mutating run is ended but has no leader and collapses nothing", () => {
+		const run = completedRun([
+			{
+				calls: [toolCall("e", "edit"), toolCall("w", "write")],
+				results: [result("e"), result("w")],
+			},
+		]);
+		expect(run?.ended).toBe(true);
+		expect(run?.leaderId).toBe("");
+		expect(turnSummaryParts(run).parts).toEqual([]);
+	});
+
+	it("a mutating leader stays in the live-path registry", () => {
+		const run = completedRun([
+			{ calls: [toolCall("e", "edit"), toolCall("r", "read")], results: [result("e"), result("r")] },
+		]);
+		expect(run?.leaderId).toBe("r");
+		expect(getTurnEntry("e")?.member.toolName).toBe("edit");
+	});
+
+	it("collapseMutatingTools on makes the first member the leader and includes mutating counts", () => {
+		setToolsRenderConfig({ collapseAfterTurn: true, collapseMutatingTools: true });
+		try {
+			const run = completedRun([
+				{ calls: [toolCall("e", "edit"), toolCall("r", "read")], results: [result("e"), result("r")] },
+			]);
+			expect(run?.leaderId).toBe("e");
+			expect(turnSummaryParts(run).parts).toEqual(["Edited 1 file", "Read 1 file"]);
+		} finally {
+			setToolsRenderConfig({ collapseAfterTurn: true, collapseMutatingTools: false });
+		}
 	});
 
 	it("registers every member id for renderer lookup", () => {
@@ -182,6 +227,18 @@ describe("rebuildTurnRegistryFromEntries (restore path)", () => {
 		rebuildTurnRegistryFromEntries(entries);
 		expect(getTurnEntry("a")?.turn).not.toBe(getTurnEntry("b")?.turn);
 	});
+
+	it("skips mutating members when picking the leader on restore", () => {
+		const entries = [
+			entry({ role: "user", content: "fix it" }),
+			entry(message([toolCall("e", "edit"), toolCall("r", "read")], "stop")),
+			toolResultEntry("e"),
+			toolResultEntry("r"),
+		];
+		rebuildTurnRegistryFromEntries(entries);
+		expect(getTurnEntry("r")?.turn.leaderId).toBe("r");
+		expect(getTurnEntry("r")?.turn.ended).toBe(true);
+	});
 });
 
 describe("turnSummaryParts", () => {
@@ -221,14 +278,46 @@ describe("turnSummaryParts", () => {
 		expect(turnSummaryParts(run).elapsedMs).toBeUndefined();
 	});
 
-	it("pluralizes units and covers quick-edit aliases", () => {
+	it("pluralizes units", () => {
 		const run = completedRun([
 			{
-				calls: [toolCall("a", "ls"), toolCall("b", "ls"), toolCall("c", "quick_edit")],
+				calls: [toolCall("a", "ls"), toolCall("b", "ls"), toolCall("c", "grep")],
 				results: [result("a"), result("b"), result("c")],
 			},
 		]);
-		expect(turnSummaryParts(run).parts).toEqual(["Listed 2 paths", "Edited 1 file"]);
+		expect(turnSummaryParts(run).parts).toEqual(["Listed 2 paths", "Grepped 1 pattern"]);
+	});
+
+	it("excludes mutating tools from parts, counts, and elapsed", () => {
+		const run = completedRun([
+			{
+				calls: [toolCall("a", "read"), toolCall("e", "edit"), toolCall("w", "write")],
+				results: [result("a"), result("e"), result("w")],
+			},
+		]);
+		noteTurnMemberElapsed("a", 100);
+		noteTurnMemberElapsed("e", 500);
+		noteTurnMemberElapsed("w", 900);
+		const parts = turnSummaryParts(run);
+		expect(parts.parts).toEqual(["Read 1 file"]);
+		expect(parts.elapsedMs).toBe(100);
+	});
+
+	it("covers every mutating alias", () => {
+		const run = completedRun([
+			{
+				calls: [
+					toolCall("a", "quick_edit"),
+					toolCall("b", "substitute_edit"),
+					toolCall("c", "target_edit"),
+					toolCall("d", "edit"),
+					toolCall("e", "write"),
+					toolCall("f", "bash"),
+				],
+				results: [result("a"), result("b"), result("c"), result("d"), result("e"), result("f")],
+			},
+		]);
+		expect(turnSummaryParts(run).parts).toEqual(["ran 1 shell command"]);
 	});
 
 	it("falls back to '<tool> call' phrasing for unknown tools", () => {

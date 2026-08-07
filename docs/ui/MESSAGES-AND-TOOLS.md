@@ -246,18 +246,20 @@ Pi's direct bash execution (the `!`/`!!` input prefix, separate from the agent B
 
 ## Turn tool summary
 
-When the agent run completes (user request → `agent_end`), the run's finalized tool blocks collapse into a single summary line (ADR 0007): `➔ Read 2 files, ran 4 shell commands · 3.1s`. The first tool item of the run renders the summary; the remaining tool items render zero lines (the batch-member pattern). Pi emits `turn_end` per assistant message, so every tool batch of the request is appended to the same summary group. The summary is a pure function of session content plus Pi's `expanded` state:
+When the agent run completes (user request → `agent_end`), the run's finalized tool blocks collapse into a single summary line (ADR 0007): `➔ Read 2 files, ran 4 shell commands · 3.1s`. The first collapsible tool item of the run renders the summary; the remaining collapsible tool items render zero lines (the batch-member pattern). Pi emits `turn_end` per assistant message, so every tool batch of the request is appended to the same summary group. The summary is a pure function of session content plus Pi's `expanded` state:
 
 ```ts
 showSummary(call) =
-  turnEnded(call.toolCallId) && !options.expanded && config.tools.collapseAfterTurn === "on";
+  turnEnded(call.toolCallId) && !options.expanded && config.tools.collapseAfterTurn === "on" &&
+  (isMutatingTool(call.toolName) ? config.tools.collapseMutatingTools === "on" : true);
 ```
 
 - `turnEnded` is derived from the session tree (message completed, a subsequent message or session end exists) — never from runtime event flags — so scroll-back and session resume render identically.
 - Never collapsed: error results, partial/pending blocks, interrupted turns, the running turn. Error blocks stay visible below the summary; the summary may carry a `· N failed` marker.
+- **Mutating tools** (`edit`/`write`/`quick_edit`/`substitute_edit`/`target_edit`) are never summarized by default (`tools.collapseMutatingTools: "off"`): their blocks are the record of what was done to the user's files, so they stay visible as compact previews beside the summary line. Only read-only tools (`read`/`ls`/`find`/`grep`/`bash`) collapse. A turn made of mutating tools only collapses nothing. `bash` is deliberately exempt from the classification — read-only and mutating commands are indistinguishable without parsing.
 - `user_bash` (`!command`) blocks are never summarized.
 - Expansion is Pi's existing global toggle (`app.tools.expand`, Ctrl+O): when expanded, every block renders in full; pi-style only reads `options.expanded` and never calls `setExpanded`.
-- Config leaf `tools.collapseAfterTurn: "off" | "on"` (default `on`; `off` for the `minimal`/`native` presets).
+- Config leaf `tools.collapseAfterTurn: "off" | "on"` (default `on`; `off` for the `minimal`/`native` presets) and `tools.collapseMutatingTools: "off" | "on"` (default `off`).
 
 ## Streaming correctness
 
@@ -294,11 +296,12 @@ If another extension already owns a message/tool renderer: compose only through 
 - **TOOL-005:** renderer conflict/failure falls back to the existing/native renderer.
 - **TOOL-006:** patches/overrides are idempotent, reversible, and identity-safe.
 - **TOOL-007:** renderers perform no filesystem/process work.
-- **SUM-001:** when the agent run completes, that run's finalized tool blocks collapse into a single summary line (leader renders the summary; other tool items render zero lines) when `tools.collapseAfterTurn` is enabled.
+- **SUM-001:** when the agent run completes, that run's finalized collapsible tool blocks collapse into a single summary line (leader renders the summary; other collapsible tool items render zero lines) when `tools.collapseAfterTurn` is enabled; a turn made of mutating tools only collapses nothing.
 - **SUM-002:** the summary aggregates per-tool counts with total elapsed; error/partial/interrupted blocks are never collapsed and remain visible (a `· N failed` marker may reference them).
 - **SUM-003:** collapse state is derived from session content, so scroll-back and session resume render identically without in-process `turn_end` events.
 - **SUM-004:** Pi's global expansion state is preserved — when expanded (Ctrl+O) every block renders in full and toggling back restores summaries; pi-style never mutates Pi's expansion state.
 - **SUM-005:** `user_bash` blocks and the running turn are never summarized; rendering performs no filesystem/process work and no new Pi-core patch identity.
+- **SUM-006:** mutating tools (`edit`/`write`/`quick_edit`/`substitute_edit`/`target_edit`) are not summarized when `tools.collapseMutatingTools` is off (default): their blocks remain visible beside the summary line, and the summary counts/elapsed cover only the collapsed (read-only) members.
 - **GIT-001:** `git status`/`add`/`commit`/`push`/`pull`/`fetch`/`restore`/`reset`/`switch`/`checkout`/`merge`/`rebase`/`diff --stat`/`show --stat`/short `log` render as a boxless compact card (summary + grouped `├─/└─` rows + `… N more`), not a full boxed shell.
 - **GIT-002:** `git diff`/`git show`/conflict render the diff in a content box using the same adaptive diff component as `Edit` (per-file frame, `Diff · +N -M` divider), without a second diff visual language.
 - **GIT-003:** a `git`/`gh` command with pipes/redirects/`&&`/`;`/command substitution, an unparseable result, or a plumbing/`gh api` scope renders the raw boxed Bash shell unchanged.

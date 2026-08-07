@@ -14,6 +14,8 @@ export interface ToolsRenderConfig {
 	nerdFonts: boolean;
 	/** Collapse a completed turn's tool blocks into one summary line (ADR 0007). */
 	collapseAfterTurn: boolean;
+	/** Also collapse mutating tools (edit/write/…) into the summary; off keeps them visible. */
+	collapseMutatingTools: boolean;
 }
 
 let sessionToolsConfig: ToolsRenderConfig = {
@@ -24,6 +26,7 @@ let sessionToolsConfig: ToolsRenderConfig = {
 	batchOpenGlyph: "●",
 	nerdFonts: false,
 	collapseAfterTurn: true,
+	collapseMutatingTools: false,
 };
 
 export function setToolsRenderConfig(config: Partial<ToolsRenderConfig>): void {

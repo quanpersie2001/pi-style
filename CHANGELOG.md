@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+- *(turn-summary)* Mutating tools (`edit`/`write`/`quick_edit`/`substitute_edit`/`target_edit`) are no longer collapsed into the turn summary by default: their blocks are the record of what was done to the user's files and stay visible as compact previews beside the summary line; the summary counts and elapsed cover only the collapsed read-only members. New leaf `tools.collapseMutatingTools: "off" | "on"` (default `off`; `on` restores full collapse), `/pi-style set` support (ADR 0007 amendment, SUM-006).
+
+### Bug Fixes
+
+- *(box)* Error results with embedded newlines (tool validation errors, JSON payloads) rendered as one overflowing "line", breaking the box frame (borders only on the first and last row); every fragment now renders as its own bordered, width-truncated row.
+- *(tools)* Collapsed turn members that render through the no-native-renderer fallback (extension tools like TaskCreate/TaskUpdate/ask_user_question) were not hidden, leaving stray native placeholder rows after the turn collapse; the batch-member hide contract now applies to the fallback path too.
+- *(turn-summary)* Failure marker pluralized "failed" into "faileds" (`· 3 faileds`); now `· 1 failure` / `· 3 failures`. Unknown tools phrase as `used 2 gh` instead of `ran 2 gh calls`.
+
 ## [0.1.7] - 2026-08-07
 
 ### Features

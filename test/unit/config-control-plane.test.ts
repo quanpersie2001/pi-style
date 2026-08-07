@@ -134,6 +134,7 @@ describe("configuration control plane and composition", () => {
 			["tools.maxCollapsedLines", 0, -1],
 			["tools.showElapsed", false, "bad"],
 			["tools.collapseAfterTurn", false, "bad"],
+			["tools.collapseMutatingTools", false, "bad"],
 			["theme.nerdFonts", "off", "bad"],
 			["theme.terminalBackgroundSync", "on", "bad"],
 			["theme.autoApply", "titanium", 3],
@@ -229,6 +230,14 @@ describe("configuration control plane and composition", () => {
 		expect(
 			resolveConfigDetailed({ global: { tools: { collapseAfterTurn: false } } }).config.tools.collapseAfterTurn,
 		).toBe(false);
+	});
+
+	it("maps collapseMutatingTools: off by default for every preset, explicit on wins", () => {
+		for (const preset of ["default", "minimal", "compact", "full", "ascii", "native"] as const)
+			expect(resolveConfigDetailed({ global: { preset } }).config.tools.collapseMutatingTools).toBe(false);
+		expect(
+			resolveConfigDetailed({ global: { tools: { collapseMutatingTools: true } } }).config.tools.collapseMutatingTools,
+		).toBe(true);
 	});
 
 	it("reports malformed leaf fields and preserves explicit empty arrays", () => {

@@ -30,11 +30,13 @@ After the agent run completes (user request → `agent_end`), collapse that run'
 showSummary(call) =
   turnEnded(call.toolCallId) &&            // derived from session content, not runtime flags
   !options.expanded &&                     // Pi's global tool-output state (read-only)
-  config.tools.collapseAfterTurn === "on";
+  config.tools.collapseAfterTurn === "on" &&
+  (!isMutatingTool(call.toolName) || config.tools.collapseMutatingTools === "on");
 ```
 
-- **Leader** = the first tool item of the turn. It renders the summary line; every other tool item of the turn renders zero lines (the existing batch-member pattern).
-- **Summary format**: `➔ Read 2 files, ran 4 shell commands · 3.1s` — per-tool-type counts (existing `pluralForm`), total elapsed from the wall-clock state registry, truncated via `safeTruncateToWidth`; Nerd/Unicode/ASCII variants follow the glyph-mode config. The summary replaces the batch panel header too (a turn of only quiet tools collapses from one tree panel to one line).
+- **Leader** = the first non-error, non-mutating tool item of the turn. It renders the summary line; every other collapsible tool item of the turn renders zero lines (the existing batch-member pattern). A turn whose members are all mutating or all erroring has no leader and collapses nothing.
+- **Summary format**: `➔ Read 2 files, ran 4 shell commands · 3.1s` — per-tool-type counts (existing `pluralForm`), total elapsed from the wall-clock state registry, truncated via `safeTruncateToWidth`; Nerd/Unicode/ASCII variants follow the glyph-mode config. The summary replaces the batch panel header too (a turn of only quiet tools collapses from one tree panel to one line). The summary counts and elapsed cover only the members it hides; mutating members' own footers carry their elapsed.
+- **Mutating tools are exempt (default)**: `edit`/`write`/`quick_edit`/`substitute_edit`/`target_edit` blocks are the record of what was done to the user's files. With `tools.collapseMutatingTools: "off"` (default) they never collapse — after the turn they stay visible as their compact preview boxes beside the summary line, so a finished turn reads `➔ Read 2 files, ran 1 shell command · 2.1s` followed by the edit blocks. `tools.collapseMutatingTools: "on"` restores full collapse (the v1 behavior). `bash` is deliberately excluded from the classification: read-only and mutating commands are indistinguishable without parsing, and bash is the most common verbose tool — the summary keeps `ran N shell commands`.
 - **Never collapsed**: error results (`isError`), partial/pending blocks (`isPartial`), turns that did not complete (interrupted by Esc or session end), and the currently running turn. Error blocks remain visible below the summary line; the summary may carry a `· 1 failed` marker pointing at them.
 - **`user_bash` (`!command`) blocks are `BashExecutionComponent` items**, not tool calls of the agent turn — never summarized.
 - **Expansion override**: when `options.expanded` is true (Ctrl+O), every block renders in full; pressing Ctrl+O again restores summaries. pi-style only *reads* Pi's flag — it never calls `setExpanded` and never mutates Pi's expansion state.
@@ -48,7 +50,8 @@ showSummary(call) =
 ### Configuration
 
 - New leaf `tools.collapseAfterTurn: "off" | "on"` (default `"on"`).
-- Preset mapping: `default`/`compact`/`full`/`ascii` → `on`; `minimal`/`native` → `off`.
+- New leaf `tools.collapseMutatingTools: "off" | "on"` (default `"off"`): mutating tools stay visible after the turn; `"on"` restores the v1 full-collapse behavior.
+- Preset mapping: `default`/`compact`/`full`/`ascii` → `on`; `minimal`/`native` → `off` (for `collapseAfterTurn`). `collapseMutatingTools` defaults to `off` for every preset.
 - Same precedence ladder, normalization-safe fallback, and `/pi-style set` support as every other leaf; `/pi-style doctor` reports the effective value.
 
 ### Compatibility
@@ -74,27 +77,33 @@ Rejected. Module-level flags reset when Pi restarts with a saved session, so his
 
 Rejected. The user's own `!command` executions are scarce, intentional, and owned by a different component; keeping them visible preserves user agency over their own actions.
 
+### Collapsing mutating tools into the summary (the v1 behavior)
+
+Rejected as the default. `edit`/`write`/quick-edit blocks are the record of what was done to the user's files — hidden behind a dim `Edited 2 files` count, a completed turn leaves no reviewable trace of the changes, and the user must press Ctrl+O to audit what the agent did. Keeping them visible (compact previews beside the summary line) preserves clarity at the cost of vertical space on edit-heavy turns. The v1 behavior remains available via `tools.collapseMutatingTools: "on"`. `bash` is excluded from the classification either way: read-only and mutating commands are indistinguishable without parsing, and bash is the most common verbose tool — summarizing it (`ran N shell commands`) keeps the collapse effective.
+
 ## Consequences
 
 ### Benefits
 
 - the feed compacts to one line per finished turn while the final answer stays put;
+- changes to the user's files stay visible: mutating tool blocks survive the collapse as compact previews, so the feed keeps a record of what was edited/written;
 - zero new surface, keybinding, or fingerprint — the mechanism and vocabulary already exist (batch panels, `Ctrl+O for more`);
 - deterministic by construction: the same session content renders the same way in the live feed, scroll-back, and after resume.
 
 ### Costs
 
 - assistant text between tool blocks remains in place (pi-style cannot remove Pi-owned text items), so a collapsed turn may leave scattered text chunks;
+- edit/write-heavy turns keep their blocks visible, so such turns compress less (the user-visible record of changes wins over compactness);
 - one layout shift when summaries replace boxes at turn end (mitigated by applying through the existing deferred scheduler pass);
 - the turn registry must be rebuilt from the session snapshot on resume and cleared on session boundaries;
-- the test matrix grows (registry unit tests, summary render snapshots, resume determinism, expand override).
+- the test matrix grows (registry unit tests, summary render snapshots, resume determinism, expand override, mutating-tool exemption).
 
 ## Validation implications
 
-- Unit tests (`test/unit/`): turn grouping and leader selection from synthetic session trees; per-tool counts and elapsed totals; error/partial exclusion; registry rebuild on resume; `collapseAfterTurn` normalization and preset mapping.
-- Render tests (`test/render/`): summary line formats (Nerd/Unicode/ASCII/no-color), zero-line members, leader rendering, `expanded` override, error-block preservation, `user_bash` untouched.
+- Unit tests (`test/unit/`): turn grouping and leader selection from synthetic session trees; per-tool counts and elapsed totals; error/partial exclusion; mutating-tool exemption (leader skips mutating members, parts exclude them, all-mutating turns collapse nothing); registry rebuild on resume; `collapseAfterTurn`/`collapseMutatingTools` normalization and preset mapping.
+- Render tests (`test/render/`): summary line formats (Nerd/Unicode/ASCII/no-color), zero-line members, leader rendering, `expanded` override, error-block preservation, mutating blocks visible beside a collapsed turn, `user_bash` untouched.
 - Lifecycle/e2e tests (`test/e2e/`): `turn_end` → deferred collapse; scroll-back consistency; reload and session-boundary resets; Ctrl+O expand/restore round-trip.
-- Requirement mapping: new `SUM-001`–`SUM-005` in `docs/ui/MESSAGES-AND-TOOLS.md`; existing `TOOL-001`–`TOOL-007` remain in force.
+- Requirement mapping: new `SUM-001`–`SUM-006` in `docs/ui/MESSAGES-AND-TOOLS.md`; existing `TOOL-001`–`TOOL-007` remain in force.
 - Compatibility: certified boxed renderer surface unchanged; no new fingerprint; unsupported shapes fall back per ADR 0004.
 
 ## Supersedes

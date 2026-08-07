@@ -72,7 +72,7 @@ const emptyResult = { content: [] as readonly unknown[], details: {} };
 afterEach(() => {
 	resetTurnRegistry();
 	resetBatchRegistry();
-	setToolsRenderConfig({ collapseAfterTurn: true });
+	setToolsRenderConfig({ collapseAfterTurn: true, collapseMutatingTools: false });
 });
 
 describe("turn summary through the boxed dispatcher", () => {
@@ -195,5 +195,61 @@ describe("turn summary through the boxed dispatcher", () => {
 		// The next render pass of the invalidated blocks collapses them.
 		const leader = dispatchCall("read", { path: "a.ts" }, theme, ctxFor("r1"));
 		expect(stripAnsi(leader.render(80).join("\n"))).toContain("Read 1 file, ran 1 shell command");
+	});
+
+	describe("mutating tools stay visible (tools.collapseMutatingTools off)", () => {
+		it("edit/write blocks render their own box beside the summary; read-only members collapse", () => {
+			completedTurn([toolCall("e1", "edit"), toolCall("r1", "read"), toolCall("w1", "write")]);
+
+			// The leader is the first non-mutating member, not the first call.
+			const leader = dispatchCall("read", { path: "a.ts" }, theme, context({ toolCallId: "r1" }));
+			const lines = leader.render(80);
+			expect(stripAnsi(lines.join("\n"))).toContain("Read 1 file");
+			expect(lines.length).toBe(1);
+			// The summary describes only what it hides: no edit/write counts.
+			expect(stripAnsi(lines.join("\n"))).not.toContain("Edited");
+			expect(stripAnsi(lines.join("\n"))).not.toContain("Wrote");
+
+			// Mutating members render their normal (non-summary) components.
+			const editCall = dispatchCall("edit", { filePath: "/fake/a.ts" }, theme, context({ toolCallId: "e1" }));
+			expect(editCall).not.toBe(EMPTY_BATCH_COMPONENT);
+			expect(editCall.render(80).length).toBeGreaterThan(0);
+			const writeCall = dispatchCall(
+				"write",
+				{ path: "/fake/b.ts", content: "hi" },
+				theme,
+				context({ toolCallId: "w1" }),
+			);
+			expect(writeCall).not.toBe(EMPTY_BATCH_COMPONENT);
+			expect(writeCall.render(80).length).toBeGreaterThan(0);
+			// Success results add nothing (the call preview closes the box);
+			// the important contract is they are not the zero-line batch singleton.
+			const writeResult = dispatchResult(
+				"write",
+				{ content: [{ type: "text", text: "hi" }], details: { path: "/fake/b.ts" } },
+				{ expanded: false, isPartial: false },
+				theme,
+				context({ toolCallId: "w1" }),
+			);
+			expect(writeResult).not.toBe(EMPTY_BATCH_COMPONENT);
+			expect(writeResult.render(80)).toEqual([]);
+		});
+
+		it("an all-mutating turn collapses nothing", () => {
+			completedTurn([toolCall("e1", "edit"), toolCall("w1", "write")]);
+			const editCall = dispatchCall("edit", { filePath: "/fake/a.ts" }, theme, context({ toolCallId: "e1" }));
+			expect(editCall).not.toBe(EMPTY_BATCH_COMPONENT);
+			expect(editCall.render(80).length).toBeGreaterThan(0);
+		});
+
+		it("collapseMutatingTools on restores the full collapse (edit joins the summary)", () => {
+			setToolsRenderConfig({ collapseAfterTurn: true, collapseMutatingTools: true });
+			completedTurn([toolCall("e1", "edit"), toolCall("r1", "read")]);
+			// With the leaf on the leader is the first non-error member (v1 parity).
+			const leader = dispatchCall("edit", { filePath: "/fake/a.ts" }, theme, context({ toolCallId: "e1" }));
+			expect(stripAnsi(leader.render(80).join("\n"))).toContain("Edited 1 file, Read 1 file");
+			const readCall = dispatchCall("read", { path: "a.ts" }, theme, context({ toolCallId: "r1" }));
+			expect(readCall).toBe(EMPTY_BATCH_COMPONENT);
+		});
 	});
 });

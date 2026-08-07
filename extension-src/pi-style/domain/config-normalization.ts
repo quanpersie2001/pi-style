@@ -43,6 +43,7 @@ export const DEFAULT_CONFIG: NormalizedPiStyleConfig = Object.freeze({
 		dimOutput: false,
 		showElapsed: true,
 		collapseAfterTurn: true,
+		collapseMutatingTools: false,
 	}),
 	theme: Object.freeze({
 		nerdFonts: "auto",
@@ -186,6 +187,7 @@ export function normalizeConfig(
 			dimOutput: bool(tools.dimOutput, defaults.tools.dimOutput),
 			showElapsed: bool(tools.showElapsed, defaults.tools.showElapsed),
 			collapseAfterTurn: bool(tools.collapseAfterTurn, defaults.tools.collapseAfterTurn),
+			collapseMutatingTools: bool(tools.collapseMutatingTools, defaults.tools.collapseMutatingTools),
 		}),
 		theme: Object.freeze({
 			nerdFonts: stringEnum(theme.nerdFonts, ["auto", "on", "off"], defaults.theme.nerdFonts),
@@ -241,6 +243,7 @@ const BOOL_PATHS = new Set([
 	"tools.showElapsed",
 	"tools.dimOutput",
 	"tools.collapseAfterTurn",
+	"tools.collapseMutatingTools",
 	"compatibility.allowSafePatches",
 	"compatibility.allowCorePatches",
 	"compatibility.preferExistingEditor",
