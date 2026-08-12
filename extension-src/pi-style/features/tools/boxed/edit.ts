@@ -24,6 +24,8 @@ import {
 	type BoxedToolContext,
 	type BoxedToolDefinition,
 	displayPath,
+	getRenderCacheKey,
+	memoizedStateComponent,
 	noteBoxedCallState,
 	noteBoxedResultPhase,
 	noteExecutionStart,
@@ -133,21 +135,34 @@ export const editTool: BoxedToolDefinition = {
 		const diffView = new AdaptiveDiffComponent(theme, rows, maxRows, shouldHighlight ? language : undefined);
 		const expandHint = !expanded && diffView.hasCollapsed() ? "Ctrl+O more" : undefined;
 
-		return renderBoxedToolResult(
-			theme,
-			{
-				render(width: number): string[] {
-					return diffView.render(width);
-				},
-				invalidate(): void {
-					diffView.invalidate();
-				},
-			},
-			{
-				dividerLabel: diffDividerLabel(theme, stats),
-				...(expandHint ? { dividerRightLabel: expandHint } : {}),
-				footerLines: [editDiffFooter(theme, result, context, stats)],
-			},
+		return memoizedStateComponent(
+			context.state,
+			"__piStyleEditDiffResult",
+			getRenderCacheKey(
+				"edit-diff-result",
+				theme,
+				Boolean(expanded),
+				diff,
+				sourcePath ?? "",
+				editDiffFooter(theme, result, context, stats),
+			),
+			() =>
+				renderBoxedToolResult(
+					theme,
+					{
+						render(width: number): string[] {
+							return diffView.render(width);
+						},
+						invalidate(): void {
+							diffView.invalidate();
+						},
+					},
+					{
+						dividerLabel: diffDividerLabel(theme, stats),
+						...(expandHint ? { dividerRightLabel: expandHint } : {}),
+						footerLines: [editDiffFooter(theme, result, context, stats)],
+					},
+				),
 		);
 	},
 };

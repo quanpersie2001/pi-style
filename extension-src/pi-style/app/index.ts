@@ -96,6 +96,7 @@ export interface PiStyleApp {
 	update(
 		values: import("../domain/status.js").StatusSnapshot,
 		kind?: import("./render-scheduler.js").UpdateClass,
+		options?: import("./runtime.js").RuntimeUpdateOptions,
 	): void;
 }
 
@@ -268,10 +269,10 @@ export function createPiStyleApp(
 		sessionShutdown() {
 			runtime.stop();
 		},
-		update(values, kind = "coalesced") {
+		update(values, kind = "coalesced", options) {
 			const active = runtime.current;
 			if (!active) return;
-			active.update(values);
+			if (!active.update(values, options)) return;
 			active.scheduler.schedule(kind);
 		},
 		reload() {

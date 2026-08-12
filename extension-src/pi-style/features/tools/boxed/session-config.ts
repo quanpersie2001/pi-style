@@ -37,6 +37,19 @@ export function getToolsRenderConfig(): ToolsRenderConfig {
 	return sessionToolsConfig;
 }
 
+export function getToolsRenderCacheSignature(): string {
+	return [
+		sessionToolsConfig.maxCollapsedLines,
+		sessionToolsConfig.maxExpandedLines,
+		sessionToolsConfig.dimOutput ? 1 : 0,
+		sessionToolsConfig.showElapsed ? 1 : 0,
+		sessionToolsConfig.batchOpenGlyph,
+		sessionToolsConfig.nerdFonts ? 1 : 0,
+		sessionToolsConfig.collapseAfterTurn ? 1 : 0,
+		sessionToolsConfig.collapseMutatingTools ? 1 : 0,
+	].join("|");
+}
+
 // Wall-clock elapsed tracking through the renderer context state (no tool
 // re-registration, so result.details has no execution timing).
 //
@@ -83,8 +96,26 @@ export function markResultSeen(state: Record<string, unknown> | undefined): void
 
 type TickerHandle = ReturnType<typeof setInterval>;
 
-/** States that currently own a 1s elapsed-render interval, for session cleanup. */
-const tickerStates = new Set<Record<string, unknown>>();
+type ElapsedTickerEntry = {
+	invalidate: () => void;
+};
+
+/** States currently subscribed to the shared elapsed-render ticker. */
+const tickerEntries = new Map<Record<string, unknown>, ElapsedTickerEntry>();
+let sharedTickerHandle: TickerHandle | undefined;
+
+function ensureSharedTicker(): void {
+	if (sharedTickerHandle !== undefined || tickerEntries.size === 0) return;
+	sharedTickerHandle = setInterval(() => {
+		for (const { invalidate } of tickerEntries.values()) invalidate();
+	}, 1000) as unknown as TickerHandle;
+}
+
+function stopSharedTickerIfIdle(): void {
+	if (sharedTickerHandle === undefined || tickerEntries.size > 0) return;
+	clearInterval(sharedTickerHandle);
+	sharedTickerHandle = undefined;
+}
 
 /**
  * While a tool is running, re-render once per second so live elapsed labels
@@ -92,26 +123,26 @@ const tickerStates = new Set<Record<string, unknown>>();
  */
 export function startElapsedTicker(state: Record<string, unknown> | undefined, invalidate: () => void): void {
 	if (!state || typeof state !== "object") return;
-	if (state[TICKER_KEY] !== undefined) return;
-	state[TICKER_KEY] = setInterval(() => invalidate(), 1000) as unknown as TickerHandle;
-	tickerStates.add(state);
+	state[TICKER_KEY] = true;
+	tickerEntries.set(state, { invalidate });
+	ensureSharedTicker();
 }
 
 /** Stop a running tool's elapsed ticker (terminal result, error, session end). */
 export function stopElapsedTicker(state: Record<string, unknown> | undefined): void {
 	if (!state || typeof state !== "object") return;
-	const handle = state[TICKER_KEY] as TickerHandle | undefined;
-	if (handle !== undefined) clearInterval(handle);
 	delete state[TICKER_KEY];
-	tickerStates.delete(state);
+	tickerEntries.delete(state);
+	stopSharedTickerIfIdle();
 }
 
 /** Stop every elapsed ticker (session start/shutdown). */
 export function stopAllElapsedTickers(): void {
-	for (const state of tickerStates) {
-		const handle = state[TICKER_KEY] as TickerHandle | undefined;
-		if (handle !== undefined) clearInterval(handle);
-		delete state[TICKER_KEY];
-	}
-	tickerStates.clear();
+	for (const state of tickerEntries.keys()) delete state[TICKER_KEY];
+	tickerEntries.clear();
+	stopSharedTickerIfIdle();
+}
+
+export function __getElapsedTickerDebugState(): { trackedStates: number; hasSharedTicker: boolean } {
+	return { trackedStates: tickerEntries.size, hasSharedTicker: sharedTickerHandle !== undefined };
 }

@@ -19,6 +19,7 @@ import {
 	boxLine,
 	boxWidth,
 	formatBoxedRunningStatus,
+	themeCacheKey,
 } from "../../shared/box.js";
 import { getThemeExtra } from "../../shared/theme-extras.js";
 
@@ -30,6 +31,11 @@ export function setBashExecutionTheme(theme: BoxTheme | undefined): void {
 }
 
 /** Structural view of the native BashExecutionComponent as used by the patch. */
+interface BashExecutionRenderCache {
+	key: string;
+	lines: string[];
+}
+
 interface BashExecutionInstance {
 	command: string;
 	status: "running" | "cancelled" | "error" | "complete";
@@ -37,6 +43,7 @@ interface BashExecutionInstance {
 	contentContainer: { render(width: number): string[] };
 	/** Wall-clock start captured on the first boxed render for the live `◌ Running · Ns` footer. */
 	piStyleStart?: number;
+	piStyleRenderCache?: BashExecutionRenderCache;
 }
 
 const TOP_LEFT = "╭";
@@ -92,13 +99,15 @@ export function renderBashExecutionBox(instance: unknown, args: unknown[]): stri
 	try {
 		if (host.piStyleStart === undefined) host.piStyleStart = Date.now();
 		const renderedWidth = boxWidth(width);
+		const cacheKey = `${themeCacheKey(theme)}|${width}|${host.status}|${host.exitCode ?? ""}|${host.command}`;
+		if (host.status !== "running" && host.piStyleRenderCache?.key === cacheKey) return host.piStyleRenderCache.lines;
 		const inner = boxInnerWidth(renderedWidth);
 		// The native Text children render one leading padding space per line;
 		// drop it so boxLine's own side padding produces symmetric borders.
 		const wrapped = content
 			.render(inner)
 			.map((line) => boxLine(theme, line.startsWith(" ") ? line.slice(1) : line, renderedWidth));
-		return [
+		const lines = [
 			"",
 			boxLabeledBorder(theme, TOP_LEFT, TOP_RIGHT, bashBoxTitle(theme, host), undefined, renderedWidth),
 			boxBlankLine(theme, renderedWidth),
@@ -106,6 +115,8 @@ export function renderBashExecutionBox(instance: unknown, args: unknown[]): stri
 			boxBlankLine(theme, renderedWidth),
 			boxLabeledBorder(theme, BOTTOM_LEFT, BOTTOM_RIGHT, bashBoxFooter(theme, host), undefined, renderedWidth),
 		];
+		if (host.status !== "running") host.piStyleRenderCache = { key: cacheKey, lines };
+		return lines;
 	} catch {
 		return undefined;
 	}

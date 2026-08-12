@@ -10,12 +10,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { AssistantMessageComponent, initTheme } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import { decorateMessageUpdate } from "../../extension-src/pi-style/features/messages/index.js";
-import {
-	disposePiCompatibilityProbe,
-	probePiCompatibility,
-	TRUSTED_NATIVE_FINGERPRINTS,
-	targetSpecs,
-} from "../../extension-src/pi-style/pi/compatibility-probe.js";
+import { targetSpecs } from "../../extension-src/pi-style/pi/compatibility-probe.js";
 import { getCompatibilityRecords } from "../../extension-src/pi-style/pi/compatibility-registry.js";
 
 const HIDE_SNAPSHOT = {
@@ -105,14 +100,6 @@ function stripAnsi(value: string): string {
 	return output;
 }
 
-// pi-coding-agent resolves its own nested pi-tui copy, so class identity across
-// the module boundary is not shared; assert on the public component shape instead.
-function isSpacerLike(child: unknown): boolean {
-	return typeof (child as { setLines?: unknown }).setLines === "function";
-}
-function isTextLike(child: unknown): boolean {
-	return typeof (child as { setCustomBgFn?: unknown }).setCustomBgFn === "function";
-}
 /** Assistant TEXT markdown: setText + options object + no defaultTextStyle. */
 function isTextMarkdownLike(child: unknown): boolean {
 	const candidate = child as { setText?: unknown; options?: unknown; defaultTextStyle?: unknown };

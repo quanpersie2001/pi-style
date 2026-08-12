@@ -145,7 +145,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 /** Primary (first-recorded) fingerprint per surface, for diagnostics and back-compat. */
 export const TRUSTED_NATIVE_FINGERPRINTS: Readonly<Record<string, string>> = Object.freeze(
 	Object.fromEntries(
-		Object.entries(KNOWN_NATIVE_IDENTITIES).map(([key, identities]) => [key, identities[0]!.fingerprint]),
+		Object.entries(KNOWN_NATIVE_IDENTITIES).map(([key, identities]) => [key, identities[0]?.fingerprint ?? ""]),
 	),
 );
 

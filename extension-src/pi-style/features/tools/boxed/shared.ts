@@ -12,9 +12,11 @@ import {
 	renderCompactBoxedToolCall,
 	resolveRelativePath,
 	shortenPath,
+	themeCacheKey,
 } from "../../../shared/box.js";
 import {
 	getStateElapsedMs,
+	getToolsRenderCacheSignature,
 	isResultSeen,
 	markResultSeen,
 	recordExecutionEnded,
@@ -172,6 +174,29 @@ export function resultFooterLines(
 	extraParts: string[] = [],
 ): string[] {
 	return [formatBoxedFooter(theme, result, extraParts, stateElapsedMs(context))];
+}
+
+type StateComponentCacheEntry = {
+	key: string;
+	component: Component;
+};
+
+export function getRenderCacheKey(prefix: string, theme: BoxTheme, ...parts: Array<string | number | boolean>): string {
+	return [prefix, themeCacheKey(theme), getToolsRenderCacheSignature(), ...parts].join("|");
+}
+
+export function memoizedStateComponent(
+	state: Record<string, unknown> | undefined,
+	slot: string,
+	key: string,
+	build: () => Component,
+): Component {
+	if (!state || typeof state !== "object") return build();
+	const cached = state[slot] as StateComponentCacheEntry | undefined;
+	if (cached && cached.key === key) return cached.component;
+	const component = build();
+	state[slot] = { key, component } satisfies StateComponentCacheEntry;
+	return component;
 }
 
 export function clearFooterState(context: BoxedToolContext): void {

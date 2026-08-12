@@ -11,12 +11,11 @@ import {
 import { requestToolPresentationRender } from "../features/tools/index.js";
 import { registerPiStyleCommand } from "./commands.js";
 import { type CompatibilityTestHooks, createPiStyleSessionCoordinator } from "./session-coordinator.js";
-import { usageFromSession } from "./session-usage.js";
+import { resetUsageFromSessionCache, usageFromSession } from "./session-usage.js";
 
-/** Usage patch that omits the key when no session usage exists (exact optional types). */
+/** Usage patch clears stale usage when the active branch/session has none. */
 function usagePatch(ctx: ExtensionContext): StatusSnapshot {
-	const usage = usageFromSession(ctx.sessionManager);
-	return usage ? { usage } : {};
+	return { usage: usageFromSession(ctx.sessionManager) } as StatusSnapshot;
 }
 
 /**
@@ -65,6 +64,7 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	const coordinator = createPiStyleSessionCoordinator(pi, compatibilityTestHooks);
 	registerPiStyleCommand(pi, coordinator.app);
 	pi.on("session_start", async (event, ctx) => {
+		resetUsageFromSessionCache(ctx.sessionManager);
 		// Pi only activates read/bash/edit/write by default; grep/find/ls are
 		// registered but inactive (kept out of the model's tool list to keep the
 		// core small). Activate them so the TUI shows them and the model can call
@@ -110,7 +110,9 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		),
 	);
 	pi.on("thinking_level_select", (event) => coordinator.app.update({ thinkingLevel: event.level }, "immediate"));
-	pi.on("session_info_changed", (event) => coordinator.app.update({ sessionName: event.name }, "coalesced"));
+	pi.on("session_info_changed", (event) =>
+		coordinator.app.update({ sessionName: event.name }, "coalesced", { refreshExtensionStatuses: true }),
+	);
 	pi.on("message_start", () => {
 		// A new message is a batch boundary: quiet-tool (read/ls/find) calls of the
 		// new message start a fresh batch instead of joining the previous one.
@@ -123,11 +125,13 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	// Usage (tokens + cost) is aggregated from finalized session entries at
 	// message/turn boundaries, mirroring Pi's native footer; per-chunk updates
 	// stay usage-free to keep streaming cheap.
-	pi.on("message_end", (_event, ctx) => coordinator.app.update({ ...usagePatch(ctx) }, "coalesced"));
+	pi.on("message_end", (_event, ctx) =>
+		coordinator.app.update({ ...usagePatch(ctx) }, "coalesced", { refreshContextUsage: true }),
+	);
 	pi.on("turn_end", (event, ctx) => {
 		// Append the finalized assistant message's tool batch to the current run.
 		registerTurnFromMessage(event.message, event.toolResults);
-		coordinator.app.update({ ...usagePatch(ctx) }, "deferred");
+		coordinator.app.update({ ...usagePatch(ctx) }, "deferred", { refreshContextUsage: true });
 	});
 	pi.on("agent_end", () => {
 		// The run is complete: collapse its tool blocks into one summary line.
@@ -141,23 +145,32 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 			requestToolPresentationRender();
 		}
 	});
-	pi.on("agent_settled", (_event, ctx) => coordinator.app.update({ ...usagePatch(ctx) }, "coalesced"));
+	pi.on("agent_settled", (_event, ctx) =>
+		coordinator.app.update({ ...usagePatch(ctx) }, "coalesced", { refreshContextUsage: true }),
+	);
 	pi.on("session_tree", (_event, ctx) => {
+		resetUsageFromSessionCache(ctx.sessionManager);
 		// Rebuild the turn registry from session content so restored/branched
 		// history renders collapsed consistently (no in-process turn_end events).
 		rebuildTurnRegistryFromEntries(ctx.sessionManager.getEntries());
-		coordinator.app.update({ ...usagePatch(ctx) }, "deferred");
+		coordinator.app.update({ ...usagePatch(ctx) }, "deferred", { refreshContextUsage: true });
 	});
-	pi.on("session_compact", (_event, ctx) => coordinator.app.update({ ...usagePatch(ctx) }, "deferred"));
+	pi.on("session_compact", (_event, ctx) => {
+		resetUsageFromSessionCache(ctx.sessionManager);
+		coordinator.app.update({ ...usagePatch(ctx) }, "deferred", { refreshContextUsage: true });
+	});
 	pi.on("tool_result", (event, ctx) => {
 		if (["write", "edit", "bash"].includes(event.toolName)) {
 			coordinator.app.runtime.current?.invalidateGit();
-			coordinator.app.update({ ...usagePatch(ctx) }, "delayed-retry");
+			coordinator.app.update({ ...usagePatch(ctx) }, "delayed-retry", { refreshContextUsage: true });
 		}
 	});
 	pi.on("user_bash", (_event, ctx) => {
 		coordinator.app.runtime.current?.invalidateGit();
-		coordinator.app.update({ ...usagePatch(ctx) }, "delayed-retry");
+		coordinator.app.update({ ...usagePatch(ctx) }, "delayed-retry", { refreshContextUsage: true });
 	});
-	pi.on("session_shutdown", () => coordinator.shutdown());
+	pi.on("session_shutdown", (_event, ctx) => {
+		resetUsageFromSessionCache(ctx.sessionManager);
+		coordinator.shutdown();
+	});
 }

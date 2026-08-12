@@ -2,7 +2,7 @@ import type { ExtensionContext, ExtensionUIContext } from "@earendil-works/pi-co
 import { diffConfig } from "../domain/config-diff.js";
 import type { NormalizedPiStyleConfig } from "../domain/config-types.js";
 import type { GitCommandRunner } from "../domain/providers.js";
-import type { StatusSnapshot } from "../domain/status.js";
+import type { ContextSnapshot, StatusSnapshot } from "../domain/status.js";
 import { normalizeThinkingLevel } from "../domain/status.js";
 import { installEditor } from "../features/editor/index.js";
 import {
@@ -24,6 +24,11 @@ export interface RuntimeInstallationState {
 	readonly startup: "installed" | "disabled" | "failed";
 }
 
+export interface RuntimeUpdateOptions {
+	readonly refreshContextUsage?: boolean;
+	readonly refreshExtensionStatuses?: boolean;
+}
+
 export interface PiStyleRuntime {
 	generation: number;
 	readonly providerIdentity: { git: object; context: object; usage: object };
@@ -34,8 +39,8 @@ export interface PiStyleRuntime {
 	snapshot: UiSnapshot;
 	disposables: DisposableStore;
 	scheduler: RenderScheduler;
-	update(values: StatusSnapshot): void;
-	updateStartupResources(resources: StartupResources): void;
+	update(values: StatusSnapshot, options?: RuntimeUpdateOptions): boolean;
+	updateStartupResources(resources: StartupResources): boolean;
 	dismissStartup(): void;
 	invalidateGit(): void;
 	configure(config: NormalizedPiStyleConfig): void;
@@ -64,7 +69,7 @@ export interface RuntimeHost {
 export function createPiStyleRuntime(
 	host: RuntimeHost,
 	generation: number,
-	requestRender: () => void = () => {},
+	requestRender: () => void = host.requestRender ?? (() => {}),
 ): PiStyleRuntime {
 	let disposed = false;
 	const extensionStatuses = (): readonly import("../domain/status.js").ExtensionStatus[] | undefined => {
@@ -76,13 +81,22 @@ export function createPiStyleRuntime(
 			return [];
 		}
 	};
+	const contextSnapshot = (): ContextSnapshot | undefined => {
+		const usage = host.getContextUsage?.();
+		if (!usage) return undefined;
+		return {
+			...(usage.tokens !== null ? { currentTokens: usage.tokens } : {}),
+			windowTokens: usage.contextWindow,
+			...(usage.percent !== null ? { percent: usage.percent } : {}),
+		};
+	};
 	let currentConfig = host.config;
 	const disposables = new DisposableStore();
 	const scheduler = new RenderScheduler({ requestRender }, generation, () => !disposed);
 	const git = new CachedGitProvider(host.gitRunner);
 	const contextProvider = new InMemoryContextProvider();
 	const usageProvider = new InMemoryUsageProvider();
-	const usage = host.getContextUsage?.();
+	const initialContext = contextSnapshot();
 	const initialStatuses = extensionStatuses();
 	const initialValues = {
 		...(initialStatuses ? { extensionStatuses: initialStatuses } : {}),
@@ -91,15 +105,7 @@ export function createPiStyleRuntime(
 		...(host.model?.reasoning !== undefined ? { reasoning: host.model.reasoning } : {}),
 		...(host.thinkingLevel ? { thinkingLevel: normalizeThinkingLevel(host.thinkingLevel) } : {}),
 		...(host.cwd ? { cwd: host.cwd } : {}),
-		...(usage
-			? {
-					context: {
-						...(usage.tokens !== null ? { currentTokens: usage.tokens } : {}),
-						windowTokens: usage.contextWindow,
-						...(usage.percent !== null ? { percent: usage.percent } : {}),
-					},
-				}
-			: {}),
+		...(initialContext ? { context: initialContext } : {}),
 	};
 	let currentSnapshot = createSnapshot(generation, 0, initialValues);
 	let statusLine: ReturnType<typeof installStatusLine> | undefined;
@@ -110,14 +116,41 @@ export function createPiStyleRuntime(
 		editor: "disabled",
 		startup: "disabled",
 	};
-	const startupSnapshot = (config: NormalizedPiStyleConfig): StartupSnapshot => ({
+	const snapshotValues = (snapshot: UiSnapshot): StatusSnapshot => {
+		const { generation: _generation, revision: _revision, ...values } = snapshot;
+		return values;
+	};
+	const withSnapshotPatch = (
+		patch: Partial<Record<keyof StatusSnapshot, StatusSnapshot[keyof StatusSnapshot] | undefined>>,
+	): StatusSnapshot => {
+		const next = { ...snapshotValues(currentSnapshot) } as Record<string, unknown>;
+		for (const [key, value] of Object.entries(patch)) {
+			if (value === undefined) delete next[key];
+			else next[key] = value;
+		}
+		return next as StatusSnapshot;
+	};
+	const createStartupSnapshot = (
+		config: NormalizedPiStyleConfig,
+		resources: StartupResources | undefined = host.resources,
+	): StartupSnapshot => ({
 		...currentSnapshot,
 		reason: host.startupReason ?? "startup",
 		...(host.provider ? { startupProvider: host.provider } : {}),
 		...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
 		preset: config.preset,
-		...(host.resources ? { resources: host.resources } : {}),
+		...(resources ? { resources } : {}),
 	});
+	const applySnapshot = (nextSnapshot: UiSnapshot): boolean => {
+		if (nextSnapshot === currentSnapshot) return false;
+		currentSnapshot = nextSnapshot;
+		statusLine?.update(currentSnapshot);
+		editor?.update(currentSnapshot);
+		startup?.update(createStartupSnapshot(currentConfig));
+		return true;
+	};
+	const updateSnapshot = (values: StatusSnapshot): boolean =>
+		applySnapshot(replaceSnapshot(currentSnapshot, generation, values));
 	const installStatus = () => {
 		if (!host.hasUI || host.mode !== "tui" || !host.ui || !currentConfig.enabled || !currentConfig.statusLine.enabled) {
 			installationState = { ...installationState, status: "disabled" };
@@ -186,7 +219,7 @@ export function createPiStyleRuntime(
 			startup = installStartup({
 				host: { ...(host.ui as unknown as StartupHost), mode: host.mode, hasUI: host.hasUI },
 				config: currentConfig,
-				snapshot: startupSnapshot(currentConfig),
+				snapshot: createStartupSnapshot(currentConfig),
 				generation,
 				requestRender,
 				timeoutMs: 3000,
@@ -235,27 +268,10 @@ export function createPiStyleRuntime(
 	if (host.cwd && currentConfig.enabled && currentConfig.statusLine.enabled) {
 		void git.get(host.cwd).then((value) => {
 			if (disposed) return;
-			currentSnapshot = replaceSnapshot(currentSnapshot, generation, { ...currentSnapshot, git: value });
-			statusLine?.update(currentSnapshot);
-			editor?.update(currentSnapshot);
-			startup?.update({
-				...currentSnapshot,
-				reason: host.startupReason ?? "startup",
-				...(host.provider ? { startupProvider: host.provider } : {}),
-				...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
-				preset: currentConfig.preset,
-				...(host.resources ? { resources: host.resources } : {}),
-			});
-			requestRender();
+			if (updateSnapshot(withSnapshotPatch({ git: value }))) requestRender();
 		});
 	}
-	if (usage) {
-		contextProvider.set("active", {
-			...(usage.tokens !== null ? { currentTokens: usage.tokens } : {}),
-			windowTokens: usage.contextWindow,
-			...(usage.percent !== null ? { percent: usage.percent } : {}),
-		});
-	}
+	if (initialContext) contextProvider.set("active", initialContext);
 	return {
 		generation,
 		providerIdentity: { git, context: contextProvider, usage: usageProvider },
@@ -264,51 +280,33 @@ export function createPiStyleRuntime(
 		},
 		mode: host.mode,
 		hasUI: host.hasUI,
-		snapshot: currentSnapshot,
+		get snapshot() {
+			return currentSnapshot;
+		},
 		disposables,
 		scheduler,
 		updateStartupResources(resources) {
-			if (disposed) return;
-			startup?.update({
-				...currentSnapshot,
-				reason: host.startupReason ?? "startup",
-				...(host.provider ? { startupProvider: host.provider } : {}),
-				...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
-				preset: currentConfig.preset,
-				resources,
-			});
+			if (disposed || !startup) return false;
+			startup.update(createStartupSnapshot(currentConfig, resources));
 			requestRender();
+			return true;
 		},
 		dismissStartup() {
 			startup?.dismiss();
 		},
-		update(values) {
-			if (disposed) return;
-			const liveUsage = host.getContextUsage?.();
-			const context = liveUsage
-				? {
-						...(liveUsage.tokens !== null ? { currentTokens: liveUsage.tokens } : {}),
-						windowTokens: liveUsage.contextWindow,
-						...(liveUsage.percent !== null ? { percent: liveUsage.percent } : {}),
-					}
-				: undefined;
-			const statuses = extensionStatuses();
-			currentSnapshot = replaceSnapshot(currentSnapshot, generation, {
-				...currentSnapshot,
-				...values,
-				...(context ? { context } : {}),
-				...(statuses ? { extensionStatuses: statuses } : {}),
-			});
-			statusLine?.update(currentSnapshot);
-			editor?.update(currentSnapshot);
-			startup?.update({
-				...currentSnapshot,
-				reason: host.startupReason ?? "startup",
-				...(host.provider ? { startupProvider: host.provider } : {}),
-				...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
-				preset: currentConfig.preset,
-				...(host.resources ? { resources: host.resources } : {}),
-			});
+		update(values, options = {}) {
+			if (disposed) return false;
+			const patch: Partial<Record<keyof StatusSnapshot, StatusSnapshot[keyof StatusSnapshot] | undefined>> = {
+				...(values as Partial<Record<keyof StatusSnapshot, StatusSnapshot[keyof StatusSnapshot] | undefined>>),
+			};
+			if (options.refreshContextUsage) {
+				const context = contextSnapshot();
+				patch.context = context;
+				if (context) contextProvider.set("active", context);
+				else contextProvider.clear();
+			}
+			if (options.refreshExtensionStatuses) patch.extensionStatuses = extensionStatuses();
+			return updateSnapshot(withSnapshotPatch(patch));
 		},
 		configure(nextConfig) {
 			if (disposed) return;
@@ -350,17 +348,7 @@ export function createPiStyleRuntime(
 			git.invalidate(host.cwd);
 			void git.get(host.cwd).then((value) => {
 				if (disposed) return;
-				currentSnapshot = replaceSnapshot(currentSnapshot, generation, { ...currentSnapshot, git: value });
-				statusLine?.update(currentSnapshot);
-				editor?.update(currentSnapshot);
-				startup?.update({
-					...currentSnapshot,
-					reason: host.startupReason ?? "startup",
-					...(host.provider ? { startupProvider: host.provider } : {}),
-					...(host.cwd ? { project: host.cwd.split(/[\\/]/).filter(Boolean).at(-1) } : {}),
-					preset: currentConfig.preset,
-				});
-				requestRender();
+				if (updateSnapshot(withSnapshotPatch({ git: value }))) requestRender();
 			});
 		},
 		get disposed() {

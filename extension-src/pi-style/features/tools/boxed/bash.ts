@@ -15,6 +15,7 @@ import {
 	renderBoxedToolResult,
 	replaceTabs,
 	shortenPath,
+	themeCacheKey,
 } from "../../../shared/box.js";
 import { safeTruncateToWidth, truncateAtCodePointBoundary } from "../../../shared/render-budget.js";
 import { parseSimpleBashCommand } from "./command-shape.js";
@@ -52,6 +53,7 @@ import {
 } from "./output-tree.js";
 import {
 	getStateElapsedMs,
+	getToolsRenderCacheSignature,
 	getToolsRenderConfig,
 	isResultSeen,
 	markResultSeen,
@@ -59,7 +61,14 @@ import {
 	startElapsedTicker,
 	stopElapsedTicker,
 } from "./session-config.js";
-import { type BoxedToolContext, type BoxedToolDefinition, noteBoxedCallState, noteExecutionStart } from "./shared.js";
+import {
+	type BoxedToolContext,
+	type BoxedToolDefinition,
+	getRenderCacheKey,
+	memoizedStateComponent,
+	noteBoxedCallState,
+	noteExecutionStart,
+} from "./shared.js";
 
 const MAX_LINE_CHARS = 2000;
 const ESC = "\x1b";
@@ -754,13 +763,21 @@ function parseBashTreeOutput(cls: BashTreeClass, output: string): ParsedBashTree
 	return { matches };
 }
 
+type FinalSemanticRenderCache = {
+	key: string;
+	lines: string[];
+};
+
 interface BashTreeState {
-	readonly cls: BashSemanticClass;
+	cls: BashSemanticClass;
 	/** Raw command, so the call panel can render the boxed bash call on fallback. */
-	readonly command: string;
+	command: string;
 	/** `parsed` once the result arrives; `fallback` when the boxed shell takes over. */
 	parsed?: ParsedSemantic;
 	fallback?: boolean;
+	finished: boolean;
+	revision: number;
+	renderCache?: FinalSemanticRenderCache;
 }
 
 /** Classified semantic command: a bash tree (ls/find/grep), a git card, or a
@@ -879,29 +896,37 @@ function renderSemanticPanel(theme: BoxTheme, toolCallId: string, context: Boxed
 		invalidate() {},
 		render(width: number): string[] {
 			if (!state) return [];
-			if (state.fallback) {
-				return renderBoxedBashCall(
-					theme,
-					state.command.split("\n"),
-					context,
-					bashWidthKey(state.command, context?.args?.timeout),
-				).render(width);
-			}
-			if (isBashTreeClass(state.cls)) {
-				const treeState: { cls: BashTreeClass; parsed?: ParsedBashTree } = { cls: state.cls };
-				if (state.parsed !== undefined) treeState.parsed = state.parsed as ParsedBashTree;
-				return renderBashTreeLines(theme, treeState, width);
-			}
-			// Git classes only ever carry git parsed values (parseSemanticOutput
-			// dispatches on the class), so the narrowed cast is exact.
-			if (isGhClass(state.cls)) {
-				const ghState: { cls: GhSemanticClass; parsed?: GhParsedSemantic } = { cls: state.cls };
-				if (state.parsed !== undefined) ghState.parsed = state.parsed as GhParsedSemantic;
-				return renderGhCardLines(theme, ghState, width);
-			}
-			const gitState: { cls: GitSemanticClass; parsed?: GitParsedSemantic } = { cls: state.cls };
-			if (state.parsed !== undefined) gitState.parsed = state.parsed as GitParsedSemantic;
-			return renderGitCardLines(theme, gitState, width);
+			const renderFresh = () => {
+				if (state.fallback) {
+					return renderBoxedBashCall(
+						theme,
+						state.command.split("\n"),
+						context,
+						bashWidthKey(state.command, context?.args?.timeout),
+					).render(width);
+				}
+				if (isBashTreeClass(state.cls)) {
+					const treeState: { cls: BashTreeClass; parsed?: ParsedBashTree } = { cls: state.cls };
+					if (state.parsed !== undefined) treeState.parsed = state.parsed as ParsedBashTree;
+					return renderBashTreeLines(theme, treeState, width);
+				}
+				// Git classes only ever carry git parsed values (parseSemanticOutput
+				// dispatches on the class), so the narrowed cast is exact.
+				if (isGhClass(state.cls)) {
+					const ghState: { cls: GhSemanticClass; parsed?: GhParsedSemantic } = { cls: state.cls };
+					if (state.parsed !== undefined) ghState.parsed = state.parsed as GhParsedSemantic;
+					return renderGhCardLines(theme, ghState, width);
+				}
+				const gitState: { cls: GitSemanticClass; parsed?: GitParsedSemantic } = { cls: state.cls };
+				if (state.parsed !== undefined) gitState.parsed = state.parsed as GitParsedSemantic;
+				return renderGitCardLines(theme, gitState, width);
+			};
+			if (!state.finished) return renderFresh();
+			const cacheKey = [themeCacheKey(theme), getToolsRenderCacheSignature(), width, state.revision].join("|");
+			if (state.renderCache?.key === cacheKey) return state.renderCache.lines;
+			const lines = renderFresh();
+			state.renderCache = { key: cacheKey, lines };
+			return lines;
 		},
 	};
 }
@@ -911,7 +936,26 @@ export const bashTool: BoxedToolDefinition = {
 		noteExecutionStart(context);
 		const cls = classifyBashSemantic(String(args?.command ?? ""));
 		if (cls) {
-			semanticStates.set(context.toolCallId, { cls, command: String(args?.command ?? "") });
+			const command = String(args?.command ?? "");
+			const existing = semanticStates.get(context.toolCallId);
+			if (existing) {
+				if (existing.command !== command || existing.cls.kind !== cls.kind) {
+					delete existing.parsed;
+					delete existing.fallback;
+					existing.finished = false;
+					existing.revision++;
+					delete existing.renderCache;
+				}
+				existing.command = command;
+				existing.cls = cls;
+			} else {
+				semanticStates.set(context.toolCallId, {
+					cls,
+					command,
+					finished: false,
+					revision: 0,
+				});
+			}
 			return renderSemanticPanel(theme, context.toolCallId, context);
 		}
 		noteBoxedCallState(context);
@@ -939,12 +983,18 @@ export const bashTool: BoxedToolDefinition = {
 				const parsed = parseSemanticOutput(cls, output);
 				const state = semanticStates.get(context.toolCallId);
 				if (parsed) {
-					if (state) state.parsed = parsed;
-					else
+					if (state) {
+						state.parsed = parsed;
+						state.finished = !options.isPartial;
+						state.revision++;
+						delete state.renderCache;
+					} else
 						semanticStates.set(context.toolCallId, {
 							cls,
 							command: String(context?.args?.command ?? ""),
 							parsed,
+							finished: !options.isPartial,
+							revision: 0,
 						});
 					// `git diff` / `git show` render a boxed adaptive-diff result (one frame
 					// per file); `gh run view --job=<id>` renders a boxed log result. Every
@@ -961,7 +1011,12 @@ export const bashTool: BoxedToolDefinition = {
 				// Unparseable output (ls -l, raw rg summary, non-git output): the boxed
 				// shell owns the result; flag the call panel to render nothing so the
 				// two don't duplicate.
-				if (state) state.fallback = true;
+				if (state) {
+					state.fallback = true;
+					state.finished = !options.isPartial;
+					state.revision++;
+					delete state.renderCache;
+				}
 			}
 		} else if (options.isPartial) {
 			startElapsedTicker(context.state, context.invalidate);
@@ -976,6 +1031,19 @@ export const bashTool: BoxedToolDefinition = {
 			if (firstResultPass) return EMPTY_BASH_RESULT;
 			return renderBashStreamingResult(theme, raw, options, context);
 		}
-		return renderBashFinalResult(theme, raw, options, context);
+		return memoizedStateComponent(
+			context.state,
+			"__piStyleBashFinalResult",
+			getRenderCacheKey(
+				"bash-final-result",
+				theme,
+				Boolean(options.expanded),
+				Boolean(context.isError),
+				String(context?.args?.command ?? ""),
+				raw,
+				getStateElapsedMs(context.state) ?? "",
+			),
+			() => renderBashFinalResult(theme, raw, options, context),
+		);
 	},
 };

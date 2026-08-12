@@ -36,6 +36,17 @@ export interface BoxTheme {
 	getColorMode?(): string;
 }
 
+const THEME_CACHE_KEYS = new WeakMap<object, number>();
+let nextThemeCacheKey = 1;
+
+export function themeCacheKey(theme: object): number {
+	const cached = THEME_CACHE_KEYS.get(theme);
+	if (cached !== undefined) return cached;
+	const created = nextThemeCacheKey++;
+	THEME_CACHE_KEYS.set(theme, created);
+	return created;
+}
+
 export interface BoxedRenderOptions {
 	widthKey?: string;
 	/** Detail embedded in the top-border title after the tool name (e.g. the path). */
@@ -384,10 +395,10 @@ export function dimLine(text: string): string {
 	return `\x1b[2m${text}\x1b[22m`;
 }
 
-function boxText(theme: BoxTheme, text: string): string {
+function boxText(_theme: BoxTheme, text: string): string {
 	return dimLine(text);
 }
-function boxFrameText(theme: BoxTheme, text: string): string {
+function boxFrameText(_theme: BoxTheme, text: string): string {
 	return dimLine(text);
 }
 

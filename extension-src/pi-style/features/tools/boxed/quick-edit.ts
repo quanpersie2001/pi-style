@@ -16,6 +16,8 @@ import {
 	type BoxedToolContext,
 	type BoxedToolDefinition,
 	displayPath,
+	getRenderCacheKey,
+	memoizedStateComponent,
 	noteBoxedCallState,
 	noteBoxedResultPhase,
 	noteExecutionStart,
@@ -184,21 +186,35 @@ function renderQuickEditResult(
 	const diffView = new AdaptiveDiffComponent(theme, rows, maxRows, shouldHighlight ? language : undefined);
 	const expandHint = !expanded && diffView.hasCollapsed() ? "Ctrl+O more" : undefined;
 
-	return renderBoxedToolResult(
-		theme,
-		{
-			render(width: number): string[] {
-				return diffView.render(width);
-			},
-			invalidate(): void {
-				diffView.invalidate();
-			},
-		},
-		{
-			dividerLabel: quickEditDividerLabel(theme, stats),
-			...(expandHint ? { dividerRightLabel: expandHint } : {}),
-			footerLines: [quickEditDiffFooter(theme, result, context, stats)],
-		},
+	return memoizedStateComponent(
+		context.state,
+		"__piStyleQuickEditDiffResult",
+		getRenderCacheKey(
+			"quick-edit-diff-result",
+			theme,
+			config.toolLabel,
+			Boolean(expanded),
+			diff,
+			argPath,
+			quickEditDiffFooter(theme, result, context, stats),
+		),
+		() =>
+			renderBoxedToolResult(
+				theme,
+				{
+					render(width: number): string[] {
+						return diffView.render(width);
+					},
+					invalidate(): void {
+						diffView.invalidate();
+					},
+				},
+				{
+					dividerLabel: quickEditDividerLabel(theme, stats),
+					...(expandHint ? { dividerRightLabel: expandHint } : {}),
+					footerLines: [quickEditDiffFooter(theme, result, context, stats)],
+				},
+			),
 	);
 }
 

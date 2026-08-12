@@ -8,10 +8,10 @@
 // consume no vertical space.
 //
 // Design notes:
-// - No caching in the batch panel: it reads the module-level registry on every
-//   render, so member completions (which trigger ui.requestRender via Pi's
-//   tool_execution_end handler) are picked up without cross-component
-//   invalidation plumbing.
+// - Live batches render directly from the registry so member completions (which
+//   trigger ui.requestRender via Pi's tool_execution_end handler) are picked up
+//   without cross-component invalidation plumbing. Once a batch is finalized,
+//   width/config-stable renders reuse the cached line array.
 // - Batch boundaries: a new batch starts when the active batch is closed. The
 //   active batch closes when a non-batchable tool call is dispatched
 //   (boxed/index.ts), when a new message starts (pi/index.ts), and on session
@@ -31,7 +31,7 @@
 
 import type { Component } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
-import { type BoxTheme, dimLine, formatToolTitlePrefix } from "../../../shared/box.js";
+import { type BoxTheme, dimLine, formatToolTitlePrefix, themeCacheKey } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import {
 	fileIcon,
@@ -42,7 +42,7 @@ import {
 	TREE_CHILD_INDENT,
 	TREE_INDENT,
 } from "./output-tree.js";
-import { getToolsRenderConfig } from "./session-config.js";
+import { getToolsRenderCacheSignature, getToolsRenderConfig } from "./session-config.js";
 import type { BoxedToolContext } from "./shared.js";
 
 /** Quiet tools whose calls group into a single batch panel. */
@@ -78,6 +78,11 @@ export interface BatchMember {
 	outputEntries?: string[];
 }
 
+type BatchRenderCache = {
+	key: string;
+	lines: string[];
+};
+
 export interface BatchState {
 	readonly meta: BatchToolMeta;
 	readonly leaderId: string;
@@ -85,6 +90,8 @@ export interface BatchState {
 	completedAt?: number;
 	closed: boolean;
 	readonly members: BatchMember[];
+	revision: number;
+	renderCache?: BatchRenderCache;
 }
 
 /** Tree head limit: only the first few members are listed, the rest collapse. */
@@ -130,6 +137,7 @@ function createBatch(
 		leaderId,
 		startedAt: performance.now(),
 		closed: false,
+		revision: 0,
 		members: [
 			{
 				toolCallId: leaderId,
@@ -144,6 +152,11 @@ function createBatch(
 	activeBatch = batch;
 	batchByCallId.set(leaderId, batch);
 	return batch;
+}
+
+function bumpBatchRevision(batch: BatchState): void {
+	batch.revision++;
+	delete batch.renderCache;
 }
 
 /**
@@ -161,9 +174,12 @@ export function registerBatchCall(
 	if (existing) {
 		const member = existing.members.find((entry) => entry.toolCallId === context.toolCallId);
 		if (member) {
+			const changed =
+				member.detail !== detail || member.pattern !== opts.pattern || member.pathLabel !== opts.pathLabel;
 			member.detail = detail;
 			if (opts.pattern !== undefined) member.pattern = opts.pattern;
 			if (opts.pathLabel !== undefined) member.pathLabel = opts.pathLabel;
+			if (changed) bumpBatchRevision(existing);
 		}
 		return { batch: existing, isLeader: existing.leaderId === context.toolCallId };
 	}
@@ -182,6 +198,7 @@ export function registerBatchCall(
 	};
 	current.members.push(member);
 	batchByCallId.set(context.toolCallId, current);
+	bumpBatchRevision(current);
 	return { batch: current, isLeader: false };
 }
 
@@ -208,14 +225,23 @@ export function registerBatchResult(
 	if (!batch || batch.meta.toolName !== meta.toolName) return { batch: undefined, isLeader: false };
 	const member = batch.members.find((entry) => entry.toolCallId === context.toolCallId);
 	if (member) {
-		member.status = data.isPartial ? "running" : "done";
-		member.isError = !data.isPartial && data.isError;
+		const nextStatus = data.isPartial ? "running" : "done";
+		const nextIsError = !data.isPartial && data.isError;
+		const changed =
+			member.status !== nextStatus ||
+			member.isError !== nextIsError ||
+			member.errorText !== (nextIsError ? data.errorText : undefined) ||
+			member.outputEntries !== data.entries;
+		member.status = nextStatus;
+		member.isError = nextIsError;
 		if (member.isError && data.errorText !== undefined) member.errorText = data.errorText;
 		else delete member.errorText;
 		if (data.entries !== undefined) member.outputEntries = data.entries;
+		if (changed) bumpBatchRevision(batch);
 	}
 	if (batch.completedAt === undefined && batch.members.every((entry) => entry.status === "done")) {
 		batch.completedAt = performance.now();
+		bumpBatchRevision(batch);
 	}
 	return { batch, isLeader: batch.leaderId === context.toolCallId };
 }
@@ -459,9 +485,17 @@ function renderBatchPanelLines(theme: BoxTheme, batch: BatchState, status: Batch
  */
 export function renderBatchAwareCall(theme: BoxTheme, batch: BatchState): Component {
 	return {
-		invalidate() {},
+		invalidate() {
+			delete batch.renderCache;
+		},
 		render(width: number): string[] {
-			return renderBatchPanelLines(theme, batch, batchStatus(batch), width);
+			const status = batchStatus(batch);
+			if (!status.allDone) return renderBatchPanelLines(theme, batch, status, width);
+			const cacheKey = [themeCacheKey(theme), getToolsRenderCacheSignature(), width, batch.revision].join("|");
+			if (batch.renderCache?.key === cacheKey) return batch.renderCache.lines;
+			const lines = renderBatchPanelLines(theme, batch, status, width);
+			batch.renderCache = { key: cacheKey, lines };
+			return lines;
 		},
 	};
 }

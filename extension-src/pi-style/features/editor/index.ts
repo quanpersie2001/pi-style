@@ -39,6 +39,19 @@ interface EditorOptions {
 	onSnapshot: (snapshot: StatusSnapshot) => void;
 }
 
+interface RenderPlan {
+	readonly style: "compact" | "boxed" | "dock" | "native";
+	readonly kind: "compact" | "boxed" | "outline" | "rounded" | "native";
+	readonly prompt: string;
+	readonly promptWidth: number;
+	readonly padding: number;
+	readonly sideReserve: number;
+	readonly renderWidth: number;
+	readonly innerWidth: number;
+	readonly prefix: string;
+	readonly continuation: string;
+}
+
 const widthOf = visibleWidth;
 
 function widthSafe(value: string, width: number): string {
@@ -130,6 +143,7 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	private readonly onSnapshot: (snapshot: StatusSnapshot) => void;
 	private semantic: ResolvedTheme;
 	private disposed = false;
+	private renderPlanCache: { key: string; plan: RenderPlan } | undefined;
 
 	constructor(tui: Tui, theme: PiEditorTheme, keybindings: Keybindings, options: EditorOptions) {
 		super(tui, theme, keybindings);
@@ -164,88 +178,37 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	override invalidate(): void {
 		super.invalidate();
 		this.semantic = semanticTheme(this.piTheme, this.config);
+		this.renderPlanCache = undefined;
 		this.tui.requestRender();
 	}
 
 	override render(width: number): string[] {
 		if (width <= 0) return [];
-		const nativeLines = super.render(width);
-		const style = this.styleFor(width);
-		// Autocomplete (slash menu / @-mentions) restructure: Pi draws the
-		// suggestions after its own bottom border, which pushes the below-editor
-		// widgets (status line) down. Re-frame the native output so the dropdown
-		// lives INSIDE the input box, keeping the footer directly below the input.
-		// Native layout: [top border, text lines, bottom border, dropdown lines...].
-		if ((this as unknown as { autocompleteState?: unknown }).autocompleteState) {
-			const prompt = this.prompt();
-			const padding = this.paddingFor(width, style);
-			const promptWidth = widthOf(prompt) + 1;
-			const prefix = `${" ".repeat(padding)}${prompt} `;
-			const continuation = " ".repeat(padding + promptWidth);
-			const borderIndex = nativeLines.slice(1).findIndex((line) => isNativeBorderLine(line));
-			const split = borderIndex >= 0 ? borderIndex + 1 : nativeLines.length;
-			const body = nativeLines.slice(1, split);
-			const dropdown = nativeLines.slice(split);
-			const border = this.borderFor();
-			const kind = this.frameKind(style);
-			const renderWidth = width - (kind === "rounded" ? 2 : 0);
-			const sideColor = kind === "rounded" ? this.borderColorFor() : undefined;
-			const wrap = (line: string) =>
-				kind === "rounded" && sideColor ? `${sideColor("│")}${line}${sideColor("│")}` : line;
-			const bashHidden = this.bashHiddenCount();
-			const renderedBody = body.map((line, index) => {
-				const source = index === 0 && bashHidden > 0 ? stripLeadingVisibleChars(line, bashHidden) : line;
-				return wrap(widthSafe(`${index === 0 ? prefix : continuation}${source}`, renderWidth));
-			});
-			const dropdownLines = dropdown.map((line) => wrap(widthSafe(line, renderWidth)));
-			if (kind === "rounded") {
-				return [
-					border(`╭${"─".repeat(Math.max(0, width - 2))}╮`),
-					...renderedBody,
-					...dropdownLines,
-					border(`╰${"─".repeat(Math.max(0, width - 2))}╯`),
-				];
-			}
-			return [border("─".repeat(width)), ...renderedBody, ...dropdownLines, border("─".repeat(width))];
-		}
-		if (style === "native") return nativeLines.map((line) => widthSafe(line, width));
+		const plan = this.renderPlan(width);
+		const autocompleteState = (this as unknown as { autocompleteState?: unknown }).autocompleteState;
+		if (plan.style === "native") return super.render(width).map((line) => widthSafe(line, width));
+		if (autocompleteState) return this.renderAutocompleteFrame(width, plan);
 
-		const prompt = this.prompt();
-		const promptWidth = widthOf(prompt) + 1;
-		const padding = this.paddingFor(width, style);
-		const kind = this.frameKind(style);
-		const sideReserve = kind === "rounded" ? 2 : 0;
-		const renderWidth = Math.max(1, width - sideReserve);
-		const innerWidth = Math.max(1, renderWidth - promptWidth - padding * 2);
-		const innerLines = super.render(innerWidth);
+		const innerLines = super.render(plan.innerWidth);
 		if (innerLines.length === 0) return [];
-
 		const body = innerLines.slice(1, -1);
-		const prefix = `${" ".repeat(padding)}${prompt} `;
-		const continuation = " ".repeat(padding + promptWidth);
 		const hint = this.config.editor.hint;
 		const showHint = hint !== "" && this.getText() === "";
 		const bashHidden = this.bashHiddenCount();
 		const renderedBody = body.map((line, index) => {
-			const lead = index === 0 ? prefix : continuation;
+			const lead = index === 0 ? plan.prefix : plan.continuation;
 			const source = index === 0 && bashHidden > 0 ? stripLeadingVisibleChars(line, bashHidden) : line;
 			let content = `${lead}${source}`;
-			// Empty-input hint: the cursor block (first cell of the native empty
-			// line) stays at the input position, the dim hint trails it. The native
-			// line is pre-padded to renderWidth with literal spaces; drop them from
-			// the raw end (safe: no ANSI follows the padding) before appending the
-			// hint, or the hint is truncated away by widthSafe. Typing any character
-			// makes the text non-empty and the hint disappears.
 			if (showHint && index === 0 && line) {
 				let end = content.length;
 				while (end > 0 && content[end - 1] === " ") end--;
 				if (end < content.length) content = content.slice(0, end);
 				content += this.semantic.apply("hint", hint);
 			}
-			return widthSafe(content, renderWidth);
+			return widthSafe(content, plan.renderWidth);
 		});
-		const metadata = this.metadata(width, style);
-		const framed = this.frame(width, style, renderedBody, metadata);
+		const metadata = this.metadata(width, plan.style);
+		const framed = this.frame(width, plan.style, renderedBody, metadata);
 		return framed.map((line) => widthSafe(line, width));
 	}
 
@@ -253,6 +216,62 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		if (this.disposed) return;
 		this.disposed = true;
 		this.invalidate();
+	}
+
+	private renderPlan(width: number): RenderPlan {
+		const style = this.styleFor(width);
+		const prompt = this.prompt();
+		const kind = this.frameKind(style);
+		const key = `${width}:${style}:${kind}:${prompt}`;
+		if (this.renderPlanCache?.key === key) return this.renderPlanCache.plan;
+		const promptWidth = widthOf(prompt) + 1;
+		const padding = this.paddingFor(width, style);
+		const sideReserve = kind === "rounded" ? 2 : 0;
+		const renderWidth = Math.max(1, width - sideReserve);
+		const innerWidth = Math.max(1, renderWidth - promptWidth - padding * 2);
+		const prefix = `${" ".repeat(padding)}${prompt} `;
+		const continuation = " ".repeat(padding + promptWidth);
+		const plan = {
+			style,
+			kind,
+			prompt,
+			promptWidth,
+			padding,
+			sideReserve,
+			renderWidth,
+			innerWidth,
+			prefix,
+			continuation,
+		};
+		this.renderPlanCache = { key, plan };
+		return plan;
+	}
+
+	private renderAutocompleteFrame(width: number, plan: RenderPlan): string[] {
+		const nativeLines = super.render(width);
+		const borderIndex = nativeLines.slice(1).findIndex((line) => isNativeBorderLine(line));
+		const split = borderIndex >= 0 ? borderIndex + 1 : nativeLines.length;
+		const body = nativeLines.slice(1, split);
+		const dropdown = nativeLines.slice(split);
+		const border = this.borderFor();
+		const sideColor = plan.kind === "rounded" ? this.borderColorFor() : undefined;
+		const wrap = (line: string) =>
+			plan.kind === "rounded" && sideColor ? `${sideColor("│")}${line}${sideColor("│")}` : line;
+		const bashHidden = this.bashHiddenCount();
+		const renderedBody = body.map((line, index) => {
+			const source = index === 0 && bashHidden > 0 ? stripLeadingVisibleChars(line, bashHidden) : line;
+			return wrap(widthSafe(`${index === 0 ? plan.prefix : plan.continuation}${source}`, plan.renderWidth));
+		});
+		const dropdownLines = dropdown.map((line) => wrap(widthSafe(line, plan.renderWidth)));
+		if (plan.kind === "rounded") {
+			return [
+				border(`╭${"─".repeat(Math.max(0, width - 2))}╮`),
+				...renderedBody,
+				...dropdownLines,
+				border(`╰${"─".repeat(Math.max(0, width - 2))}╯`),
+			];
+		}
+		return [border("─".repeat(width)), ...renderedBody, ...dropdownLines, border("─".repeat(width))];
 	}
 
 	private prompt(): string {

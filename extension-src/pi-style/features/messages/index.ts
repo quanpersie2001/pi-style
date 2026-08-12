@@ -1,9 +1,46 @@
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth } from "../../shared/ansi.js";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 type OscParts = { start: string; body: string; end: string };
+type LineAnalysis = {
+	visibleWidth: number;
+	hasContent: boolean;
+	oscEnvelope: OscParts | undefined;
+	hasOscStart: boolean;
+	leadingMarkers: { head: string; rest: string };
+	isBackgroundWrapped: boolean;
+	backgroundAnsi: string;
+	backgroundBody: string | undefined;
+	backgroundBodyWidth: number | undefined;
+};
+type DecoratedRenderCacheEntry = {
+	nativeRef: readonly string[];
+	nativeLines: readonly string[];
+	result: readonly string[];
+};
+type MessageDecorationTestState = {
+	decoratePasses: number;
+	cacheHits: number;
+	cacheMisses: number;
+	lineCacheHits: number;
+	lineCacheMisses: number;
+};
+
+const BG_RESET = "\x1b[49m";
+const MAX_RENDER_CACHE_KEYS_PER_INSTANCE = 8;
+const MAX_LINE_ANALYSIS_ENTRIES = 4096;
+
+let renderCacheByInstance = new WeakMap<object, Map<string, DecoratedRenderCacheEntry>>();
+let lineAnalysisCache = new Map<string, LineAnalysis>();
+const messageDecorationTestState: MessageDecorationTestState = {
+	decoratePasses: 0,
+	cacheHits: 0,
+	cacheMisses: 0,
+	lineCacheHits: 0,
+	lineCacheMisses: 0,
+};
 
 function extractOscEnvelope(line: string): OscParts | undefined {
 	if (!line.startsWith(OSC133_ZONE_START)) return undefined;
@@ -11,8 +48,6 @@ function extractOscEnvelope(line: string): OscParts | undefined {
 	if (bodyEnd < 0 || !line.endsWith(OSC133_ZONE_FINAL)) return undefined;
 	return { start: OSC133_ZONE_START, body: line.slice(OSC133_ZONE_START.length, bodyEnd), end: line.slice(bodyEnd) };
 }
-
-const BG_RESET = "\x1b[49m";
 
 /** Leading zero-width OSC sequences (e.g. OSC133 markers) of a line. */
 function splitLeadingMarkers(line: string): { head: string; rest: string } {
@@ -51,69 +86,6 @@ function isBackgroundSgr(sequence: string): boolean {
 	return false;
 }
 
-/**
- * Rebuild a native line so `lead` (prompt prefix / continuation indent) and the
- * full target width are covered by the line's background.
- *
- * Native Box lines (user messages) are `bgAnsi + body + \x1b[49m`; prepending the
- * prefix outside that wrap shifted the input row's background right by the
- * prefix width while keeping the full container width, producing a staircase
- * box (indented left, overflowing right). Rebuilding inside the wrap keeps the
- * background flush across every row; plain (unwrapped) lines are padded to the
- * target width instead so left/right edges stay aligned.
- */
-function rebuildAtWidth(line: string, width: number, lead: string): string {
-	const { head, rest } = splitLeadingMarkers(line);
-	const bgAnsi = leadingSgr(rest);
-	if (bgAnsi && isBackgroundSgr(bgAnsi) && rest.endsWith(BG_RESET)) {
-		const body = rest.slice(bgAnsi.length, rest.length - BG_RESET.length);
-		const pad = " ".repeat(Math.max(0, width - visibleWidth(lead) - visibleWidth(body)));
-		return `${head}${bgAnsi}${lead}${body}${pad}${BG_RESET}`;
-	}
-	const padded = `${lead}${line}`;
-	return `${padded}${" ".repeat(Math.max(0, width - visibleWidth(padded)))}`;
-}
-
-function decorateMessageLine(
-	line: string,
-	index: number,
-	lastIndex: number,
-	contentIndex: number,
-	width: number,
-	options: {
-		firstEnvelope: OscParts | undefined;
-		firstHasStart: boolean;
-		multilineEnvelope: boolean;
-		prefix: string;
-	},
-): string {
-	const { firstEnvelope, firstHasStart, multilineEnvelope, prefix } = options;
-	const prefixWidth = visibleWidth(prefix);
-	const lead = index === contentIndex ? prefix : index > contentIndex ? " ".repeat(prefixWidth) : "";
-	if (index === contentIndex && firstEnvelope)
-		return `${firstEnvelope.start}${rebuildAtWidth(firstEnvelope.body, width, prefix)}${firstEnvelope.end}`;
-	if (index === contentIndex && firstHasStart)
-		return `${OSC133_ZONE_START}${rebuildAtWidth(line.slice(OSC133_ZONE_START.length), width, prefix)}`;
-	if (index === lastIndex && multilineEnvelope && index !== contentIndex)
-		return `${OSC133_ZONE_END}${OSC133_ZONE_FINAL}${rebuildAtWidth(
-			line.slice((OSC133_ZONE_END + OSC133_ZONE_FINAL).length),
-			width,
-			lead,
-		)}`;
-	if (
-		index === contentIndex &&
-		index === lastIndex &&
-		multilineEnvelope &&
-		line.startsWith(OSC133_ZONE_END + OSC133_ZONE_FINAL)
-	)
-		return `${OSC133_ZONE_END}${OSC133_ZONE_FINAL}${rebuildAtWidth(
-			line.slice((OSC133_ZONE_END + OSC133_ZONE_FINAL).length),
-			width,
-			prefix,
-		)}`;
-	return rebuildAtWidth(line, width, lead);
-}
-
 function contentText(line: string): string {
 	let output = "";
 	for (let index = 0; index < line.length; index++) {
@@ -139,14 +111,152 @@ function hasContent(line: string): boolean {
 	return [...contentText(line)].some((character) => !/\s/u.test(character));
 }
 
+function getLineAnalysis(line: string): LineAnalysis {
+	const cached = lineAnalysisCache.get(line);
+	if (cached) {
+		messageDecorationTestState.lineCacheHits++;
+		return cached;
+	}
+	messageDecorationTestState.lineCacheMisses++;
+	const leadingMarkers = splitLeadingMarkers(line);
+	const backgroundAnsi = leadingSgr(leadingMarkers.rest);
+	const isBackgroundWrapped =
+		backgroundAnsi !== "" && isBackgroundSgr(backgroundAnsi) && leadingMarkers.rest.endsWith(BG_RESET);
+	const backgroundBody = isBackgroundWrapped
+		? leadingMarkers.rest.slice(backgroundAnsi.length, leadingMarkers.rest.length - BG_RESET.length)
+		: undefined;
+	const analysis: LineAnalysis = {
+		visibleWidth: visibleWidth(line),
+		hasContent: hasContent(line),
+		oscEnvelope: extractOscEnvelope(line),
+		hasOscStart: line.startsWith(OSC133_ZONE_START),
+		leadingMarkers,
+		isBackgroundWrapped,
+		backgroundAnsi,
+		backgroundBody,
+		backgroundBodyWidth: backgroundBody === undefined ? undefined : visibleWidth(backgroundBody),
+	};
+	lineAnalysisCache.set(line, analysis);
+	if (lineAnalysisCache.size > MAX_LINE_ANALYSIS_ENTRIES) {
+		const oldestKey = lineAnalysisCache.keys().next().value;
+		if (oldestKey !== undefined) lineAnalysisCache.delete(oldestKey);
+	}
+	return analysis;
+}
+
+function rebuildAtWidth(
+	line: string,
+	width: number,
+	lead: string,
+	leadWidth: number,
+	analysis = getLineAnalysis(line),
+): string {
+	if (
+		analysis.isBackgroundWrapped &&
+		analysis.backgroundBody !== undefined &&
+		analysis.backgroundBodyWidth !== undefined
+	) {
+		const pad = " ".repeat(Math.max(0, width - leadWidth - analysis.backgroundBodyWidth));
+		return `${analysis.leadingMarkers.head}${analysis.backgroundAnsi}${lead}${analysis.backgroundBody}${pad}${BG_RESET}`;
+	}
+	const pad = " ".repeat(Math.max(0, width - leadWidth - analysis.visibleWidth));
+	return `${lead}${line}${pad}`;
+}
+
+function decorateMessageLine(
+	line: string,
+	index: number,
+	lastIndex: number,
+	contentIndex: number,
+	width: number,
+	options: {
+		firstEnvelope: OscParts | undefined;
+		firstHasStart: boolean;
+		multilineEnvelope: boolean;
+		prefix: string;
+		prefixWidth: number;
+	},
+	analysis = getLineAnalysis(line),
+): string {
+	const { firstEnvelope, firstHasStart, multilineEnvelope, prefix, prefixWidth } = options;
+	const lead = index === contentIndex ? prefix : index > contentIndex ? " ".repeat(prefixWidth) : "";
+	const leadWidth = index < contentIndex ? 0 : prefixWidth;
+	if (index === contentIndex && firstEnvelope)
+		return `${firstEnvelope.start}${rebuildAtWidth(firstEnvelope.body, width, prefix, prefixWidth)}${firstEnvelope.end}`;
+	if (index === contentIndex && firstHasStart)
+		return `${OSC133_ZONE_START}${rebuildAtWidth(line.slice(OSC133_ZONE_START.length), width, prefix, prefixWidth)}`;
+	if (index === lastIndex && multilineEnvelope && index !== contentIndex)
+		return `${OSC133_ZONE_END}${OSC133_ZONE_FINAL}${rebuildAtWidth(
+			line.slice((OSC133_ZONE_END + OSC133_ZONE_FINAL).length),
+			width,
+			lead,
+			leadWidth,
+		)}`;
+	if (
+		index === contentIndex &&
+		index === lastIndex &&
+		multilineEnvelope &&
+		line.startsWith(OSC133_ZONE_END + OSC133_ZONE_FINAL)
+	)
+		return `${OSC133_ZONE_END}${OSC133_ZONE_FINAL}${rebuildAtWidth(
+			line.slice((OSC133_ZONE_END + OSC133_ZONE_FINAL).length),
+			width,
+			prefix,
+			prefixWidth,
+		)}`;
+	return rebuildAtWidth(line, width, lead, leadWidth, analysis);
+}
+
+function sameLines(left: readonly string[], right: readonly string[]): boolean {
+	if (left === right) return true;
+	if (left.length !== right.length) return false;
+	for (let index = 0; index < left.length; index++) {
+		if (left[index] !== right[index]) return false;
+	}
+	return true;
+}
+
+function cacheKey(width: number, prefix: string): string {
+	return `${width}\u0000${prefix}`;
+}
+
+function getRenderCache(instance: object): Map<string, DecoratedRenderCacheEntry> {
+	let cache = renderCacheByInstance.get(instance);
+	if (!cache) {
+		cache = new Map();
+		renderCacheByInstance.set(instance, cache);
+	}
+	return cache;
+}
+
+function storeRenderCache(
+	instance: object,
+	width: number,
+	prefix: string,
+	native: readonly string[],
+	result: readonly string[],
+): void {
+	const cache = getRenderCache(instance);
+	const key = cacheKey(width, prefix);
+	if (cache.has(key)) cache.delete(key);
+	cache.set(key, { nativeRef: native, nativeLines: [...native], result: [...result] });
+	while (cache.size > MAX_RENDER_CACHE_KEYS_PER_INSTANCE) {
+		const oldestKey = cache.keys().next().value;
+		if (oldestKey === undefined) break;
+		cache.delete(oldestKey);
+	}
+}
+
 function prefixNative(lines: unknown, width: number, prefix: string): string[] | undefined {
 	if (!Array.isArray(lines) || lines.length === 0 || !lines.every((line) => typeof line === "string")) return undefined;
+	messageDecorationTestState.decoratePasses++;
 	const nativeLines = lines as string[];
 	const prefixWidth = visibleWidth(prefix);
 	if (width <= prefixWidth) return undefined;
 	const bodyWidth = width - prefixWidth;
 	const first = nativeLines[0] ?? "";
 	const last = nativeLines.at(-1) ?? "";
+	const lastAnalysis = getLineAnalysis(last);
 	const multilineEnvelope = nativeLines.length > 1 && last.startsWith(OSC133_ZONE_END + OSC133_ZONE_FINAL);
 	// The last line is a content-start candidate only when the envelope is
 	// single-line, or when no earlier line carries content. Assistant messages
@@ -154,22 +264,26 @@ function prefixNative(lines: unknown, width: number, prefix: string): string[] |
 	// sits on the final line ([OSC133_A, OSC133_END+FINAL+body]); excluding it
 	// would drop the prefix for every short assistant reply.
 	const firstContentIndex = nativeLines.findIndex((line, index) => {
-		if (index !== nativeLines.length - 1 || !multilineEnvelope) return hasContent(line);
-		return !nativeLines.slice(0, index).some((earlier) => hasContent(earlier)) && hasContent(line);
+		if (index !== nativeLines.length - 1 || !multilineEnvelope) return getLineAnalysis(line).hasContent;
+		return (
+			!nativeLines.slice(0, index).some((earlier) => getLineAnalysis(earlier).hasContent) && lastAnalysis.hasContent
+		);
 	});
 	if (firstContentIndex < 0) return nativeLines;
-	const firstEnvelope = firstContentIndex === 0 ? extractOscEnvelope(first) : undefined;
-	const firstHasStart = firstContentIndex === 0 && first.startsWith(OSC133_ZONE_START);
+	const firstAnalysis = getLineAnalysis(first);
+	const firstEnvelope = firstContentIndex === 0 ? firstAnalysis.oscEnvelope : undefined;
+	const firstHasStart = firstContentIndex === 0 && firstAnalysis.hasOscStart;
 	const decorated = nativeLines.map((line, index) =>
 		decorateMessageLine(line, index, nativeLines.length - 1, firstContentIndex, width, {
 			firstEnvelope,
 			firstHasStart,
 			multilineEnvelope,
 			prefix,
+			prefixWidth,
 		}),
 	);
 	if (!decorated.every((line) => visibleWidth(line) <= width)) return undefined;
-	if (!nativeLines.every((line) => visibleWidth(line) <= bodyWidth)) return undefined;
+	if (!nativeLines.every((line) => getLineAnalysis(line).visibleWidth <= bodyWidth)) return undefined;
 	return decorated;
 }
 
@@ -181,6 +295,20 @@ export type MessageDecorationSnapshot = Readonly<{
 	/** Hide the text of assistant messages that also carry tool calls (interim narration). */
 	hideInterimText: boolean;
 }>;
+
+export function __getMessageDecorationTestState(): Readonly<MessageDecorationTestState> {
+	return { ...messageDecorationTestState };
+}
+
+export function __resetMessageDecorationTestState(): void {
+	messageDecorationTestState.decoratePasses = 0;
+	messageDecorationTestState.cacheHits = 0;
+	messageDecorationTestState.cacheMisses = 0;
+	messageDecorationTestState.lineCacheHits = 0;
+	messageDecorationTestState.lineCacheMisses = 0;
+	renderCacheByInstance = new WeakMap<object, Map<string, DecoratedRenderCacheEntry>>();
+	lineAnalysisCache = new Map<string, LineAnalysis>();
+}
 
 export function decorateMessageRender(
 	original: unknown,
@@ -197,12 +325,22 @@ export function decorateMessageRender(
 	const width = typeof args[0] === "number" ? args[0] : 0;
 	const prefix = snapshot.assistantPrefix;
 	if (!snapshot.assistantEnabled) return Reflect.apply(original, instance, args);
-	if (width <= visibleWidth(prefix)) return Reflect.apply(original, instance, args);
+	const prefixWidth = visibleWidth(prefix);
+	if (width <= prefixWidth) return Reflect.apply(original, instance, args);
 	// Exactly one native invocation. If the reduced render cannot be certified, the
 	// already-obtained result is the only safe fallback; retrying can mutate state.
-	const reducedWidth = width - visibleWidth(prefix);
+	const reducedWidth = width - prefixWidth;
 	const native = Reflect.apply(original, instance, [reducedWidth, ...args.slice(1)]);
-	return prefixNative(native, width, prefix) ?? native;
+	if (!Array.isArray(native) || !native.every((line) => typeof line === "string")) return native;
+	const cached = getRenderCache(instance).get(cacheKey(width, prefix));
+	if (cached && (cached.nativeRef === native || sameLines(cached.nativeLines, native))) {
+		messageDecorationTestState.cacheHits++;
+		return [...cached.result];
+	}
+	messageDecorationTestState.cacheMisses++;
+	const decorated = prefixNative(native, width, prefix) ?? native;
+	storeRenderCache(instance, width, prefix, native, decorated);
+	return decorated;
 }
 
 /** Spacer-like: renders empty lines and exposes only setLines among these surfaces. */

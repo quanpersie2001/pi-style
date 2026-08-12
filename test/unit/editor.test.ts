@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG, normalizeConfig } from "../../extension-src/pi-style/domain/config-normalization.js";
 import { StyledEditor } from "../../extension-src/pi-style/features/editor/index.js";
 import { visibleWidth } from "../../extension-src/pi-style/shared/ansi.js";
@@ -216,5 +216,49 @@ describe("styled editor renderer", () => {
 		editor.setText("!echo hi");
 		const plain = (line: string) => line.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "");
 		expect(plain(editor.render(80).join("\n"))).toContain("!echo hi");
+	});
+
+	it("renders decorated paths with exactly one native render call", () => {
+		const editor = new StyledEditor(fakeTui(), fakeTheme(), fakeKeys(), {
+			config: normalizeConfig({ editor: { style: "dock", frame: "rounded" } }),
+			snapshot: {},
+			theme: fakeTheme(),
+			onSnapshot: () => {},
+		});
+		const basePrototype = Object.getPrototypeOf(Object.getPrototypeOf(editor)) as {
+			render: (width: number) => string[];
+		};
+		const spy = vi.spyOn(basePrototype, "render");
+		try {
+			editor.setText("decorated render path");
+			editor.render(80);
+			expect(spy).toHaveBeenCalledTimes(1);
+			expect(spy.mock.calls[0]?.[0]).toBeLessThan(80);
+			expect(spy.mock.calls[0]?.[0]).toBeGreaterThan(0);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	it("keeps autocomplete on a single native render call at the outer width", () => {
+		const editor = new StyledEditor(fakeTui(), fakeTheme(), fakeKeys(), {
+			config: normalizeConfig({ editor: { style: "dock", frame: "rounded" } }),
+			snapshot: {},
+			theme: fakeTheme(),
+			onSnapshot: () => {},
+		});
+		const basePrototype = Object.getPrototypeOf(Object.getPrototypeOf(editor)) as {
+			render: (width: number) => string[];
+		};
+		const spy = vi.spyOn(basePrototype, "render");
+		try {
+			editor.setText("@pi-style");
+			(editor as unknown as { autocompleteState?: unknown }).autocompleteState = { active: true };
+			editor.render(80);
+			expect(spy).toHaveBeenCalledTimes(1);
+			expect(spy.mock.calls[0]).toEqual([80]);
+		} finally {
+			spy.mockRestore();
+		}
 	});
 });
