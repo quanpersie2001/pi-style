@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.1] - 2026-08-12
+
+### Performance
+
+- Optimize interactive rendering hot paths
+
 ## [0.2.0] - 2026-08-08
 
 ### Bug Fixes
