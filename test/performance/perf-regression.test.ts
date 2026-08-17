@@ -1,11 +1,11 @@
 // Performance regression guards for the 2025 perf-audit fixes (C1-C5, H1-H4,
 // M1-M7, L1-L3).
 //
-// Each bound is set 5-10× above the measured post-fix cost and BELOW the
-// measured pre-fix cost, so a regression back to the old behavior fails the
-// suite while normal machine variance does not. These are guards, not
-// benchmarks: absolute numbers are machine-dependent, the pass/fail band is
-// chosen conservatively.
+// Timing bounds: measured post-fix on this machine AND on a GitHub Actions
+// ubuntu runner (which runs ~4× slower). Each bound sits ~2-3× above the
+// slowest observed CI measurement while staying clearly below the pre-fix
+// cost (scaled to the same runner), so genuine regressions still fail while
+// runner variance does not.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPiStyleRuntime } from "../../extension-src/pi-style/app/runtime.js";
@@ -90,8 +90,8 @@ describe("perf regression — shared width/word primitives", () => {
 	it("visibleWidth stays delegated-fast (H1: pre-fix ~2.0µs, post-fix ~0.02µs)", () => {
 		const styled = "\x1b[38;5;109m⎇ main\x1b[0m ctx:42% · in:120k · $0.042 · 12:34";
 		const total = bench("visibleWidth styled x20000", 20_000, () => visibleWidth(styled));
-		// Pre-fix: ~40ms for 20k ops. Bound: 20ms (2.4× head-room below the old cost).
-		expect(total).toBeLessThan(20);
+		// Post-fix CI: ~2.5ms. Pre-fix: ~40ms local / ~150ms CI. Bound: 25ms.
+		expect(total).toBeLessThan(25);
 	});
 
 	it("visibleWidth terminal-width semantics are correct (H1 correctness)", () => {
@@ -106,8 +106,8 @@ describe("perf regression — shared width/word primitives", () => {
 		expect(countWords("one two three")).toBe(3);
 		expect(countWords("don't stop-believe_x")).toBe(2); // hyphen/underscore join word runs
 		const total = bench("countWords 90KB x30", 30, () => countWords(output));
-		// Pre-fix: ~50ms for 30 ops. Bound: 12ms.
-		expect(total).toBeLessThan(12);
+		// Post-fix CI: ~14ms. Pre-fix: ~50ms local / ~200ms CI. Bound: 45ms.
+		expect(total).toBeLessThan(45);
 	});
 });
 
@@ -134,8 +134,8 @@ describe("perf regression — bash result dispatch (C3/C4a/M6)", () => {
 		});
 		// Memoized component must be reference-identical across warm passes.
 		expect(bashTool.result(result, { expanded: false, isPartial: false }, theme, ctx)).toBe(first);
-		// Pre-fix: ~330ms for 100 passes. Bound: 40ms.
-		expect(total).toBeLessThan(40);
+		// Post-fix CI: ~37ms. Pre-fix: ~330ms local / ~1.3s CI. Bound: 120ms.
+		expect(total).toBeLessThan(120);
 	});
 
 	it("streaming partial passes are tail-only (pre-fix 0.88ms/pass @100KB, post-fix ~0.02ms)", () => {
@@ -147,8 +147,8 @@ describe("perf regression — bash result dispatch (C3/C4a/M6)", () => {
 		const total = bench("bash streaming partial x100", 100, () => {
 			bashTool.result(result, { expanded: false, isPartial: true }, theme, ctx);
 		});
-		// Pre-fix: ~90ms for 100 passes. Bound: 15ms.
-		expect(total).toBeLessThan(15);
+		// Post-fix CI: ~5ms. Pre-fix: ~90ms local / ~350ms CI. Bound: 25ms.
+		expect(total).toBeLessThan(25);
 	});
 });
 
@@ -223,8 +223,8 @@ describe("perf regression — status line hot path (H2)", () => {
 		const total = bench("renderStatus x2000", 2000, () =>
 			renderStatus(config.statusLine.layout, snapshot, 120, options),
 		);
-		// Pre-fix: ~250ms for 2000 renders. Bound: 150ms.
-		expect(total).toBeLessThan(150);
+		// Post-fix CI: ~93ms. Pre-fix: ~250ms local / ~900ms CI. Bound: 250ms.
+		expect(total).toBeLessThan(250);
 	});
 
 	it("theme token prefixes are memoized per token (pre-fix: one active.fg call per apply)", () => {
@@ -285,8 +285,8 @@ describe("perf regression — message decoration streaming path (H3)", () => {
 			counter++;
 			decorateMessageRender(original, instance, [100]);
 		});
-		// Pre-fix: ~85-105ms for 400 passes. Bound: 72ms (0.18ms/pass).
-		expect(total).toBeLessThan(72);
+		// Post-fix CI: ~124ms. Pre-fix: ~85-105ms local / ~330ms CI. Bound: 260ms.
+		expect(total).toBeLessThan(260);
 	});
 });
 
@@ -314,8 +314,8 @@ describe("perf regression — quiet tools skip settled re-parsing (M5)", () => {
 		const total = bench("read warm result x20", 20, () => {
 			readTool.result(result, { expanded: false, isPartial: false }, theme, ctx);
 		});
-		// Pre-fix: ~20ms for 20 passes. Bound: 2ms.
-		expect(total).toBeLessThan(2);
+		// Post-fix CI: ~0ms. Pre-fix: ~20ms local / ~80ms CI. Bound: 5ms.
+		expect(total).toBeLessThan(5);
 	});
 });
 
