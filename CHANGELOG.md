@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.2] - 2026-08-17
+
+### Performance
+
+- Fix audit findings C1-C5/H1-H4/M1-M7 across render hot paths
+
+### Testing
+
+- Widen perf-regression timing bounds for CI runners
+
 ## [0.2.1] - 2026-08-12
 
 ### Performance
