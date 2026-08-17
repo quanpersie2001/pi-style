@@ -1,3 +1,5 @@
+import { visibleWidth as tuiVisibleWidth } from "@earendil-works/pi-tui";
+
 function isFinal(byte: string): boolean {
 	return byte >= "@" && byte <= "~";
 }
@@ -91,8 +93,12 @@ export function stripAnsi(value: string): string {
 	}
 	return output;
 }
+/**
+ * Terminal-correct visible width: delegates to pi-tui (ANSI-stripping,
+ * ASCII fast path, per-string cache, wide chars = 2 columns, tabs = 3).
+ */
 export function visibleWidth(value: string): number {
-	return [...stripAnsi(value)].length;
+	return tuiVisibleWidth(value);
 }
 export function resetAnsi(value: string): string {
 	return `${value}\x1b[0m`;
@@ -105,9 +111,10 @@ export function fitAnsiWidth(value: string, width: number, ellipsis = "…"): st
 export function truncateAnsi(value: string, width: number, ellipsis = "…"): string {
 	if (width <= 0) return "";
 	if (visibleWidth(value) <= width) return resetAnsi(value);
+	const ellipsisWidth = visibleWidth(ellipsis);
 	let output = "";
 	let visible = 0;
-	for (let i = 0; i < value.length && visible < width - visibleWidth(ellipsis); i++) {
+	for (let i = 0; i < value.length && visible < width - ellipsisWidth; i++) {
 		if (value.charCodeAt(i) === 27) {
 			const start = i;
 			i++;
@@ -125,12 +132,17 @@ export function wrapAnsi(value: string, width: number): string[] {
 	if (width <= 0) return [""];
 	const lines: string[] = [];
 	let line = "";
+	let lineWidth = 0;
 	for (const word of value.split(/\s+/)) {
-		const next = line ? `${line} ${word}` : word;
-		if (visibleWidth(next) <= width) line = next;
-		else {
+		const wordWidth = visibleWidth(word);
+		const nextWidth = line ? lineWidth + 1 + wordWidth : wordWidth;
+		if (nextWidth <= width) {
+			line = line ? `${line} ${word}` : word;
+			lineWidth = nextWidth;
+		} else {
 			if (line) lines.push(resetAnsi(line));
 			line = truncateAnsi(word, width);
+			lineWidth = visibleWidth(line);
 		}
 	}
 	if (line || lines.length === 0) lines.push(resetAnsi(line));

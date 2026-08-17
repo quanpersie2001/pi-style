@@ -56,7 +56,13 @@ type DiffEntry =
 
 const ESC = "\x1b";
 const BG_ANSI_PATTERN = new RegExp(`${ESC}\\[(?:4\\d|10\\d|48;5;\\d{1,3}|48;2;\\d{1,3};\\d{1,3};\\d{1,3}|49)m`, "g");
+/** Any SGR escape (capture: parameter bytes). Shared with String.replace only —
+ *  replace resets lastIndex, so the global flag is safe here. */
+const ANSI_SGR_PATTERN = new RegExp(`${ESC}\\[([0-9;]*)m`, "g");
 const CONTROL_CHARS = "\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F";
+/** Control characters (minus \r/\n, handled separately) stripped from diff
+ *   text. Replace-only usage, so the global flag is safe (see above). */
+const CONTROL_CHARS_PATTERN = new RegExp(`[${CONTROL_CHARS}]`, "g");
 
 const ADD_ROW_BACKGROUND_MIX_RATIO = 0.24;
 const REMOVE_ROW_BACKGROUND_MIX_RATIO = 0.12;
@@ -173,7 +179,7 @@ function resolveDiffPalette(theme: SplitDiffTheme): DiffPalette {
 function keepBackgroundAcrossResets(text: string, rowBgAnsi: string): string {
 	if (!text) return text;
 
-	return text.replace(new RegExp(`${ESC}\\[([0-9;]*)m`, "g"), (sequence, rawCodes) => {
+	return text.replace(ANSI_SGR_PATTERN, (sequence, rawCodes) => {
 		const split = String(rawCodes ?? "")
 			.split(";")
 			.filter(Boolean);
@@ -233,10 +239,7 @@ function applyBackgroundToVisibleRange(
 // ── Text utilities ─────────────────────────────────────────────────
 
 function sanitizeSingleLineText(value: string): string {
-	return value
-		.replace(/\r/g, "")
-		.replace(/\n/g, "")
-		.replace(new RegExp(`[${CONTROL_CHARS}]`, "g"), "");
+	return value.replace(/\r/g, "").replace(/\n/g, "").replace(CONTROL_CHARS_PATTERN, "");
 }
 
 function stripInlineBreaksPreserveAnsi(value: string): string {

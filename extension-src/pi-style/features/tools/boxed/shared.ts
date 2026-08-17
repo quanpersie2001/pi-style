@@ -181,8 +181,34 @@ type StateComponentCacheEntry = {
 	component: Component;
 };
 
+/** Cache-key string parts at or below this length join verbatim; longer ones
+ *  collapse to `length:hash` so the joined key length stays bounded regardless
+ *  of raw output size. */
+const CACHE_KEY_LONG_PART_THRESHOLD = 64;
+
+/** 32-bit FNV-1a hash of a string as 8 lowercase hex digits. Local mirror of the
+ *  compatibility probe's fingerprint hashing (the pi/ layer stays unreachable
+ *  from features): deterministic, collision-safe for cache identity. */
+function fnv1aHex(text: string): string {
+	let hash = 2166136261;
+	for (let i = 0; i < text.length; i++) {
+		hash ^= text.charCodeAt(i);
+		hash = Math.imul(hash, 16777619) >>> 0;
+	}
+	return hash.toString(16).padStart(8, "0");
+}
+
+/** Fold one join part: strings longer than CACHE_KEY_LONG_PART_THRESHOLD
+ *  collapse to `length:hash`; numbers/booleans pass through unchanged. */
+function boundedCacheKeyPart(part: string | number | boolean): string | number | boolean {
+	if (typeof part !== "string" || part.length <= CACHE_KEY_LONG_PART_THRESHOLD) return part;
+	return `${part.length}:${fnv1aHex(part)}`;
+}
+
 export function getRenderCacheKey(prefix: string, theme: BoxTheme, ...parts: Array<string | number | boolean>): string {
-	return [prefix, themeCacheKey(theme), getToolsRenderCacheSignature(), ...parts].join("|");
+	const pieces: Array<string | number | boolean> = [prefix, themeCacheKey(theme), getToolsRenderCacheSignature()];
+	for (const part of parts) pieces.push(boundedCacheKeyPart(part));
+	return pieces.join("|");
 }
 
 export function memoizedStateComponent(

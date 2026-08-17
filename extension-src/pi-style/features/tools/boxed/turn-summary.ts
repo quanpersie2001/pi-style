@@ -307,6 +307,18 @@ export function invalidateTurnMembers(turn: TurnState): void {
 }
 
 /**
+ * Drop the turn's captured invalidate callbacks (`agent_end`, after the
+ * collapse re-render). The closures pin component state for the rest of the
+ * session otherwise; `memberByCallId` entries stay so scrollback keeps
+ * resolving the turn. Later expand toggles re-render via Pi's updateDisplay
+ * selectors and re-capture fresh callbacks; a missing callback is already
+ * skipped gracefully by invalidateTurnMembers.
+ */
+export function releaseTurnInvalidators(turn: TurnState): void {
+	for (const member of turn.members) invalidateByCallId.delete(member.toolCallId);
+}
+
+/**
  * Freeze a member's wall-clock elapsed into the registry (idempotent; the
  * value is frozen by the renderer state once the terminal result rendered).
  */

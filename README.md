@@ -189,7 +189,7 @@ npm run check
 
 `npm run check` runs all required automated gates in order.
 
-Current test suite: 686 tests across 31 files.
+Current test suite: 751 tests across 38 files.
 
 ---
 

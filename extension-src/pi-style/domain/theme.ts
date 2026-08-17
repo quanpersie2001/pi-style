@@ -200,10 +200,32 @@ function colorPrefixFor(
 	return "";
 }
 
+function envKeyFor(env: Record<string, string | undefined>): string {
+	return `${env.PI_STYLE_NERD_FONTS ?? ""}\u0000${env.GHOSTTY_RESOURCES_DIR ? "1" : "0"}\u0000${env.TERM_PROGRAM ?? ""}`;
+}
+
+const glyphModeCache = new WeakMap<object, Map<string, GlyphMode>>();
+
 export function detectGlyphMode(
 	config: NormalizedPiStyleConfig,
 	env: Record<string, string | undefined> = {},
 ): GlyphMode {
+	// Memoized per config object; the env-derived key keeps the result correct
+	// when the same config is resolved against different environments.
+	let byEnv = glyphModeCache.get(config);
+	if (!byEnv) {
+		byEnv = new Map();
+		glyphModeCache.set(config, byEnv);
+	}
+	const envKey = envKeyFor(env);
+	const cached = byEnv.get(envKey);
+	if (cached !== undefined) return cached;
+	const mode = computeGlyphMode(config, env);
+	byEnv.set(envKey, mode);
+	return mode;
+}
+
+function computeGlyphMode(config: NormalizedPiStyleConfig, env: Record<string, string | undefined>): GlyphMode {
 	if (env.PI_STYLE_NERD_FONTS === "1") return "nerd";
 	if (env.PI_STYLE_NERD_FONTS === "0") return "unicode";
 	if (config.theme.nerdFonts === "on") return "nerd";
@@ -224,7 +246,16 @@ export function resolveTheme(
 ): ResolvedTheme {
 	const noColor = Object.hasOwn(env, "NO_COLOR") && env.NO_COLOR !== "" && config.theme.colors.colorOverride !== "on";
 	const mode = config.preset === "ascii" ? "ascii" : detectGlyphMode(config, env);
-	const color = (token: SemanticToken) => colorPrefixFor(active, config, noColor, token);
+	// Lazy per-instance prefix memo: repeated apply(token, ...) calls stop
+	// re-running colorPrefixFor (and Pi's active.fg()) for the same token.
+	const prefixes = new Map<SemanticToken, string>();
+	const color = (token: SemanticToken): string => {
+		const cached = prefixes.get(token);
+		if (cached !== undefined) return cached;
+		const prefix = colorPrefixFor(active, config, noColor, token);
+		prefixes.set(token, prefix);
+		return prefix;
+	};
 	return {
 		mode,
 		noColor,

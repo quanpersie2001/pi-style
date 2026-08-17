@@ -215,6 +215,12 @@ export interface BatchResultData {
  * and records batch completion once every member has settled. The member's
  * display detail stays as registered by the call renderer (the result context's
  * args may be normalized differently).
+ *
+ * `data.entries === undefined` means "keep the registered entries": callers
+ * that already registered final output (see hasFinalBatchOutput) omit the
+ * field on warm re-render passes, and that must never count as a change —
+ * comparing against the stored array would otherwise bump the revision on
+ * every pass.
  */
 export function registerBatchResult(
 	meta: BatchToolMeta,
@@ -231,7 +237,7 @@ export function registerBatchResult(
 			member.status !== nextStatus ||
 			member.isError !== nextIsError ||
 			member.errorText !== (nextIsError ? data.errorText : undefined) ||
-			member.outputEntries !== data.entries;
+			(data.entries !== undefined && member.outputEntries !== data.entries);
 		member.status = nextStatus;
 		member.isError = nextIsError;
 		if (member.isError && data.errorText !== undefined) member.errorText = data.errorText;
@@ -244,6 +250,16 @@ export function registerBatchResult(
 		bumpBatchRevision(batch);
 	}
 	return { batch, isLeader: batch.leaderId === context.toolCallId };
+}
+
+/** True when the member for `toolCallId` has settled with final parsed output
+ *  (done, non-error, entries registered). Result renderers use this to skip
+ *  re-parsing an unchanged final output on warm re-render passes. */
+export function hasFinalBatchOutput(toolCallId: string): boolean {
+	const batch = batchByCallId.get(toolCallId);
+	if (!batch) return false;
+	const member = batch.members.find((entry) => entry.toolCallId === toolCallId);
+	return member !== undefined && member.outputEntries !== undefined && member.status === "done" && !member.isError;
 }
 
 interface BatchStatus {

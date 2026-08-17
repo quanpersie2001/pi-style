@@ -25,6 +25,8 @@ interface Candidate {
 	readonly segment: StatusSegment;
 	readonly result: SegmentRenderResult;
 	content: string;
+	/** Visible width of `content`; updated when the compact form is swapped in. */
+	contentWidth: number;
 	compact: boolean;
 	moved: boolean;
 }
@@ -47,10 +49,6 @@ function renderGroup(items: readonly Candidate[], separator: string, padding: st
 		.join(`${padding}${separator}${padding}`);
 }
 
-function widthOf(items: readonly Candidate[], separator: string, padding: string): number {
-	return visibleWidth(renderGroup(items, separator, padding));
-}
-
 export function renderStatus(
 	layout: StatusLayout,
 	snapshot: StatusSnapshot,
@@ -70,7 +68,15 @@ export function renderStatus(
 		try {
 			const result = segment.render(context);
 			if (!result.visible || !result.content) continue;
-			candidates.set(id, { id, segment, result, content: result.content, compact: false, moved: false });
+			candidates.set(id, {
+				id,
+				segment,
+				result,
+				content: result.content,
+				contentWidth: visibleWidth(result.content),
+				compact: false,
+				moved: false,
+			});
 		} catch {
 			// A broken optional segment must not break the status row.
 		}
@@ -88,13 +94,34 @@ export function renderStatus(
 		.filter((candidate): candidate is Candidate => candidate !== undefined);
 	const visible: Candidate[] = [];
 	const overflow: Candidate[] = [];
+	// Incremental fit tracking: the rendered width of a group is the sum of the
+	// member content widths plus one separator gap between consecutive members
+	// (every join boundary is broken by the separator string, so visible widths
+	// add up). This replaces re-joining and re-measuring the whole group after
+	// every push, which made the overflow loop quadratic in segment count.
+	const gapWidth = visibleWidth(`${padding}${separator}${padding}`);
+	let groupWidth = 0;
+	let groupCount = 0;
+	const widthAfter = (baseWidth: number, count: number, candidate: Candidate): number =>
+		count === 0 ? candidate.contentWidth : baseWidth + gapWidth + candidate.contentWidth;
 	for (const candidate of primary) {
 		visible.push(candidate);
-		if (widthOf(visible, separator, padding) <= width) continue;
+		const pushedWidth = widthAfter(groupWidth, groupCount, candidate);
+		if (pushedWidth <= width) {
+			groupWidth = pushedWidth;
+			groupCount++;
+			continue;
+		}
 		if (candidate.result.compactContent && !candidate.compact) {
 			candidate.content = candidate.result.compactContent;
 			candidate.compact = true;
-			if (widthOf(visible, separator, padding) <= width) continue;
+			candidate.contentWidth = visibleWidth(candidate.content);
+			const compactedWidth = widthAfter(groupWidth, groupCount, candidate);
+			if (compactedWidth <= width) {
+				groupWidth = compactedWidth;
+				groupCount++;
+				continue;
+			}
 		}
 		visible.pop();
 		if (candidate.segment.overflow !== "drop" && candidate.segment.overflow !== "primary") {
@@ -127,9 +154,14 @@ export function renderStatus(
 	}
 	if (visibleWidth(primaryText) > width) primaryText = truncateAnsi(primaryText, width);
 	const secondaryVisible: Candidate[] = [];
+	let secondaryWidth = 0;
+	let secondaryCount = 0;
 	for (const candidate of [...secondary].sort((a, b) => b.segment.defaultPriority - a.segment.defaultPriority)) {
+		const pushedWidth = widthAfter(secondaryWidth, secondaryCount, candidate);
+		if (pushedWidth > width) continue;
 		secondaryVisible.push(candidate);
-		if (widthOf(secondaryVisible, separator, padding) > width) secondaryVisible.pop();
+		secondaryWidth = pushedWidth;
+		secondaryCount++;
 	}
 	const secondaryText = renderGroup(secondaryVisible, separator, padding);
 	const lines = secondaryText ? [primaryText, secondaryText] : primaryText ? [primaryText] : [];

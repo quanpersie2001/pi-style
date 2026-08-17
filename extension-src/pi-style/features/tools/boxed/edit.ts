@@ -117,23 +117,14 @@ export const editTool: BoxedToolDefinition = {
 			});
 		}
 
-		// Resolve language for syntax highlighting
+		// Resolve the edited path (cache-key input + language hint source).
 		const message = firstText(result.content as Array<{ type: string; text?: string }>);
 		const argPath = String(context?.args?.path ?? context?.args?.file_path ?? "");
 		const sourcePath = details?.path ?? (argPath || extractEditedPath(message));
-		const language = sourcePath ? getLanguageFromPath(sourcePath) : undefined;
-
-		// Build diff rows + adaptive layout
-		const rows = buildSplitRows(diff);
 		const expanded = options.expanded;
-		const shouldHighlight =
-			Boolean(language) && diff.length <= MAX_HIGHLIGHT_DIFF_CHARS && rows.length <= MAX_HIGHLIGHT_DIFF_ROWS;
+		// Stats feed the footer, which is part of the cache key (cheap line scan —
+		// unlike the row/component construction below, which must not run on hits).
 		const stats = countDiffStats(diff);
-
-		// Render adaptive diff (unified/split per width) with syntax colors for small outputs.
-		const maxRows = expanded ? 160 : 36;
-		const diffView = new AdaptiveDiffComponent(theme, rows, maxRows, shouldHighlight ? language : undefined);
-		const expandHint = !expanded && diffView.hasCollapsed() ? "Ctrl+O more" : undefined;
 
 		return memoizedStateComponent(
 			context.state,
@@ -146,8 +137,21 @@ export const editTool: BoxedToolDefinition = {
 				sourcePath ?? "",
 				editDiffFooter(theme, result, context, stats),
 			),
-			() =>
-				renderBoxedToolResult(
+			() => {
+				// Expensive construction (buildSplitRows + AdaptiveDiffComponent,
+				// ~0.4ms for a 160-row diff) runs only on cache misses, never per
+				// render pass. Everything below is a pure function of the key inputs.
+				const language = sourcePath ? getLanguageFromPath(sourcePath) : undefined;
+				const rows = buildSplitRows(diff);
+				const shouldHighlight =
+					Boolean(language) && diff.length <= MAX_HIGHLIGHT_DIFF_CHARS && rows.length <= MAX_HIGHLIGHT_DIFF_ROWS;
+
+				// Render adaptive diff (unified/split per width) with syntax colors for small outputs.
+				const maxRows = expanded ? 160 : 36;
+				const diffView = new AdaptiveDiffComponent(theme, rows, maxRows, shouldHighlight ? language : undefined);
+				const expandHint = !expanded && diffView.hasCollapsed() ? "Ctrl+O more" : undefined;
+
+				return renderBoxedToolResult(
 					theme,
 					{
 						render(width: number): string[] {
@@ -162,7 +166,8 @@ export const editTool: BoxedToolDefinition = {
 						...(expandHint ? { dividerRightLabel: expandHint } : {}),
 						footerLines: [editDiffFooter(theme, result, context, stats)],
 					},
-				),
+				);
+			},
 		);
 	},
 };

@@ -7,6 +7,7 @@ import {
 	invalidateTurnMembers,
 	rebuildTurnRegistryFromEntries,
 	registerTurnFromMessage,
+	releaseTurnInvalidators,
 } from "../features/tools/boxed/turn-summary.js";
 import { requestToolPresentationRender } from "../features/tools/index.js";
 import { registerPiStyleCommand } from "./commands.js";
@@ -142,6 +143,7 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		const run = finishAgentRun();
 		if (run) {
 			invalidateTurnMembers(run);
+			releaseTurnInvalidators(run);
 			requestToolPresentationRender();
 		}
 	});

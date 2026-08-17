@@ -18,6 +18,9 @@ import { CachedGitProvider, InMemoryContextProvider, InMemoryUsageProvider } fro
 import { RenderScheduler } from "./render-scheduler.js";
 import { createSnapshot, replaceSnapshot, type UiSnapshot } from "./snapshot.js";
 
+/** Debounce window for coalescing git refresh spawns after invalidateGit(). */
+const GIT_INVALIDATE_DEBOUNCE_MS = 250;
+
 export interface RuntimeInstallationState {
 	readonly status: "installed" | "disabled" | "failed";
 	readonly editor: "installed" | "preserved" | "disabled" | "failed";
@@ -94,6 +97,11 @@ export function createPiStyleRuntime(
 	const disposables = new DisposableStore();
 	const scheduler = new RenderScheduler({ requestRender }, generation, () => !disposed);
 	const git = new CachedGitProvider(host.gitRunner);
+	// Debounced git refresh (invalidateGit): tool-result bursts fire one
+	// invalidateGit per write/edit/bash, each of which would otherwise spawn a
+	// `git status` process. Only one refresh may be pending at a time; the
+	// handle is unreffed so it can never keep the process alive.
+	let pendingGitRefresh: ReturnType<typeof setTimeout> | undefined;
 	const contextProvider = new InMemoryContextProvider();
 	const usageProvider = new InMemoryUsageProvider();
 	const initialContext = contextSnapshot();
@@ -345,11 +353,24 @@ export function createPiStyleRuntime(
 		},
 		invalidateGit() {
 			if (disposed || !host.cwd || !currentConfig.enabled || !currentConfig.statusLine.enabled) return;
-			git.invalidate(host.cwd);
-			void git.get(host.cwd).then((value) => {
+			const cwd = host.cwd;
+			// Mark the cache stale immediately (cheap, no spawn); the actual
+			// `git status` process spawn is coalesced behind a short debounce so
+			// bursts of tool results trigger ONE refresh, not one per event.
+			// CachedGitProvider serializes concurrent gets via entry.promise and
+			// honors invalidate-during-flight (needsRefresh re-runs the fetch),
+			// so this debounce only reduces spawn count and never loses a signal.
+			git.invalidate(cwd);
+			if (pendingGitRefresh !== undefined) return;
+			pendingGitRefresh = setTimeout(() => {
+				pendingGitRefresh = undefined;
 				if (disposed) return;
-				if (updateSnapshot(withSnapshotPatch({ git: value }))) requestRender();
-			});
+				void git.get(cwd).then((value) => {
+					if (disposed) return;
+					if (updateSnapshot(withSnapshotPatch({ git: value }))) requestRender();
+				});
+			}, GIT_INVALIDATE_DEBOUNCE_MS);
+			pendingGitRefresh.unref?.();
 		},
 		get disposed() {
 			return disposed;
@@ -357,6 +378,10 @@ export function createPiStyleRuntime(
 		dispose() {
 			if (disposed) return;
 			disposed = true;
+			if (pendingGitRefresh !== undefined) {
+				clearTimeout(pendingGitRefresh);
+				pendingGitRefresh = undefined;
+			}
 			scheduler.cancel();
 			// UI surfaces are restored synchronously so teardown is deterministic;
 			// the store then disposes the (already disposed) feature instances idempotently.

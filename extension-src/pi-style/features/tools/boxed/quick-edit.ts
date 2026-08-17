@@ -174,17 +174,11 @@ function renderQuickEditResult(
 		});
 	}
 
-	const rows = buildSplitRows(diff);
 	const expanded = options.expanded;
 	const argPath = String(context?.args?.path ?? "");
-	const language = argPath ? getLanguageFromPath(argPath) : undefined;
-	const shouldHighlight =
-		Boolean(language) && diff.length <= MAX_HIGHLIGHT_DIFF_CHARS && rows.length <= MAX_HIGHLIGHT_DIFF_ROWS;
+	// Stats feed the footer, which is part of the cache key (cheap line scan —
+	// unlike the row/component construction below, which must not run on hits).
 	const stats = countDiffStats(diff);
-
-	const maxRows = expanded ? 160 : 36;
-	const diffView = new AdaptiveDiffComponent(theme, rows, maxRows, shouldHighlight ? language : undefined);
-	const expandHint = !expanded && diffView.hasCollapsed() ? "Ctrl+O more" : undefined;
 
 	return memoizedStateComponent(
 		context.state,
@@ -198,8 +192,20 @@ function renderQuickEditResult(
 			argPath,
 			quickEditDiffFooter(theme, result, context, stats),
 		),
-		() =>
-			renderBoxedToolResult(
+		() => {
+			// Expensive construction (buildSplitRows + AdaptiveDiffComponent) runs
+			// only on cache misses, never per render pass. Everything below is a
+			// pure function of the key inputs.
+			const rows = buildSplitRows(diff);
+			const language = argPath ? getLanguageFromPath(argPath) : undefined;
+			const shouldHighlight =
+				Boolean(language) && diff.length <= MAX_HIGHLIGHT_DIFF_CHARS && rows.length <= MAX_HIGHLIGHT_DIFF_ROWS;
+
+			const maxRows = expanded ? 160 : 36;
+			const diffView = new AdaptiveDiffComponent(theme, rows, maxRows, shouldHighlight ? language : undefined);
+			const expandHint = !expanded && diffView.hasCollapsed() ? "Ctrl+O more" : undefined;
+
+			return renderBoxedToolResult(
 				theme,
 				{
 					render(width: number): string[] {
@@ -214,7 +220,8 @@ function renderQuickEditResult(
 					...(expandHint ? { dividerRightLabel: expandHint } : {}),
 					footerLines: [quickEditDiffFooter(theme, result, context, stats)],
 				},
-			),
+			);
+		},
 	);
 }
 

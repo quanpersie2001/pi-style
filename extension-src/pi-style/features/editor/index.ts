@@ -56,9 +56,13 @@ const widthOf = visibleWidth;
 
 function widthSafe(value: string, width: number): string {
 	if (width <= 0) return "";
-	const fitted = widthOf(value) > width ? truncateAnsi(value, width, "") : value;
-	const current = widthOf(fitted);
-	return current < width ? fitted + " ".repeat(width - current) : fitted;
+	const measured = widthOf(value);
+	if (measured > width) {
+		const fitted = truncateAnsi(value, width, "");
+		const current = widthOf(fitted);
+		return current < width ? fitted + " ".repeat(width - current) : fitted;
+	}
+	return measured < width ? value + " ".repeat(width - measured) : value;
 }
 
 function isNativeBorderLine(line: string): boolean {
@@ -142,6 +146,8 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	private readonly fullTheme: EditorOptions["fullTheme"];
 	private readonly onSnapshot: (snapshot: StatusSnapshot) => void;
 	private semantic: ResolvedTheme;
+	/** Set when config changes; invalidate() then rebuilds the (otherwise stable) semantic theme. */
+	private semanticDirty = false;
 	private disposed = false;
 	private renderPlanCache: { key: string; plan: RenderPlan } | undefined;
 
@@ -165,7 +171,7 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	configure(config: NormalizedPiStyleConfig): void {
 		if (this.disposed) return;
 		this.config = config;
-		this.semantic = semanticTheme(this.piTheme, config);
+		this.semanticDirty = true;
 		this.invalidate();
 	}
 
@@ -177,7 +183,13 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 
 	override invalidate(): void {
 		super.invalidate();
-		this.semantic = semanticTheme(this.piTheme, this.config);
+		// The semantic theme is derived from (piTheme, config); piTheme is fixed per
+		// instance and config changes go through configure(), so keystroke-driven
+		// invalidations reuse the cached instance instead of rebuilding it.
+		if (this.semanticDirty) {
+			this.semantic = semanticTheme(this.piTheme, this.config);
+			this.semanticDirty = false;
+		}
 		this.renderPlanCache = undefined;
 		this.tui.requestRender();
 	}

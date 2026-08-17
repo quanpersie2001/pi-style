@@ -11,6 +11,7 @@ import {
 	type BatchToolMeta,
 	EMPTY_BATCH_COMPONENT,
 	emptyBatchResult,
+	hasFinalBatchOutput,
 	registerBatchCall,
 	registerBatchResult,
 	renderBatchAwareCall,
@@ -40,14 +41,18 @@ export const lsTool: BoxedToolDefinition = {
 		return renderBatchAwareCall(theme, batch);
 	},
 	result(result, options, _theme, context) {
-		const output = stripAnsi(getTextOutput(result)).trimEnd();
-		const entries = context.isError ? undefined : parseLsOutput(output);
+		const isError = Boolean(context.isError);
+		// Result renderers re-fire on every repaint/scroll; once the final output
+		// is parsed and registered, skip stripping/parsing the same text again.
+		const settled = !options.isPartial && !isError && hasFinalBatchOutput(context.toolCallId);
+		const output = settled ? "" : stripAnsi(getTextOutput(result)).trimEnd();
+		const entries = settled || isError ? undefined : parseLsOutput(output);
 		registerBatchResult(
 			LIST_META,
 			{
 				isPartial: Boolean(options.isPartial),
-				isError: Boolean(context.isError),
-				errorText: context.isError ? output || undefined : undefined,
+				isError,
+				errorText: isError ? output || undefined : undefined,
 				...(entries !== undefined ? { entries } : {}),
 			},
 			context,

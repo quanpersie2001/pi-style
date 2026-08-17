@@ -166,14 +166,21 @@ export const grepTool: BoxedToolDefinition = {
 		return renderGrepPanel(theme, context.toolCallId);
 	},
 	result(result, options, _theme, context) {
-		const output = stripAnsi(getTextOutput(result)).trimEnd();
 		const isError = Boolean(context.isError);
+		const isPartial = Boolean(options.isPartial);
+		// Result renderers re-fire on every repaint/scroll; once final matches
+		// are registered the registry is already final — skip stripping/parsing.
+		const state = grepPanels.get(context.toolCallId);
+		if (!isPartial && !isError && state !== undefined && state.matches !== undefined && !state.isPartial) {
+			return EMPTY_GREP_RESULT;
+		}
+		const output = stripAnsi(getTextOutput(result)).trimEnd();
 		const matches = isError ? [] : parseGrepOutput(output);
 		registerGrepResult(context.toolCallId, {
 			matches,
 			isError,
 			errorText: isError ? output || undefined : undefined,
-			isPartial: Boolean(options.isPartial),
+			isPartial,
 		});
 		return EMPTY_GREP_RESULT;
 	},

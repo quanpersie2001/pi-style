@@ -102,7 +102,11 @@ describe("streaming runtime and usage pipeline", () => {
 		);
 		await flushPromises();
 		expect(renders).toBe(1);
+		// invalidateGit debounces the git status spawn (~250ms) so tool-result
+		// bursts coalesce into one refresh; advance the window so the refresh
+		// runs, then assert it still did not render (snapshot unchanged).
 		runtime.invalidateGit();
+		await vi.advanceTimersByTimeAsync(300);
 		await flushPromises();
 		expect(renders).toBe(1);
 	});

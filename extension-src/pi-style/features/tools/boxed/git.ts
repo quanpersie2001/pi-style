@@ -26,7 +26,7 @@ import { AdaptiveDiffComponent, buildSplitRows, countDiffStats } from "../../../
 import { parseSimpleBashCommand } from "./command-shape.js";
 import { pluralForm, TREE_INDENT } from "./output-tree.js";
 import { getStateElapsedMs, getToolsRenderConfig } from "./session-config.js";
-import type { BoxedToolContext } from "./shared.js";
+import { type BoxedToolContext, getRenderCacheKey, memoizedStateComponent } from "./shared.js";
 
 // ── Classification ──────────────────────────────────────────────────────────
 
@@ -1871,7 +1871,10 @@ interface DiffFileBox {
 
 /** Build a complete boxed-diff result component for a parsed `git diff`/`show`.
  *  The call panel renders the boxless Git header; this component renders one
- *  `╭…╰` frame per file (or a single `No changes` frame for an empty diff). */
+ *  `╭…╰` frame per file (or a single `No changes` frame for an empty diff).
+ *  Construction is memoized on the call state: repeated result passes reuse
+ *  the cached component (identity-stable, invalidate propagates inward) so
+ *  the per-file `AdaptiveDiffComponent` build never re-runs per render pass. */
 export function renderGitDiffResult(
 	theme: BoxTheme,
 	parsed: GitDiffParsed,
@@ -1879,6 +1882,47 @@ export function renderGitDiffResult(
 	context: BoxedToolContext,
 ): Component {
 	const expanded = Boolean(options.expanded);
+
+	// Cheap cache key capturing everything that affects output — theme, show vs
+	// diff, expansion, file count/totals, and per-file identity (path, body
+	// length, counts, binary/status) — computed WITHOUT building rows or
+	// components; the expensive build runs only on cache misses.
+	let totalAdditions = 0;
+	let totalRemovals = 0;
+	const sigParts: string[] = [];
+	for (const file of parsed.files) {
+		totalAdditions += file.additions;
+		totalRemovals += file.removals;
+		sigParts.push(
+			`${file.path}:${file.body.length}:${file.additions}:${file.removals}:${file.binary ? 1 : 0}:${file.status ?? ""}`,
+		);
+	}
+	const sig = sigParts.join(";").slice(0, 2048);
+
+	return memoizedStateComponent(
+		context.state,
+		"__piStyleGitDiffResult",
+		getRenderCacheKey(
+			"git-diff-result",
+			theme,
+			String(parsed.show),
+			String(expanded),
+			parsed.files.length,
+			totalAdditions,
+			totalRemovals,
+			sig,
+		),
+		() => buildGitDiffResultComponent(theme, parsed, expanded, context),
+	);
+}
+
+/** Uncached boxed git-diff construction: one `╭…╰` frame per file. */
+function buildGitDiffResultComponent(
+	theme: BoxTheme,
+	parsed: GitDiffParsed,
+	expanded: boolean,
+	context: BoxedToolContext,
+): Component {
 	const elapsedMs = getStateElapsedMs(context.state);
 	const fileCount = parsed.files.length;
 

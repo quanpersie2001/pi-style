@@ -110,6 +110,37 @@ function separatorsFor(config: NormalizedPiStyleConfig, theme: ResolvedTheme): s
 	return theme.apply("separator", style);
 }
 
+/** Per-(theme, config) derived values shared across status-line renders. */
+interface ThemeAssets {
+	readonly resolved: ResolvedTheme;
+	readonly separator: string;
+}
+/** Resolved theme + separator keyed by Pi theme identity then config identity; a fresh configure() object misses naturally. */
+const themeAssetsCache = new WeakMap<ActivePiTheme, WeakMap<NormalizedPiStyleConfig, ThemeAssets>>();
+function themeAssetsFor(activeTheme: ActivePiTheme, config: NormalizedPiStyleConfig): ThemeAssets {
+	let byConfig = themeAssetsCache.get(activeTheme);
+	if (!byConfig) {
+		byConfig = new WeakMap();
+		themeAssetsCache.set(activeTheme, byConfig);
+	}
+	let assets = byConfig.get(config);
+	if (!assets) {
+		const resolved = resolveTheme(
+			activeTheme.colors || activeTheme.fg
+				? {
+						...(activeTheme.colors ? { colors: activeTheme.colors } : {}),
+						// Call through the theme instance so `this` binds correctly inside Pi's fg().
+						...(activeTheme.fg ? { fg: (color: string, text: string) => activeTheme.fg?.(color, text) ?? text } : {}),
+					}
+				: undefined,
+			config,
+		);
+		assets = { resolved, separator: separatorsFor(config, resolved) };
+		byConfig.set(config, assets);
+	}
+	return assets;
+}
+
 export function installStatusLine(options: StatusLineInstallOptions): StatusLineInstallation {
 	const existing = installationMap(options.host).get(options.generation);
 	if (existing) return existing;
@@ -143,18 +174,9 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 
 	const render = (activeTheme: ActivePiTheme, width: number, secondary: boolean): string[] => {
 		if (width <= 0 || !config.enabled || !config.statusLine.enabled) return [];
-		const resolved = resolveTheme(
-			activeTheme.colors || activeTheme.fg
-				? {
-						...(activeTheme.colors ? { colors: activeTheme.colors } : {}),
-						// Call through the theme instance so `this` binds correctly inside Pi's fg().
-						...(activeTheme.fg ? { fg: (color: string, text: string) => activeTheme.fg?.(color, text) ?? text } : {}),
-					}
-				: undefined,
-			config,
-		);
+		const { resolved, separator } = themeAssetsFor(activeTheme, config);
 		const result = renderStatus(config.statusLine.layout, effectiveSnapshot(snapshot), width, {
-			separator: separatorsFor(config, resolved),
+			separator,
 			segments,
 			theme: resolved,
 			options: {
@@ -241,12 +263,20 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 		(secondary: boolean): WidgetFactory =>
 		(tui, theme) => {
 			const currentTheme = theme;
+			// Per-component render cache: Pi repaints widgets on every frame
+			// (keystrokes, streaming chunks, tickers). Same width without an
+			// invalidate() (snapshot update / configure / footer-branch change)
+			// means the previous lines are still current; return them as-is.
+			let renderCache: { width: number; lines: string[] } | undefined;
 			const component: RenderComponent = {
 				render(width) {
+					if (renderCache?.width === width) return renderCache.lines;
 					const lines = render(currentTheme, width, secondary);
+					renderCache = { width, lines };
 					return lines;
 				},
 				invalidate() {
+					renderCache = undefined;
 					// Pi supplies a fresh theme to the factory on theme replacement. Do not retain
 					// pre-rendered ANSI strings; the next render reads the current component theme.
 					primaryComponent = secondary ? primaryComponent : component;

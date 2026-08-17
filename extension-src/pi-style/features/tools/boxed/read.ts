@@ -32,13 +32,15 @@ export const readTool: BoxedToolDefinition = {
 		return renderBatchAwareCall(theme, batch);
 	},
 	result(result, options, _theme, context) {
-		const output = stripAnsi(getTextOutput(result)).trimEnd();
+		// The strip is only needed for error text — keep it off the success path
+		// (result renderers re-fire on every repaint/scroll).
+		const errorText = context.isError ? stripAnsi(getTextOutput(result)).trimEnd() || undefined : undefined;
 		registerBatchResult(
 			READ_META,
 			{
 				isPartial: Boolean(options.isPartial),
 				isError: Boolean(context.isError),
-				errorText: context.isError ? output || undefined : undefined,
+				errorText,
 			},
 			context,
 		);

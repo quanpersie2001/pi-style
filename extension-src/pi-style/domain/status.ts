@@ -308,11 +308,10 @@ export function createBuiltinSegments(): ReadonlyMap<StatusSegmentId, StatusSegm
 					? ""
 					: theme.apply("time", formatElapsed(Date.now() - snapshot.sessionStartedAt)),
 		})),
-		segment("time", 20, ({ theme }) => ({
-			visible: true,
-			content: theme.apply("time", new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
-			compactContent: theme.apply("time", new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
-		})),
+		segment("time", 20, ({ theme }) => {
+			const text = theme.apply("time", clockTime());
+			return { visible: true, content: text, compactContent: text };
+		}),
 		segment("hostname", 20, ({ snapshot, theme }) => ({
 			visible: Boolean(snapshot.hostname),
 			content: theme.apply("muted", snapshot.hostname ?? ""),
@@ -335,6 +334,17 @@ export function createBuiltinSegments(): ReadonlyMap<StatusSegmentId, StatusSegm
 		}),
 	];
 	return new Map(segments.map((item) => [item.id, item]));
+}
+
+/** Cached clock text: the minute-precision string only changes once per minute. */
+let clockCache: { minuteKey: number; value: string } | undefined;
+function clockTime(): string {
+	const now = new Date();
+	const minuteKey = now.getHours() * 60 + now.getMinutes();
+	if (clockCache?.minuteKey !== minuteKey) {
+		clockCache = { minuteKey, value: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+	}
+	return clockCache.value;
 }
 
 const CONTEXT_BAR_WIDTH = 10;

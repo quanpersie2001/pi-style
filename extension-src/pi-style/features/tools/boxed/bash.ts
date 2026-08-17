@@ -188,6 +188,38 @@ function countNewlines(text: string, from: number, to: number): number {
 	return count;
 }
 
+/** Index just past the `need`-th newline counted backwards from `end` (0 when
+ *  the window holds fewer), so only `text.slice(index, end)` needs further
+ *  processing. Plain char scan, no allocation. */
+function findBackwardLineStart(text: string, need: number, end: number = text.length): number {
+	let found = 0;
+	for (let i = end - 1; i >= 0; i--) {
+		if (text.charCodeAt(i) === 10 && ++found >= need) return i + 1;
+	}
+	return 0;
+}
+
+/** Whitespace per `String.prototype.trim` (superset of ASCII blank/line
+ *  terminators); anything else counts as visible output. */
+function isOutputWhitespaceCode(code: number): boolean {
+	if (code === 0x20 || (code >= 0x09 && code <= 0x0d)) return true;
+	if (code === 0x85 || code === 0xa0 || code === 0x1680) return true;
+	if (code >= 0x2000 && code <= 0x200a) return true;
+	return code === 0x2028 || code === 0x2029 || code === 0x202f || code === 0x205f || code === 0x3000 || code === 0xfeff;
+}
+
+/** End index (exclusive) of the last non-whitespace character in `text` — the
+ *  streaming equivalent of `stripAnsi(text).trimEnd()`: trailing blank lines and
+ *  padding never push the visible tail out of the processing window. ANSI
+ *  escape bytes count as non-whitespace; a slice ending inside one still
+ *  strips correctly downstream. */
+function lastVisibleEnd(text: string): number {
+	for (let i = text.length - 1; i >= 0; i--) {
+		if (!isOutputWhitespaceCode(text.charCodeAt(i))) return i + 1;
+	}
+	return 0;
+}
+
 function stripBashToolNoticeLines(text: string): string {
 	const filteredLines = text
 		.replace(/\r/g, "")
@@ -388,8 +420,19 @@ function renderBashStreamingResult(
 	options: { expanded: boolean },
 	context: BoxedToolContext,
 ): Component {
-	const body = stripBashToolNoticeLines(stripAnsi(raw));
-	const hasOutput = body.trim().length > 0;
+	// Tail-only processing: the preview collapses to maxCollapsedLines lines
+	// anyway, so only the last maxCollapsedLines + 10 raw lines (the same headroom
+	// the final collapsed scan uses, covering notice lines stripped from the
+	// tail) get ANSI stripping/truncation work, and trailing blank lines never
+	// push real content out of the window (the raw-string equivalent of the old
+	// whole-buffer stripAnsi + trimEnd). Streaming passes stay O(tail) as the
+	// output grows instead of re-stripping the whole buffer each pass.
+	const contentEnd = lastVisibleEnd(raw);
+	const hasOutput = contentEnd > 0;
+	const tailStart = hasOutput
+		? findBackwardLineStart(raw, getToolsRenderConfig().maxCollapsedLines + 10, contentEnd)
+		: 0;
+	const body = stripBashToolNoticeLines(stripAnsi(raw.slice(tailStart, contentEnd)));
 	const elapsed = getStateElapsedMs(context.state);
 	const emptyLines: string[] = [theme.fg("dim", "No output received yet")];
 	if (!hasOutput && isInteractiveCommand(context?.args?.command) && (elapsed ?? 0) >= 1000) {
@@ -429,17 +472,7 @@ function renderBashFinalResult(
 	if (!options.expanded) {
 		// Collapsed: only process the tail of the output (notices stripped per line).
 		const scanLines = getToolsRenderConfig().maxCollapsedLines + 10;
-		let nlCount = 0;
-		let tailStart = 0;
-		for (let i = statusStripped.length - 1; i >= 0; i--) {
-			if (statusStripped.charCodeAt(i) === 10) {
-				nlCount++;
-				if (nlCount >= scanLines) {
-					tailStart = i + 1;
-					break;
-				}
-			}
-		}
+		const tailStart = findBackwardLineStart(statusStripped, scanLines);
 		const tail = stripBashToolNoticeLines(stripAnsi(statusStripped.slice(tailStart)));
 		const totalLinesBefore = tailStart > 0 ? countNewlines(statusStripped, 0, tailStart) : 0;
 		const preview = createBashResultPreview(theme, tail, options, outputColor);
@@ -508,17 +541,7 @@ function createBashResultPreview(
 			if (!expanded) {
 				// Collapsed: only process the tail of the output
 				const needed = cfg.maxCollapsedLines;
-				let totalNewlines = 0;
-				let scanFrom = 0; // default: take full text if fewer than needed newlines
-				for (let i = text.length - 1; i >= 0; i--) {
-					if (text.charCodeAt(i) === 10) {
-						totalNewlines++;
-						if (totalNewlines === needed) {
-							scanFrom = i + 1;
-							break;
-						}
-					}
-				}
+				const scanFrom = findBackwardLineStart(text, needed); // full text when fewer newlines
 
 				if (text.length === 0) {
 					cacheKey = cacheId;
@@ -548,10 +571,14 @@ function createBashResultPreview(
 				return cacheLines;
 			}
 
-			// Expanded: process all lines
+			// Expanded: only the tail lines the expanded budget can show receive
+			// clamp/truncate/color work; earlier lines collapse into one `… N earlier
+			// lines` head row, so per-line cost scales with maxExpandedLines instead
+			// of the full output.
 			const normalized = replaceTabs(text);
-			const logicalLines = normalized.split("\n").map((l) => clampLineLength(l));
-			const hasOutput = !(logicalLines.length === 1 && logicalLines[0] === "");
+			const rawLines = normalized.split("\n");
+			const totalLines = rawLines.length;
+			const hasOutput = !(totalLines === 1 && rawLines[0] === "");
 
 			if (!hasOutput) {
 				cacheKey = cacheId;
@@ -559,17 +586,17 @@ function createBashResultPreview(
 				return cacheLines;
 			}
 
-			const truncatedLines = logicalLines.map((line) => safeTruncateToWidth(line, bodyWidth, "…"));
-			const expandedLines = truncatedLines.length === 1 && truncatedLines[0] === "" ? [] : truncatedLines;
 			const applyColor = (l: string) =>
 				color === "error"
 					? formatToolOutputLine(theme, l, "error")
 					: cfg.dimOutput
 						? formatToolOutputLine(theme, l)
 						: formatToolOutputLine(theme, l, "text");
-			if (cfg.maxExpandedLines > 0 && expandedLines.length > cfg.maxExpandedLines) {
-				const truncated = expandedLines.slice(-cfg.maxExpandedLines).map(applyColor);
-				const remaining = expandedLines.length - cfg.maxExpandedLines;
+			const renderRawLine = (line: string) => safeTruncateToWidth(clampLineLength(line), bodyWidth, "…");
+
+			if (cfg.maxExpandedLines > 0 && totalLines > cfg.maxExpandedLines) {
+				const truncated = rawLines.slice(-cfg.maxExpandedLines).map((line) => applyColor(renderRawLine(line)));
+				const remaining = totalLines - cfg.maxExpandedLines;
 				truncated.unshift(theme.fg("dim", `… ${remaining} earlier lines`));
 				cacheKey = cacheId;
 				cacheLines = truncated;
@@ -577,7 +604,7 @@ function createBashResultPreview(
 			}
 
 			cacheKey = cacheId;
-			cacheLines = expandedLines.map(applyColor);
+			cacheLines = rawLines.map((line) => applyColor(renderRawLine(line)));
 			return cacheLines;
 		},
 	};
@@ -778,6 +805,10 @@ interface BashTreeState {
 	finished: boolean;
 	revision: number;
 	renderCache?: FinalSemanticRenderCache;
+	/** Raw output length at the last streaming parse attempt: partial passes
+	 *  with smaller growth than PARTIAL_REPARSE_THRESHOLD skip the re-parse (the
+	 *  final pass always parses the settled output in full). */
+	lastParsedLength?: number;
 }
 
 /** Classified semantic command: a bash tree (ls/find/grep), a git card, or a
@@ -833,6 +864,11 @@ function isGitDiffClass(cls: BashSemanticClass): boolean {
 function isGitActionClass(cls: BashSemanticClass): boolean {
 	return !isBashTreeClass(cls) && (cls as GitSemanticClass).kind === "action";
 }
+
+/** Minimum raw-output growth (chars) before a streaming partial pass re-parses
+ *  a live tree command's output; smaller deltas keep the current tree until the
+ *  final pass re-parses everything. */
+const PARTIAL_REPARSE_THRESHOLD = 4096;
 
 function parseSemanticOutput(cls: BashSemanticClass, output: string): ParsedSemantic | null {
 	if (isBashTreeClass(cls)) return parseBashTreeOutput(cls, output);
@@ -945,6 +981,7 @@ export const bashTool: BoxedToolDefinition = {
 					existing.finished = false;
 					existing.revision++;
 					delete existing.renderCache;
+					delete existing.lastParsedLength;
 				}
 				existing.command = command;
 				existing.cls = cls;
@@ -980,14 +1017,26 @@ export const bashTool: BoxedToolDefinition = {
 			}
 			if (!options.isPartial || isBashTreeClass(cls)) {
 				const output = stripBashToolNoticeLines(stripAnsi(getTextOutput(result)));
-				const parsed = parseSemanticOutput(cls, output);
 				const state = semanticStates.get(context.toolCallId);
+				// Live tree classes re-parse on streaming passes, but only once the raw
+				// output grew ≥ PARTIAL_REPARSE_THRESHOLD chars since the last parse
+				// attempt: re-parsing the full buffer on every partial pass made
+				// streaming O(n²). Small deltas keep the current tree; the final pass
+				// always re-parses, so the settled registry state matches the ungated
+				// path byte for byte.
+				const shouldParse =
+					!options.isPartial ||
+					state === undefined ||
+					state.lastParsedLength === undefined ||
+					output.length - state.lastParsedLength >= PARTIAL_REPARSE_THRESHOLD;
+				const parsed = shouldParse ? parseSemanticOutput(cls, output) : undefined;
 				if (parsed) {
 					if (state) {
 						state.parsed = parsed;
 						state.finished = !options.isPartial;
 						state.revision++;
 						delete state.renderCache;
+						if (options.isPartial) state.lastParsedLength = output.length;
 					} else
 						semanticStates.set(context.toolCallId, {
 							cls,
@@ -995,6 +1044,7 @@ export const bashTool: BoxedToolDefinition = {
 							parsed,
 							finished: !options.isPartial,
 							revision: 0,
+							...(options.isPartial ? { lastParsedLength: output.length } : {}),
 						});
 					// `git diff` / `git show` render a boxed adaptive-diff result (one frame
 					// per file); `gh run view --job=<id>` renders a boxed log result. Every
@@ -1008,14 +1058,25 @@ export const bashTool: BoxedToolDefinition = {
 					}
 					return EMPTY_BASH_TREE_RESULT;
 				}
+				if (!shouldParse) {
+					// Skipped re-parse (sub-threshold growth): keep the current panel. A
+					// live parsed tree still owns the display (the call panel renders it, the
+					// result adds nothing); a fallback keeps streaming raw output into the
+					// open box below.
+					if (state?.parsed !== undefined) return EMPTY_BASH_TREE_RESULT;
+				}
 				// Unparseable output (ls -l, raw rg summary, non-git output): the boxed
 				// shell owns the result; flag the call panel to render nothing so the
-				// two don't duplicate.
-				if (state) {
-					state.fallback = true;
-					state.finished = !options.isPartial;
-					state.revision++;
-					delete state.renderCache;
+				// two don't duplicate. Skipped passes (sub-threshold growth) leave the
+				// current panel untouched.
+				if (shouldParse) {
+					if (state) {
+						state.fallback = true;
+						state.finished = !options.isPartial;
+						state.revision++;
+						delete state.renderCache;
+						if (options.isPartial) state.lastParsedLength = output.length;
+					}
 				}
 			}
 		} else if (options.isPartial) {
