@@ -37,6 +37,8 @@ The product contract lives in [`docs/PRODUCT.md`](docs/PRODUCT.md). Detailed beh
 | 7 | Hardening, platform validation, and v1 release | **Verified** — terminal-global background synchronization unsupported/off for technical v1 |
 | 8 | Git and GitHub semantic renderers | **Planned** |
 | 9 | Turn tool summaries | **Planned** |
+| 10 | User-prompt image previews | **Planned** |
+| 10b | Clipboard image input | **Planned** — completes the image-paste absorption (ADR 0009) |
 
 ---
 
@@ -658,6 +660,70 @@ Phase 5 (boxed renderer, batch registry patterns, `bashTreeStates`); ADR 0007. N
 
 ---
 
+## Phase 10 — User-prompt image previews
+
+**Status:** Planned. Design accepted as [ADR 0008](docs/decisions/0008-user-prompt-image-previews.md) (2026-08-22). Absorbs the presentation half of `@pi-archimedes/image-paste`; the input half is Phase 10b.
+
+### Objective
+
+Images attached to the user's prompt currently render nowhere in the feed. Render them as inline previews directly below the user message through a display-only channel that never touches the LLM context: a `pi-style-image-preview` **CustomEntry** appended at `before_agent_start` (the event carries the prompt's `images`) and rendered via `registerEntryRenderer` with pi-tui `Image` components (`maxWidthCells: 60`, themed fallback line on terminals without image support). CustomEntry — not image-paste's display-only custom messages — is the channel: `custom_message` entries map into the session's context message list, CustomEntries are documented as not sent to the LLM.
+
+### Deliverables
+
+- Entry renderer (`features/messages/image-preview.ts`): one `Image` per attached image, ANSI-safe fallback (mime + dimensions, no base64 leakage), malformed-entry zero-line guard.
+- Wiring (`pi/index.ts`): register the entry renderer at extension load; append one entry per run carrying images from `before_agent_start` (no image decoding on the event path).
+- Config leaf `messages.showImagePreviews: boolean` (default `true`) gating both append and render; messages render-config module mirrors the tools `session-config` pattern.
+- Documented conflict behavior: double render when an input extension that also previews is installed — disable one side.
+
+### Dependencies
+
+ADR 0008. No new Pi-core patch identity — public extension APIs only (`registerEntryRenderer`, `appendEntry`, `before_agent_start`).
+
+### Exit criteria
+
+- `IMG-001`–`IMG-005` are proven.
+- Resume determinism: persisted entries render identically in scroll-back and after reload.
+- No base64 data in any rendered fallback line.
+- `npm run check` passes.
+
+### Primary docs
+
+- [`docs/decisions/0008-user-prompt-image-previews.md`](docs/decisions/0008-user-prompt-image-previews.md)
+- [`docs/ui/MESSAGES-AND-TOOLS.md`](docs/ui/MESSAGES-AND-TOOLS.md)
+
+---
+
+## Phase 10b — Clipboard image input
+
+**Status:** Planned. Design accepted as [ADR 0009](docs/decisions/0009-clipboard-image-input.md) (2026-08-22).
+
+### Objective
+
+Make the complete image-paste feature — paste → attach → preview — work with pi-style alone. Pi's built-in `Ctrl+V` writes the clipboard image to `<tmpdir>/pi-clipboard-<uuid>.<ext>` and inserts the path as text; pi-style intercepts those tokens on the `input` event (`source: "interactive"`), attaches the bytes as real `ImageContent` (≤ 20 MB, extension-derived mime), rewrites the token to `[image]`, and lets ADR 0008's preview surface render it. No shortcut registration (the built-in keystroke stays), no clipboard reading (Pi already wrote the file), no core patch.
+
+### Deliverables
+
+- Input transform (`features/messages/image-input.ts`): token pattern (tmpdir + UUID + png/jpg/jpeg/webp/gif), fs read + size guard, `[image]` rewrite, verbatim passthrough for missing/oversized tokens.
+- Wiring: `pi.on("input")` handler (interactive source only) returns `{ action: "transform", text, images }`; images flow to `before_agent_start` → preview entry.
+- Config leaf `messages.clipboardImages: boolean` (default `true`) in `render-config` alongside `showImagePreviews`.
+
+### Dependencies
+
+ADR 0009; ADR 0008 (preview surface, unchanged). No new Pi-core patch identity.
+
+### Exit criteria
+
+- `IMG-006`–`IMG-009` are proven.
+- Native passthrough: config `false` or no matching tokens → input text reaches the model verbatim.
+- `npm run check` passes.
+
+### Primary docs
+
+- [`docs/decisions/0009-clipboard-image-input.md`](docs/decisions/0009-clipboard-image-input.md)
+- [`docs/ui/MESSAGES-AND-TOOLS.md`](docs/ui/MESSAGES-AND-TOOLS.md)
+
+---
+
 ## Post-v1 research lane
 
 These items are not silently included in v1. Each requires a new product contract, ADR, compatibility tier, and validation plan.
@@ -687,6 +753,7 @@ These items are not silently included in v1. Each requires a new product contrac
 | 7 | Full product completion | All | Platform/version matrix | Full check, benchmarks, manual smoke |
 | 8 | Git/GitHub semantic renderers | Messages/tools | Certified bash renderer surface | Parser/render/fallback tests, full check |
 | 9 | Turn tool summaries | Messages/tools | Certified boxed renderer surface | Registry/render/lifecycle tests, full check |
+| 10 | User-prompt image previews | Messages | Public entry-renderer API (no patch) | Renderer/config/lifecycle tests, full check |
 
 ## Rules for roadmap updates
 

@@ -19,6 +19,8 @@ Decision records capture durable choices that should not be rediscovered during 
 | [0004](0004-compatibility-tiers-and-patch-policy.md) | Accepted | Classify integrations by compatibility tier and restrict core patches. |
 | [0006](0006-file-anchored-output-trees.md) | Accepted | File-anchored output trees for Grep / List / Glob. |
 | [0007](0007-turn-tool-summaries.md) | Accepted | Collapse completed turns into one summary line; expand via Pi's existing Ctrl+O. |
+| [0008](0008-user-prompt-image-previews.md) | Accepted | Inline previews for user-prompt images via display-only CustomEntries (absorbs the presentation half of `@pi-archimedes/image-paste`). |
+| [0009](0009-clipboard-image-input.md) | Accepted | Clipboard image input: upgrade built-in paste temp paths to real image attachments (completes the image-paste absorption; supersedes ADR 0008's input exclusion). |
 
 ## When a new ADR is required
 

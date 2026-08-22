@@ -42,7 +42,9 @@ describe("scheduler timers and fake-host runtime resources", () => {
 				expect(host.widgets.size).toBe(0);
 				expect(host.componentFactories.size).toBe(0);
 				expect(host.registeredMessageRenderers.size).toBe(0);
-				expect(host.registeredEntryRenderers.size).toBe(0);
+				// ADR 0008: the single load-time image-preview entry renderer stays
+				// registered (public API, no unregister; display-only mapping).
+				expect([...host.registeredEntryRenderers.keys()]).toEqual(["pi-style-image-preview"]);
 			}
 			expect([...host.handlers.entries()].map(([event, handlers]) => [event, handlers.length])).toEqual(
 				initialHandlers,

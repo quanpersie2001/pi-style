@@ -129,6 +129,9 @@ describe("configuration control plane and composition", () => {
 			["messages.assistantPrefix", false, "bad"],
 			["messages.specialBlocks", false, "bad"],
 			["messages.hideInterimText", false, "bad"],
+			["messages.showImagePreviews", false, "bad"],
+			["messages.clipboardImages", false, "bad"],
+			["messages.previewMaxWidth", 30, "bad"],
 			["tools.enabled", false, "bad"],
 			["tools.style", "wide", 1],
 			["tools.maxCollapsedLines", 0, -1],
@@ -556,9 +559,11 @@ describe("configuration control plane and composition", () => {
 		// The two trailing rows are the configured bottom margin.
 		expect(lines.slice(-2)).toEqual(["", ""]);
 		const plain = lines[0] ?? "";
-		expect(plain).toContain("ctx (1M):");
-		// contextBarWidth 6 renders a 6-cell bar: 50% → 3 filled cells.
-		expect(plain.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "")).toMatch(/ctx \(1M\): █{3}░{3} 50%/);
+		const stripped = plain.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "");
+		expect(stripped).toContain("50% used");
+		// contextBarWidth 6 renders a 6-cell bar: 50% → 3 filled cells. The block is
+		// delimited by the segment separator (no baked-in boundary pipes).
+		expect(stripped).toMatch(/\[█{3}░{3}\] \| 50% used/);
 	});
 
 	it("keeps print and json sessions inert", () => {

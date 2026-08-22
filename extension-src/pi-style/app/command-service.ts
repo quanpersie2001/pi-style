@@ -49,6 +49,9 @@ const allowedPaths = new Set([
 	"messages.specialBlocks",
 	"messages.hideThinkingLabel",
 	"messages.hideInterimText",
+	"messages.showImagePreviews",
+	"messages.clipboardImages",
+	"messages.previewMaxWidth",
 	"tools.enabled",
 	"tools.style",
 	"tools.maxCollapsedLines",
@@ -82,6 +85,9 @@ function validatePathValue(path: string, value: unknown): boolean {
 			"messages.specialBlocks",
 			"messages.hideThinkingLabel",
 			"messages.hideInterimText",
+			"messages.showImagePreviews",
+			"messages.clipboardImages",
+			"messages.previewMaxWidth",
 			"tools.enabled",
 			"tools.showElapsed",
 			"tools.dimOutput",
@@ -105,6 +111,8 @@ function validatePathValue(path: string, value: unknown): boolean {
 		return typeof value === "string";
 	if (path === "tools.maxCollapsedLines" || path === "tools.maxExpandedLines")
 		return typeof value === "number" && Number.isFinite(value) && value >= 0;
+	if (path === "messages.previewMaxWidth")
+		return typeof value === "number" && Number.isFinite(value) && value >= 8 && value <= 60;
 	if (path === "statusLine.bottomMargin" || path === "statusLine.contextBarWidth")
 		return typeof value === "number" && Number.isFinite(value) && value >= 0;
 	if (path.endsWith(".colors") || path.endsWith(".glyphs"))

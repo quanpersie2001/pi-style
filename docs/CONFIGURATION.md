@@ -31,7 +31,7 @@ Global/project paths use Pi's exported `getAgentDir()` and `CONFIG_DIR_NAME`. Pr
     "startup": { "mode": "compact", "showResources": false, "alwaysExpanded": false },
     "statusLine": {
       "enabled": true,
-      "separator": "powerline-thin",
+      "separator": "|",
       "layout": { "left": ["model", "thinking", "path", "git"], "right": ["context_pct", "cost"], "secondary": ["extension_statuses"] },
       "disabledSegments": [],
       "customItems": []
@@ -125,6 +125,9 @@ Values only select an existing extension status and presentation options; they c
 | `messages.specialBlocks` | boolean | `true` | Boxed presentation for compaction, skill, branch, and custom (MCP) message blocks. Requires `--pi-style-message-special-blocks` plus `--pi-style-core-patches`. |
 | `messages.hideThinkingLabel` | boolean | `true` | Hide Pi's `Thinking...` placeholder label for hidden thinking blocks with zero trace: the certified `updateContent` patch (recorded for Pi `0.83.0` and `0.84.0`) drops the invisible label row and its trailing spacer, leaving the same single top padding as a text-only assistant message. Set `false` to restore the default label. |
 | `messages.hideInterimText` | boolean | `true` | Hide the text of assistant messages that also carry tool calls (interim narration like "Let me look at...") — the tool blocks tell the story, and the feed shows only the run summary and the final answer. Errors and truncation notices stay. Set `false` to keep the narration. |
+| `messages.showImagePreviews` | boolean | `true` | Render images attached to the user's prompt as inline previews directly below the user message ([ADR 0008](decisions/0008-user-prompt-image-previews.md)). Previews are display-only custom entries — never sent to the LLM — and fall back to a single themed mime/dimensions line on terminals without image support. `false` stops appending new previews and collapses persisted ones to zero lines. |
+| `messages.clipboardImages` | boolean | `true` | Images pasted with the built-in `Ctrl+V` become `[Image #N]` markers instantly at keystroke time (sync clipboard probe; bytes attach asynchronously; no temp file) and real image attachments on submit ([ADR 0009](decisions/0009-clipboard-image-input.md)). Backspacing right after a marker deletes the whole unit. Raw pasted paths that bypass the editor still upgrade to `[image]` + attachment. Clipboard read failures keep the marker as plain text; `false` restores the exact native behavior on every layer. |
+| `messages.previewMaxWidth` | number | `30` | Cell-width cap per user-prompt image preview (bounds 8–60, [ADR 0008](decisions/0008-user-prompt-image-previews.md)). Multiple images lay out side-by-side (kitty terminals, ≤3 columns); Pi's global Ctrl+O expansion renders previews at 60 regardless. |
 | `tools.style` | `marker \| compact-box` | `compact-box` | `marker` prefixes tool lines (`[tool]`, `[tool:result]`); `compact-box` renders boxed call headers and compact/expanded result boxes for read, write, edit, bash, ls, find, grep, quick-edit, substitute-edit, target-edit, and a boxed generic fallback. |
 | `tools.maxCollapsedLines` | number | `10` | Line budget for collapsed tool results (head/tail). |
 | `tools.maxExpandedLines` | number | `50` | Maximum body lines for expanded results (read/bash/grep/fallback). |

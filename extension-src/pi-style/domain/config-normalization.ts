@@ -16,7 +16,7 @@ export const DEFAULT_CONFIG: NormalizedPiStyleConfig = Object.freeze({
 	startup: Object.freeze({ mode: "compact", showResources: false, alwaysExpanded: false }),
 	statusLine: Object.freeze({
 		enabled: true,
-		separator: "powerline-thin",
+		separator: "|",
 		layout: Object.freeze({
 			left: ["path", "git", "context_bar", "cost"],
 			right: ["model_effort"],
@@ -34,6 +34,9 @@ export const DEFAULT_CONFIG: NormalizedPiStyleConfig = Object.freeze({
 		specialBlocks: true,
 		hideThinkingLabel: true,
 		hideInterimText: true,
+		showImagePreviews: true,
+		clipboardImages: true,
+		previewMaxWidth: 30,
 	}),
 	tools: Object.freeze({
 		enabled: true,
@@ -178,6 +181,9 @@ export function normalizeConfig(
 			specialBlocks: bool(messages.specialBlocks, defaults.messages.specialBlocks),
 			hideThinkingLabel: bool(messages.hideThinkingLabel, defaults.messages.hideThinkingLabel),
 			hideInterimText: bool(messages.hideInterimText, defaults.messages.hideInterimText),
+			showImagePreviews: bool(messages.showImagePreviews, defaults.messages.showImagePreviews),
+			clipboardImages: bool(messages.clipboardImages, defaults.messages.clipboardImages),
+			previewMaxWidth: boundedInt(messages.previewMaxWidth, defaults.messages.previewMaxWidth, 8, 60),
 		}),
 		tools: Object.freeze({
 			enabled: bool(tools.enabled, defaults.tools.enabled),
@@ -239,6 +245,8 @@ const BOOL_PATHS = new Set([
 	"messages.specialBlocks",
 	"messages.hideThinkingLabel",
 	"messages.hideInterimText",
+	"messages.showImagePreviews",
+	"messages.clipboardImages",
 	"tools.enabled",
 	"tools.showElapsed",
 	"tools.dimOutput",
@@ -289,6 +297,8 @@ function validLeaf(path: string, value: unknown): boolean {
 		return typeof value === "string";
 	if (path === "tools.maxCollapsedLines" || path === "tools.maxExpandedLines")
 		return typeof value === "number" && Number.isFinite(value) && value >= 0;
+	if (path === "messages.previewMaxWidth")
+		return typeof value === "number" && Number.isFinite(value) && value >= 8 && value <= 60;
 	if (path === "statusLine.bottomMargin" || path === "statusLine.contextBarWidth")
 		return typeof value === "number" && Number.isFinite(value) && value >= 0;
 	if (STRING_ARRAY_PATHS.has(path)) return Array.isArray(value) && value.every((item) => typeof item === "string");

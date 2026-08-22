@@ -28,6 +28,34 @@ continuation aligned here
 
 Rules: no prefix is applied to user messages (the feature and its `messages.userPrefix` option were removed); native user-message background/text tokens remain the base; long content wraps (never truncates); images/attachments preserve native rendering. User messages are never patched: the certified `native-user-message` surface was removed, so only assistant and special-block message surfaces are certified.
 
+### User-prompt image previews
+
+Images attached to the user's prompt render as **inline previews** directly below the user message ([ADR 0008](../decisions/0008-user-prompt-image-previews.md)). The surface absorbs the presentation half of `@pi-archimedes/image-paste` while fixing its channel: previews are display-only **CustomEntries** (`appendEntry`, documented as not sent to the LLM), not custom messages — so no image bytes ride the session's context pipeline.
+
+- One entry (`pi-style-image-preview`) per agent run carrying images — staged at `before_agent_start` (the event carries the prompt's `images`) and flushed at the first `message_start(assistant)` so the entry lands **below the user message** both live (the host inserts it before the streaming component) and in the session file (user → preview → assistant; resume renders identically).
+- The entry renderer builds one pi-tui `Image` per attached image, each with a `#N · WxH` label row tying it to its `[Image #N]` marker, themed `fallbackColor` via `toolOutput`.
+- Multiple images render **side-by-side** on kitty-capable terminals (up to 3 columns, min 14 cells each, 2-cell gap; kitty graphics sequences are zero-width so per-row line zipping composes columns) and stacked when the terminal is too narrow or the protocol is not kitty.
+- Collapsed previews cap at `messages.previewMaxWidth` cells per image (default **30**, bounds 8–60); Pi's global tool expansion (Ctrl+O) lifts the cap to 60.
+- Terminals without image support degrade to a single ANSI-safe fallback line per image (mime + dimensions) — never raw base64, never unprintable sequences. Malformed entry data renders zero lines.
+
+#### Multiplexer caveat (herdr)
+
+Terminal multiplexers sit between pi and the real terminal and may drop the kitty graphics protocol even when the outer terminal supports it. herdr gates pane graphics behind an experimental flag: without `experimental.kitty_graphics = true` in `~/.config/herdr/config.toml` (plus `herdr server reload-config` or a restart), every image — previews and Pi's own tool-result images — is silently dropped while capability detection still reports "kitty" (it sees the outer terminal's `TERM_PROGRAM`). tmux is handled upstream (pi-tui disables images there); other multiplexers have the same failure shape: if previews show as nothing in a graphical terminal, check the multiplexer's graphics passthrough first.
+- `messages.showImagePreviews: false` (default `true`) stops appending new entries **and** makes the renderer return nothing, so persisted entries also collapse to zero lines without a reload.
+- No clipboard reading, no input transform, no shortcut, no new Pi-core patch identity — public extension APIs only. Installing an input extension that also previews (e.g. image-paste's custom messages) yields a double render; disable one side via `messages.showImagePreviews: false`.
+
+### Clipboard image input
+
+Pasting an image with Pi's built-in `Ctrl+V` natively inserts a `<tmpdir>/pi-clipboard-<uuid>.<ext>` path as plain text — the model just sees a path it has to `read`. pi-style upgrades those artifacts to real image attachments in two layers ([ADR 0009](../decisions/0009-clipboard-image-input.md)):
+
+- **Editor marker** (keystroke time): the installed `StyledEditor` owns the built-in paste keystroke when a sync native probe confirms the clipboard holds an image — an `[Image #N] ` marker is inserted **instantly** (single hop, no path flash, no temp file; ~127 ms measured end-to-end), and the bytes fill the pending registry asynchronously from the native clipboard module. A clipboard read failure discards the entry (the marker stays plain text). Text pastes and probe-unavailable hosts fall through to the native path.
+- **Atomic marker backspace**: backspacing directly after a registered `[Image #N] ` marker deletes the whole marker as one unit (one undo step) and discards the image; unregistered marker-looking text backspaces character-by-character.
+- **Submit transform** (`input` event, `source: "interactive"` only): `[Image #N]` markers resolve against the pending registry — one-shot per submit (markers kept verbatim; a submit awaits in-flight fills; removed markers discard their images — image-paste semantics). Raw clipboard path tokens that bypassed the editor (native editor, probe unavailable, config toggled after paste) are still upgraded: each readable ≤ 20 MB token is attached as `ImageContent` (extension-derived mime type) and rewritten to `[image]`; the text never becomes empty.
+- Missing/unreadable or oversized tokens keep their path verbatim — nothing is lost. No matching tokens and no registered markers → no transform (native behavior).
+- The attached images flow to `before_agent_start`, so the preview entry above appears with no extra wiring.
+- The pattern is deliberately narrow: user-typed image paths (`./shot.png`, URLs) are text the user meant and are never converted — only Pi's own paste artifacts match. `!` bash input never reaches the transform (interactive-mode intercepts it earlier).
+- No shortcut registration, no clipboard reading, no core patch — the built-in keystroke and file handling stay untouched (unlike image-paste's `ctrl+v` re-registration). `messages.clipboardImages: false` (default `true`) restores the exact native flow on both layers.
+
 Assistant presentation uses a restrained prefix only when it improves role separation. It must handle normal text streaming, thinking-only updates, tool-only messages, mixed text and tool calls, aborted/error states, and final render cache reuse without stale partial content. Thinking text uses Pi's thinking token and does not visually compete with final assistant text. By default the `Thinking...` placeholder label for hidden thinking blocks is suppressed entirely (`messages.hideThinkingLabel: true`): Pi wraps even an empty label in ANSI codes so its `Text` still occupies one invisible row, and the native layout appends a trailing spacer — together the visible gap where the label used to sit. A certified `AssistantMessageComponent.updateContent` patch (fingerprint-verified 0.83.0, fail-closed elsewhere) drops the invisible row and that trailing spacer, so a hidden thinking block leaves the same single top padding as a text-only message.
 
 ## Compatibility status
@@ -286,6 +314,17 @@ If another extension already owns a message/tool renderer: compose only through 
 - **MSG-005:** message patches are idempotent and reversible.
 - **MSG-006:** images and native rich content remain usable.
 - **MSG-007:** the text of assistant messages that carry tool calls is hidden when `messages.hideInterimText` is enabled (interim narration); messages without tool calls, errors, and truncation notices stay visible, and the hiding is deterministic per content across streaming, scroll-back, and resume.
+- **IMG-001:** images attached to a user prompt render as an inline preview entry directly below the user message; the entry is a CustomEntry (display-only, never sent to the LLM).
+- **IMG-002:** previews persist in the session and render identically live, in scroll-back, and after resume — no in-process event state.
+- **IMG-003:** terminals without image support render one ANSI-safe fallback line per image (mime + dimensions, themed); base64 data never leaks into any rendered line, and malformed entry data renders zero lines.
+- **IMG-004:** `messages.showImagePreviews: false` disables both staging and rendering of previews without a session reload; the default is `true`.
+- **IMG-011:** each preview image carries a `#N · WxH` label row matching its `[Image #N]` marker; multiple images render side-by-side on kitty-capable terminals (≤3 columns, stacked fallback when too narrow or non-kitty), and collapsed previews cap at `messages.previewMaxWidth` cells (default 30, bounds 8–60) with Ctrl+O expansion rendering at 60.
+- **IMG-005:** the surface registers no keybinding, intercepts no input, and adds no new Pi-core patch identity; the `before_agent_start` path performs no image decoding.
+- **IMG-006:** the built-in paste keystroke inserts an `[Image #N] ` marker instantly when the clipboard holds an image (sync native probe; async byte fill; no temp artifact); on interactive submit, markers resolve against the pending registry one-shot and stay verbatim in the text; raw clipboard path tokens whose files are readable and ≤ 20 MB are attached as real `ImageContent` and rewritten to `[image]`; the message text never becomes empty.
+- **IMG-007:** clipboard read failures discard the pending entry (marker stays plain text); missing/unreadable/oversized artifact tokens keep their original text verbatim; markers removed from a submitted text discard their images (registry one-shot per submit); text with no matching tokens passes through untransformed (native behavior when `messages.clipboardImages: false`).
+- **IMG-010:** backspacing with the cursor directly after a registered `[Image #N] ` marker deletes the whole marker as one atomic unit (single undo step, cursor preserved at the deletion point) and discards the pending image; marker-shaped text without a registry entry backspaces character-by-character.
+- **IMG-008:** only Pi's clipboard-paste artifact pattern is converted — user-typed image paths, URLs, and non-interactive sources are never transformed; `!` bash input never reaches the transform.
+- **IMG-009:** the input transform registers no shortcut, performs no clipboard reads (only the file Pi's paste already wrote), and keeps renderers I/O-free.
 
 ## Requirements — tools
 
@@ -320,11 +359,13 @@ If another extension already owns a message/tool renderer: compose only through 
 - turn summary render snapshots: Nerd/Unicode/ASCII/no-color line formats, zero-line members, leader rendering, `expanded` override, error-block preservation;
 - turn registry unit tests: grouping, leader selection, counts/elapsed, resume rebuild, session-boundary resets;
 - lifecycle/e2e: `turn_end` → deferred collapse, scroll-back consistency, Ctrl+O expand/restore round-trip;
-- unsupported target shapes; repeated reload and later-owner replacement; native fallback snapshots.
+- unsupported target shapes; repeated reload and later-owner replacement; native fallback snapshots;
+- image preview entries: renderer structure and width caps, `#N` labels, kitty side-by-side zip (same-row payloads) with stacked degradation, fallback line on non-image terminals (no base64 leakage), malformed-entry zero-line guard, config gate on both stage and render sides, ordering (entry below the user message, live and persisted);
+- clipboard image input: pattern acceptance/rejection (near-miss shapes), transform attachment + `[image]` rewrite, mixed missing/oversize passthrough, never-empty text, config gate, live-tmpdir file fixture.
 
 ## Roadmap coverage
 
-- Implemented in: Phase 5; git/gh semantic views: Phase 8; turn tool summaries: Phase 9.
+- Implemented in: Phase 5; git/gh semantic views: Phase 8; turn tool summaries: Phase 9; user-prompt image previews: Phase 10.
 - Full conflict/config controls: Phase 6.
 - Performance/platform/release proof: Phase 7; manual evidence pending.
-- Requirement IDs: `MSG-001` through `MSG-007`, `TOOL-001` through `TOOL-007`, `GIT-001` through `GIT-004`, `GH-001` through `GH-002`, `SUM-001` through `SUM-005`.
+- Requirement IDs: `MSG-001` through `MSG-007`, `TOOL-001` through `TOOL-007`, `GIT-001` through `GIT-004`, `GH-001` through `GH-002`, `SUM-001` through `SUM-006`, `IMG-001` through `IMG-010`.

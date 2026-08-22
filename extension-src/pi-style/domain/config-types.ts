@@ -38,6 +38,12 @@ export interface PiStyleConfig {
 		specialBlocks?: boolean;
 		hideThinkingLabel?: boolean;
 		hideInterimText?: boolean;
+		/** Inline previews for user-prompt images (ADR 0008); gates append and render. */
+		showImagePreviews?: boolean;
+		/** Clipboard image input (ADR 0009): upgrade built-in paste temp paths to attachments. */
+		clipboardImages?: boolean;
+		/** Max cell width per user-prompt image preview (ADR 0008); default 30. */
+		previewMaxWidth?: number;
 	};
 	tools?: {
 		enabled?: boolean;
@@ -97,6 +103,12 @@ export interface NormalizedPiStyleConfig {
 		specialBlocks: boolean;
 		hideThinkingLabel: boolean;
 		hideInterimText: boolean;
+		/** Inline previews for user-prompt images (ADR 0008); gates append and render. */
+		showImagePreviews: boolean;
+		/** Clipboard image input (ADR 0009): upgrade built-in paste temp paths to attachments. */
+		clipboardImages: boolean;
+		/** Max cell width per user-prompt image preview (ADR 0008); default 30. */
+		previewMaxWidth: number;
 	};
 	readonly tools: {
 		enabled: boolean;

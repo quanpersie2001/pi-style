@@ -5,6 +5,7 @@ import type { GitCommandRunner } from "../domain/providers.js";
 import type { ContextSnapshot, StatusSnapshot } from "../domain/status.js";
 import { normalizeThinkingLevel } from "../domain/status.js";
 import { installEditor } from "../features/editor/index.js";
+import { createClipboardImagePasteSurface } from "../features/messages/image-input.js";
 import {
 	installStartup,
 	type StartupHost,
@@ -198,6 +199,9 @@ export function createPiStyleRuntime(
 				generation,
 				initialSnapshot: currentSnapshot,
 				isCurrent: () => !disposed,
+				// Clipboard image paste surface (ADR 0009): instant `[Image #N] `
+				// markers at keystroke time, artifact fallback, atomic backspace.
+				clipboardImagePaste: createClipboardImagePasteSurface(),
 			});
 			if (editor) {
 				disposables.add(editor);

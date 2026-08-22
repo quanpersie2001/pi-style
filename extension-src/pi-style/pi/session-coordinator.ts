@@ -3,6 +3,8 @@ import { type KeyId, matchesKey } from "@earendil-works/pi-tui";
 import type { ConfigFilePort } from "../app/config-storage.js";
 import { createPiStyleApp, type PiStyleApp } from "../app/index.js";
 import { resolveTheme } from "../domain/theme.js";
+import { resetPendingImageRegistry } from "../features/messages/image-input.js";
+import { setMessagesRenderConfig } from "../features/messages/render-config.js";
 import { setSpecialBlockTheme } from "../features/messages/special-blocks.js";
 import { setBashExecutionTheme } from "../features/tools/bash-execution.js";
 import { resetBashTreeRegistry } from "../features/tools/boxed/bash.js";
@@ -95,6 +97,14 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 	 */
 	const applyMessagesConfig = (config: import("../domain/config-types.js").NormalizedPiStyleConfig) => {
 		sessionUi?.setHiddenThinkingLabel?.(config.messages.hideThinkingLabel ? "" : undefined);
+		// User-prompt image previews (ADR 0008) + clipboard image input (ADR
+		// 0009): the leaves gate their respective sides (preview: stage+render;
+		// clipboard: input transform) and size the preview images.
+		setMessagesRenderConfig({
+			showImagePreviews: config.messages.showImagePreviews,
+			clipboardImages: config.messages.clipboardImages,
+			previewMaxWidth: config.messages.previewMaxWidth,
+		});
 	};
 	/**
 	 * Auto-apply the configured pi-style theme (default "titanium") once per TUI
@@ -176,6 +186,8 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			resetBatchRegistry();
 			resetGrepRegistry();
 			resetBashTreeRegistry();
+			// Clipboard image pending markers (ADR 0009) never cross sessions.
+			resetPendingImageRegistry();
 			// Turn summaries (ADR 0007): rebuild the registry from session content so
 			// restored/forked history renders collapsed before the first render pass
 			// (deterministic; no in-process turn_end events needed).
@@ -253,6 +265,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			resetBatchRegistry();
 			resetGrepRegistry();
 			resetBashTreeRegistry();
+			resetPendingImageRegistry();
 			resetTurnRegistry();
 			stopAllElapsedTickers();
 			app.sessionShutdown();

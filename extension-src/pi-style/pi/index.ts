@@ -1,5 +1,12 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { StatusSnapshot } from "../domain/status.js";
+import { resolvePendingImageMarkers, transformClipboardImages } from "../features/messages/image-input.js";
+import {
+	flushImagePreviewEntry,
+	type ImagePreviewEntryData,
+	registerImagePreviewSurface,
+	stageImagePreviewData,
+} from "../features/messages/image-preview.js";
 import { closeActiveBatch } from "../features/tools/boxed/batch.js";
 import {
 	beginAgentRun,
@@ -64,6 +71,27 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	pi.registerFlag("pi-style-ascii", { type: "boolean", description: "Use ASCII pi-style markers" });
 	const coordinator = createPiStyleSessionCoordinator(pi, compatibilityTestHooks);
 	registerPiStyleCommand(pi, coordinator.app);
+	// User-prompt image previews (ADR 0008): the entry renderer must be
+	// registered before the first entry of this type can exist — the host drops
+	// entries whose customType has no renderer — and once at extension load is
+	// enough (persisted entries from previous sessions render on resume).
+	registerImagePreviewSurface(pi);
+	// User-prompt image previews (ADR 0008): stage at `before_agent_start` (the
+	// only event carrying the prompt's `images`), flush as a display-only entry
+	// at the first `message_start(assistant)`. Appending at before_agent_start
+	// would land the entry ABOVE the user message — the user message enters the
+	// feed only when UI listeners process message_start(user) and persists at
+	// message_end(user), both after extension handlers. At the first assistant
+	// message the user message is already rendered and persisted, so the host
+	// inserts the entry below it (spliced before the streaming component) and
+	// the session file records user → preview → assistant for identical resume.
+	// Edge: a steered prompt arriving before the first flush overwrites the
+	// staged slot (last write wins) — steer-with-image is a rare corner.
+	let stagedImagePreview: ImagePreviewEntryData | undefined;
+	pi.on("before_agent_start", (event) => {
+		const staged = stageImagePreviewData(event.images ?? []);
+		if (staged) stagedImagePreview = staged;
+	});
 	pi.on("session_start", async (event, ctx) => {
 		resetUsageFromSessionCache(ctx.sessionManager);
 		// Pi only activates read/bash/edit/write by default; grep/find/ls are
@@ -81,7 +109,7 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		// (user request → agent_end), not pi's per-message turn_end.
 		beginAgentRun();
 	});
-	pi.on("input", (event, _ctx) => {
+	pi.on("input", async (event, _ctx) => {
 		coordinator.app.runtime.current?.dismissStartup();
 		// Bare `!`/`!!` submit guard: Pi treats `!`-prefixed input as a direct bash
 		// command but falls through to normal message submission when the bang has
@@ -96,6 +124,23 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 				const bangLength = trimmed.startsWith("!!") ? 2 : 1;
 				if (trimmed.slice(bangLength).trim() === "") return { action: "handled" };
 			}
+		}
+		// Clipboard image input (ADR 0009): `[Image #N]` markers resolve for EVERY
+		// submit source — a submit is a submit (image-paste semantics); consuming
+		// the registry one-shot on rpc/extension submits too keeps a pasted marker
+		// from dangling into a later, unrelated prompt. No-op when the registry is
+		// empty. Raw clipboard path tokens, in contrast, only ever come from the
+		// interactive editor's built-in paste — that upgrade stays interactive-only.
+		// Combined images flow on to before_agent_start, where the ADR 0008 preview
+		// entry picks them up.
+		const markerResult = await resolvePendingImageMarkers(event.text);
+		const pathResult = event.source === "interactive" ? await transformClipboardImages(event.text) : undefined;
+		if (markerResult || pathResult) {
+			return {
+				action: "transform" as const,
+				text: pathResult?.text ?? event.text,
+				images: [...(markerResult?.images ?? []), ...(pathResult?.images ?? [])],
+			};
 		}
 		return undefined;
 	});
@@ -114,10 +159,16 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	pi.on("session_info_changed", (event) =>
 		coordinator.app.update({ sessionName: event.name }, "coalesced", { refreshExtensionStatuses: true }),
 	);
-	pi.on("message_start", () => {
+	pi.on("message_start", (event) => {
 		// A new message is a batch boundary: quiet-tool (read/ls/find) calls of the
 		// new message start a fresh batch instead of joining the previous one.
 		closeActiveBatch();
+		// Flush the staged image preview below the just-rendered user message
+		// (ADR 0008 ordering — see the before_agent_start comment above).
+		if (stagedImagePreview && event.message?.role === "assistant") {
+			flushImagePreviewEntry(pi, stagedImagePreview);
+			stagedImagePreview = undefined;
+		}
 		// grep/bash tree panels are NOT cleared here: historical panels must keep
 		// their state so Pi re-renders of previous messages (scroll/resume) stay
 		// intact. Only session boundaries reset them (session-coordinator).

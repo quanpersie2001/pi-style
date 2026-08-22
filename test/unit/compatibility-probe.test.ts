@@ -1173,7 +1173,10 @@ describe("identity-certified compatibility probe", () => {
 			expect(descriptors()).toEqual(before);
 			expect(modeHost.registeredTools).toEqual([]);
 			expect(modeHost.registeredMessageRenderers.size).toBe(0);
-			expect(modeHost.registeredEntryRenderers.size).toBe(0);
+			// ADR 0008: the display-only image-preview entry renderer registers at
+			// load in every mode (persisted entries render on TUI resume); a pure
+			// type→component mapping with no session resources.
+			expect([...modeHost.registeredEntryRenderers.keys()]).toEqual(["pi-style-image-preview"]);
 			await modeHost.sessionShutdown();
 		}
 	});
@@ -1222,7 +1225,7 @@ describe("identity-certified compatibility probe", () => {
 			await modeHost.sessionStart();
 			expect(modeHost.registeredTools).toEqual([]);
 			expect(modeHost.registeredMessageRenderers.size).toBe(0);
-			expect(modeHost.registeredEntryRenderers.size).toBe(0);
+			expect([...modeHost.registeredEntryRenderers.keys()]).toEqual(["pi-style-image-preview"]);
 			expect(modeHost.activeTools).toEqual([]);
 			expect(descriptors()).toEqual(before);
 			await modeHost.sessionShutdown();

@@ -6,6 +6,7 @@ import { contextPercent, type StatusSnapshot, type ThinkingLevel } from "../../d
 import type { ResolvedTheme } from "../../domain/theme.js";
 import { resolveTheme } from "../../domain/theme.js";
 import { stripAnsi, truncateAnsi } from "../../shared/ansi.js";
+import { clipboardMarkerAtEnd, isSingleClipboardImagePath } from "../../shared/clipboard-path.js";
 
 export const EDITOR_DIAGNOSTIC_KEY = "pi-style.editor";
 type SetEditorComponent = NonNullable<ExtensionUIContext["setEditorComponent"]>;
@@ -30,6 +31,18 @@ export interface EditorInstallation {
 	dispose(): void;
 }
 
+/** Structural clipboard-image paste surface (ADR 0009) consumed by the
+ *  editor. Structural so this feature needs no cross-feature import; the
+ *  app layer passes the instance built in features/messages. */
+interface ClipboardImagePasteSurface {
+	enabled(): boolean;
+	clipboardHasImage(): boolean | null;
+	markerFromClipboard(): string;
+	markerFromArtifact(path: string): Promise<string>;
+	isMarkerIndexRegistered(index: number): boolean;
+	discardMarkerIndex(index: number): void;
+}
+
 interface EditorOptions {
 	config: NormalizedPiStyleConfig;
 	snapshot: StatusSnapshot;
@@ -37,6 +50,22 @@ interface EditorOptions {
 	/** Full Pi theme for thinking-level border colors (optional; falls back to borderColor). */
 	fullTheme?: { getThinkingBorderColor?: (level: ThinkingLevel) => (str: string) => string };
 	onSnapshot: (snapshot: StatusSnapshot) => void;
+	/** Clipboard image paste surface (ADR 0009): instant `[Image #N] ` markers
+	 *  at keystroke time, artifact-path fallback, atomic marker backspace.
+	 *  Undefined keeps native behavior entirely. */
+	clipboardImagePaste?: ClipboardImagePasteSurface;
+}
+
+/** Pi-tui Editor internals mirrored for O(1) atomic marker surgery. All are
+ *  runtime-present on the Editor prototype chain but TS-private; the typed
+ *  cast follows the autocompleteState-access pattern used in render(). */
+interface EditorInternals {
+	readonly state: { lines: string[]; cursorLine: number; cursorCol: number };
+	lastAction: string | null;
+	readonly onChange?: (text: string) => void;
+	exitHistoryBrowsing(): void;
+	setCursorCol(col: number): void;
+	cancelAutocomplete(): void;
 }
 
 interface RenderPlan {
@@ -150,6 +179,10 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	private semanticDirty = false;
 	private disposed = false;
 	private renderPlanCache: { key: string; plan: RenderPlan } | undefined;
+	private readonly clipboardImagePaste: ClipboardImagePasteSurface | undefined;
+	/** Keybinding matcher (the factory's KeybindingsManager) for keystroke-level
+	 *  interception: the paste keybinding and backspace checks below. */
+	private readonly editorKeybindings: { matches(data: string, keybinding: string): boolean };
 
 	constructor(tui: Tui, theme: PiEditorTheme, keybindings: Keybindings, options: EditorOptions) {
 		super(tui, theme, keybindings);
@@ -158,6 +191,8 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		this.piTheme = theme;
 		this.fullTheme = options.fullTheme;
 		this.onSnapshot = options.onSnapshot;
+		this.clipboardImagePaste = options.clipboardImagePaste;
+		this.editorKeybindings = keybindings as unknown as { matches(data: string, keybinding: string): boolean };
 		this.semantic = semanticTheme(theme, options.config);
 		this.setPaddingX(0);
 	}
@@ -177,8 +212,98 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 
 	override handleInput(data: string): void {
 		if (this.disposed) return;
+		if (this.handleClipboardImagePasteKeystroke(data)) return;
+		if (this.handleAtomicMarkerBackspace(data)) return;
 		super.handleInput(data);
 		this.onSnapshot({ ...this.snapshot });
+	}
+
+	/**
+	 * Instant marker (ADR 0009): when the built-in paste keybinding fires, the
+	 * clipboard holds an image (sync native probe), and the surface is enabled,
+	 * the keystroke is owned here — an `[Image #N] ` marker is inserted
+	 * immediately (zero-latency feedback) and the bytes fill the registry
+	 * entry asynchronously. Pi's own paste handler never runs for this
+	 * keystroke, so no temp artifact is written. Text pastes (no image) and
+	 * probe-unavailable hosts fall through to the native path untouched.
+	 */
+	private handleClipboardImagePasteKeystroke(data: string): boolean {
+		const surface = this.clipboardImagePaste;
+		if (!surface?.enabled()) return false;
+		if (!this.editorKeybindings.matches(data, "app.clipboard.pasteImage")) return false;
+		if (surface.clipboardHasImage() !== true) return false;
+		super.insertTextAtCursor(surface.markerFromClipboard());
+		this.onSnapshot({ ...this.snapshot });
+		return true;
+	}
+
+	/**
+	 * Atomic marker backspace (ADR 0009): backspacing directly after a
+	 * registered `[Image #N] ` marker deletes the whole marker as one unit —
+	 * the image is discarded (image-paste semantics). Direct state surgery
+	 * (O(1)) mirroring pi-tui's handleBackspace mutation protocol: no setText
+	 * round-trip (it clears the pastes registry, and undo snapshots store that
+	 * Map by reference — silently breaking `[paste #N]` atomicity on undo) and
+	 * no per-column left-arrow inputs (O(K·L) through the keybinding chain and
+	 * visual line maps). No undo snapshot is pushed: the discarded image
+	 * cannot be restored, so the deletion is intentionally non-undoable.
+	 */
+	private handleAtomicMarkerBackspace(data: string): boolean {
+		const surface = this.clipboardImagePaste;
+		if (!surface?.enabled()) return false;
+		const isBackspace = this.editorKeybindings.matches(data, "tui.editor.deleteCharBackward") || data === "\x7f";
+		if (!isBackspace) return false;
+		const lines = this.getLines();
+		const cursor = this.getCursor();
+		const current = lines[cursor.line];
+		if (current === undefined) return false;
+		const before = current.slice(0, cursor.col);
+		const hit = clipboardMarkerAtEnd(before);
+		if (!hit || !surface.isMarkerIndexRegistered(hit.index)) return false;
+		const editor = this as unknown as EditorInternals;
+		const targetCol = cursor.col - hit.length;
+		editor.exitHistoryBrowsing();
+		editor.lastAction = null;
+		editor.cancelAutocomplete();
+		// Splice the marker out of its line in place (deletion never removes a
+		// line, so cursorLine is unchanged). setCursorCol also clears
+		// preferredVisualCol/snappedFromCursorCol. scrollOffset is left alone;
+		// render() re-clamps it to keep the cursor visible.
+		editor.state.lines[cursor.line] = current.slice(0, targetCol) + current.slice(cursor.col);
+		editor.setCursorCol(targetCol);
+		editor.onChange?.(this.getText());
+		surface.discardMarkerIndex(hit.index);
+		this.invalidate();
+		this.onSnapshot({ ...this.snapshot });
+		return true;
+	}
+
+	/**
+	 * Artifact-path fallback (ADR 0009): when the keystroke was not owned
+	 * (probe unavailable, native editor path, config toggled) Pi's built-in
+	 * paste still inserts a `<tmpdir>/pi-clipboard-<uuid>.<ext>` path through
+	 * this method. Convert it to a marker when the artifact reads successfully;
+	 * every failure inserts the original text verbatim (exact native behavior).
+	 */
+	override insertTextAtCursor(text: string): void {
+		const surface = this.clipboardImagePaste;
+		if (!surface?.enabled() || !isSingleClipboardImagePath(text)) {
+			super.insertTextAtCursor(text);
+			return;
+		}
+		void (async () => {
+			let replacement = text;
+			try {
+				replacement = await surface.markerFromArtifact(text);
+			} catch {
+				// Unreadable artifact or surface failure: keep native behavior.
+			}
+			super.insertTextAtCursor(replacement);
+			// The caller (Pi's handleClipboardPaste) requested its render before
+			// this async insert completed — without a repaint the marker stays
+			// invisible until the next keystroke. Request one now.
+			this.tui.requestRender();
+		})();
 	}
 
 	override invalidate(): void {
@@ -412,6 +537,7 @@ export function installEditor(options: {
 	generation: number;
 	initialSnapshot: StatusSnapshot;
 	isCurrent?: () => boolean;
+	clipboardImagePaste?: EditorOptions["clipboardImagePaste"];
 }): EditorInstallation | undefined {
 	if (!options.host.setEditorComponent) return undefined;
 	const previous = options.host.getEditorComponent?.();
@@ -436,6 +562,7 @@ export function installEditor(options: {
 			snapshot,
 			theme,
 			...(options.host.theme ? { fullTheme: options.host.theme } : {}),
+			...(options.clipboardImagePaste ? { clipboardImagePaste: options.clipboardImagePaste } : {}),
 			onSnapshot: (next) => {
 				if (!disposed && options.isCurrent?.() !== false) snapshot = next;
 			},

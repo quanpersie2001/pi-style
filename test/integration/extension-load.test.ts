@@ -51,7 +51,9 @@ describe("pi-style extension lifecycle foundation", () => {
 		expect(host.commands.has("pi-style")).toBe(true);
 		expect(host.registeredTools).toHaveLength(0);
 		expect(host.registeredMessageRenderers.size).toBe(0);
-		expect(host.registeredEntryRenderers.size).toBe(0);
+		// ADR 0008: exactly one load-time entry renderer (user-prompt image
+		// previews) — display-only, public API, no session resources.
+		expect([...host.registeredEntryRenderers.keys()]).toEqual(["pi-style-image-preview"]);
 		expect(host.widgets.size).toBe(0);
 		expect(vi.getTimerCount()).toBe(0);
 	});
