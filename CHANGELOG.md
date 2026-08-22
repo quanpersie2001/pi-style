@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.3] - 2026-08-22
+
+### Documentation
+
+- *(readme)* Document image features, herdr caveat, absolute demo URL
+
+### Features
+
+- *(status-line)* Pipe-delimited context block with token totals
+- *(images)* User-prompt image previews and clipboard image input
+
 ## [0.2.2] - 2026-08-17
 
 ### Performance
