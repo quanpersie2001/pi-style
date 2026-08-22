@@ -7,7 +7,7 @@
 
 ---
 
-![pi-style demo](assets/demo.jpeg)
+![pi-style demo](https://raw.githubusercontent.com/quanpersie2001/pi-style/refs/heads/main/assets/demo.jpeg)
 
 ---
 
@@ -19,6 +19,8 @@
 - **Messages** — assistant prefix and boxed compaction/skill/branch/MCP special blocks, and certified tool call/result selectors with pending/running/error markers.
 - **Interim narration hiding** — the text of assistant messages that also carry tool calls is hidden (`messages.hideInterimText`): the feed shows only the tool blocks, the run summary, and the final answer.
 - **Turn summaries** — when a turn completes, its finalized tool blocks collapse into one summary line (`➔ Read 2 files, ran 4 shell commands · 3.1s`); errors and interrupted turns stay visible, and Pi's global Ctrl+O toggle expands everything again (`tools.collapseAfterTurn`).
+- **User-prompt image previews** — images attached to your prompt render inline **below your message** as display-only session entries (never sent to the LLM) with `#N · WxH` labels tying each image to its marker; multiple images lay out side-by-side on kitty-capable terminals (up to 3 columns, stacked fallback elsewhere), sized by `messages.previewMaxWidth` (default 30) with Pi's global Ctrl+O expanding to 60 (`messages.showImagePreviews`).
+- **Clipboard image input** — the built-in `Ctrl+V` becomes a full image-paste flow with no other extension required: a sync native probe checks the clipboard at keystroke time, an `[Image #N] ` marker appears instantly in the editor (bytes attach asynchronously — no temp-file flash), backspacing right after a marker deletes it as one unit (discarding the image, image-paste semantics), and submit attaches real image attachments; raw pasted paths that bypass the editor still upgrade to `[image]` + attachment (`messages.clipboardImages`).
 - **Auto theme** — the `titanium` palette is applied at TUI session start when no other theme is active (configurable via `theme.autoApply`, disable with `"off"`).
 - **One visual system** — shared semantic theme, glyph sets (Nerd/Unicode/ASCII), and ANSI-safe rendering across every surface.
 
@@ -52,7 +54,8 @@ No configuration is required. The `default` preset enables:
 - `dock` editor (rounded input box) with metadata ownership resolved so the status line and editor do not duplicate text;
 - `compact` startup header (gradient logo block only; resource chips are opt-in);
 - the `titanium` theme auto-applied at session start (`theme.autoApply`, default `"titanium"`; set `"off"` to keep your active Pi theme);
-- certified message prefixes and boxed tool presentation when the runtime surface identity matches a recorded fingerprint.
+- certified message prefixes and boxed tool presentation when the runtime surface identity matches a recorded fingerprint;
+- the complete image-paste flow out of the box: `Ctrl+V` → instant `[Image #N]` marker → submit → attachment + inline side-by-side preview below your message.
 
 Override any documented leaf through global/project `piStyle` settings, environment, or session commands. Precedence:
 
@@ -116,6 +119,7 @@ Tier C surfaces are immutable session authorizations, not persisted config:
 --pi-style-message-assistant
 --pi-style-message-special-blocks
 --pi-style-tools
+--pi-style-readonly-tools
 --pi-style-ascii
 ```
 
@@ -147,6 +151,7 @@ Ordinary mutations are session-only; persistence requires an explicit `global` o
 - Tier C core patches (message prefixes, special blocks, tool selectors) are identity-certified per surface against recorded fingerprints (Pi `0.83.0`/`0.84.0` observed), isolated, reversible, and flag/config gated; any surface whose runtime identity is not recorded falls back natively on its own.
 - No render-time I/O: filesystem, Git, settings, and session data flow through cached providers into immutable snapshots.
 - Terminal-global background synchronization is unsupported/off for technical v1; explicit cell backgrounds and Pi theme APIs remain supported.
+- Terminal multiplexers gate kitty graphics: in herdr, previews (and Pi's own tool-result images) require `experimental.kitty_graphics = true` in `~/.config/herdr/config.toml` plus a server restart; tmux disables images upstream.
 
 ---
 
@@ -189,7 +194,7 @@ npm run check
 
 `npm run check` runs all required automated gates in order.
 
-Current test suite: 751 tests across 38 files.
+Current test suite: 817 tests across 41 files.
 
 ---
 
