@@ -70,24 +70,32 @@ describe("status contracts", () => {
 });
 
 describe("responsive status renderer", () => {
-	it("renders the context progress bar with label and compact fallback", () => {
+	it("renders the pipe-delimited context block with compact fallback", () => {
 		const full = renderStatus(
+			{ left: ["context_bar"], right: [], secondary: [] },
+			{ context: { percent: 47, currentTokens: 470_000, windowTokens: 1_000_000 } },
+			80,
+			{ segments: createBuiltinSegments(), theme },
+		);
+		const plain = stripAnsi(full.primary);
+		expect(plain).toMatch(/^\[█{5}░{5}\] \| 47% used \| 470K\/1\.0M$/);
+		expect(plain).toContain("47%");
+		// Without token counts the block drops only the totals part.
+		const percentOnly = renderStatus(
 			{ left: ["context_bar"], right: [], secondary: [] },
 			{ context: { percent: 47, windowTokens: 1_000_000 } },
 			80,
 			{ segments: createBuiltinSegments(), theme },
 		);
-		const plain = stripAnsi(full.primary);
-		expect(plain).toMatch(/^ctx \(1M\): █{5}░{5} 47%$/);
-		expect(plain).toContain("47%");
-		// Zero percent renders an empty bar; compact form drops the bar and label.
+		expect(stripAnsi(percentOnly.primary)).toMatch(/^\[█{5}░{5}\] \| 47% used$/);
+		// Zero percent renders an empty bar with a zero total; compact form drops the block.
 		const empty = renderStatus(
 			{ left: ["context_bar"], right: [], secondary: [] },
-			{ context: { percent: 0, windowTokens: 1_000_000 } },
+			{ context: { percent: 0, currentTokens: 0, windowTokens: 1_000_000 } },
 			80,
 			{ segments: createBuiltinSegments(), theme },
 		);
-		expect(stripAnsi(empty.primary)).toMatch(/^ctx \(1M\): ░{10} 0%$/);
+		expect(stripAnsi(empty.primary)).toMatch(/^\[░{10}\] \| 0% used \| 0\/1\.0M$/);
 		const hidden = renderStatus({ left: ["context_bar"], right: [], secondary: [] }, { context: {} }, 80, {
 			segments: createBuiltinSegments(),
 			theme,
@@ -173,7 +181,7 @@ describe("responsive status renderer", () => {
 		);
 		const plain = stripAnsi(result.primary);
 		expect(plain).toMatch(
-			/^pi-style │ ⎇ main \*36 \?9 │ ctx \(1M\): █{5}░{5} 47% │ \$0\.015 │\s+\(deepseek\) deepseek-v4-flash • high$/,
+			/^pi-style │ ⎇ main \*36 \?9 │ \[█{5}░{5}\] \| 47% used │ \$0\.015 │\s+\(deepseek\) deepseek-v4-flash • high$/,
 		);
 		expect(plain).toHaveLength(120);
 	});

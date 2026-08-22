@@ -252,12 +252,21 @@ export function createBuiltinSegments(): ReadonlyMap<StatusSegmentId, StatusSegm
 			const percent = contextPercent(snapshot.context ?? {});
 			if (percent === undefined) return { visible: false, content: "" };
 			const token = contextBarToken(percent);
-			const window = snapshot.context?.windowTokens;
-			const label = `ctx${window !== undefined ? ` (${formatTokens(window)})` : ""}:`;
 			const width = (options.context_bar?.width as number | undefined) ?? CONTEXT_BAR_WIDTH;
+			// Pipe-delimited context block: `[█████░░░░░] | 47% used | 235K/1.0M`.
+			// Uses plain `|` (not the tall `│`) so the inline block stays visually short.
+			// No boundary pipes: the status renderer's segment separator already
+			// delimits the block, and extra pipes would double it up.
+			const pipe = theme.apply("separator", "|");
+			const bar = `${theme.apply("muted", "[")}${theme.apply(token, contextBar(percent, width))}${theme.apply("muted", "]")}`;
+			const parts = [bar, `${theme.apply(token, `${Math.round(percent)}%`)}${theme.apply("muted", " used")}`];
+			const current = snapshot.context?.currentTokens;
+			const window = snapshot.context?.windowTokens;
+			if (current !== undefined && window !== undefined)
+				parts.push(theme.apply("muted", `${formatTokens(current)}/${formatTokens(window)}`));
 			return {
 				visible: true,
-				content: `${theme.apply("muted", label)} ${theme.apply(token, contextBar(percent, width))} ${theme.apply(token, `${Math.round(percent)}%`)}`,
+				content: parts.join(` ${pipe} `),
 				compactContent: theme.apply(token, `${Math.round(percent)}%`),
 			};
 		}),
@@ -362,10 +371,7 @@ function contextBarToken(percent: number): SemanticToken {
 }
 
 function formatTokens(value: number): string {
-	if (value >= 1_000_000) {
-		const millions = value / 1_000_000;
-		return `${Number.isInteger(millions) ? millions : millions.toFixed(1)}M`;
-	}
+	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
 	if (value >= 1_000) {
 		const thousands = value / 1_000;
 		return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)}K`;

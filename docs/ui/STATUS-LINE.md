@@ -50,7 +50,7 @@ Required properties: stable ID for layout/configuration; visibility without thro
 | `path` | Basename, abbreviated, or full cwd | High |
 | `git` | Branch and staged/unstaged/untracked indicators | High in repositories |
 | `context_pct` | Context percentage and threshold state | High |
-| `context_bar` | Context window + labeled progress bar (`ctx (1M): █████░░░░░ 47%`; width via `contextBarWidth`), green <50%, yellow 50–70%, red >70% | High |
+| `context_bar` | Pipe-delimited context block (`[█████░░░░░] \| 47% used \| 235K/1.0M`, delimited by the segment separator on both sides; bar width via `contextBarWidth`, totals appended when token counts are known), green <50%, yellow 50–70%, red >70% | High |
 | `context_total` | Current/window token counts | Medium |
 | `auto_compact` | Auto/custom compaction state | Medium |
 | `token_in` / `token_out` | Input/output tokens | Medium |
@@ -123,7 +123,7 @@ Extensions publish status through `ctx.ui.setStatus(key, text)`; Pi aggregates t
 
 | Preset | Layout |
 | --- | --- |
-| `default` | `left: path, git, context_bar, cost` · `right: model_effort` · `secondary: extension_statuses` · separator `powerline-thin`/Unicode; one blank row below the primary row (`bottomMargin`). |
+| `default` | `left: path, git, context_bar, cost` · `right: model_effort` · `secondary: extension_statuses` · separator `\|` (plain pipe); one blank row below the primary row (`bottomMargin`). |
 | `minimal` | `left: path, git` · trailing `context_pct` · dot/slash separator. |
 | `compact` | `left: model, thinking, git` · trailing `context_pct` · `secondary: extension_statuses`. |
 | `full` | `left: hostname, model, thinking, path, git, session` · trailing `token_in, token_out, cache_read, cost, context_pct, time_spent, time` · `secondary: extension_statuses`. |

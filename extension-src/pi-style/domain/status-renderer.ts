@@ -56,7 +56,7 @@ export function renderStatus(
 	options: StatusRendererOptions,
 ): StatusRenderResult {
 	if (width <= 0) return { primary: "", lines: [], visibleSegments: [] };
-	const separator = options.separator ?? "│";
+	const separator = options.separator ?? "|";
 	const padding = options.padding ?? " ";
 	const normalized = uniqueLayout(layout);
 	const context: SegmentContext = { snapshot, theme: options.theme, options: options.options ?? {}, width };
