@@ -25,6 +25,14 @@ import { createFakeTheme } from "../helpers/fake-theme.js";
 
 const PNG_1X1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
+function pngDimensions(width: number, height: number): string {
+	const bytes = Buffer.alloc(24);
+	bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+	bytes.writeUInt32BE(width, 16);
+	bytes.writeUInt32BE(height, 20);
+	return bytes.toString("base64");
+}
+
 const theme = createFakeTheme();
 
 function entry(data: unknown): { data?: unknown } {
@@ -170,14 +178,51 @@ describe("multi-image grid (kitty side-by-side)", () => {
 		expect(label).toMatch(/#1/);
 		expect(label).toMatch(/#2/);
 		// Kitty payloads for both images land on the SAME row, separated by a
-		// CHA cursor jump to the second column (without it, kitty would place
-		// image 2 at the cursor column 0 — on top of image 1). width=100, 2
-		// columns, cap 30 → column width 30, second column starts at cell 32
-		// → CHA escape `ESC[33G` (1-based).
+		// CHA cursor jump to the second compact slot (without it, kitty would
+		// place image 2 at cursor column 0 — on top of image 1). The 1×1 fixture
+		// is narrower than the old fixed 30-cell slot, so the offset is compact.
 		const payloadRow = lines[1] ?? "";
 		const kittyChunks = payloadRow.split("\x1b_G").length - 1;
 		expect(kittyChunks).toBe(2);
-		expect(payloadRow).toContain("\x1b[33G");
+		expect(payloadRow).toContain("\x1b[31G");
+	});
+
+	it("uses compact offsets for portrait images instead of fixed column slots", () => {
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
+		setMessagesRenderConfig({ previewMaxWidth: 30 });
+		const component = renderImagePreviewEntry(
+			entry({
+				images: [
+					{ data: pngDimensions(674, 1424), mimeType: "image/png" },
+					{ data: pngDimensions(652, 1438), mimeType: "image/png" },
+				],
+			}),
+			{ expanded: false },
+			theme,
+		);
+		const payloadRow = component?.render(100)[1] ?? "";
+		// Both phone screenshots render about 14 cells wide, so the second
+		// image starts near cell 17 rather than the old fixed cell 33.
+		expect(payloadRow).toContain("\x1b[17G");
+	});
+
+	it("stacks images whose rendered heights differ substantially", () => {
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
+		const component = renderImagePreviewEntry(
+			entry({
+				images: [
+					{ data: pngDimensions(674, 1424), mimeType: "image/png" },
+					{ data: pngDimensions(1600, 600), mimeType: "image/png" }
+				],
+			}),
+			{ expanded: false },
+			theme,
+		);
+		const lines = component?.render(100) ?? [];
+		const labels = lines.map((line) => stripAnsi(line)).filter((line) => /^#\d/.test(line.trim()));
+		expect(labels).toHaveLength(2);
+		// The images no longer share a row when their heights are strongly skewed.
+		expect(lines.some((line) => line.split("\x1b_G").length - 1 > 1)).toBe(false);
 	});
 
 	it("stacks (label above image) when columns cannot fit", () => {

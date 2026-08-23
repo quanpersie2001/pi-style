@@ -21,15 +21,19 @@
 // multiple images render side-by-side on kitty-capable terminals (kitty
 // graphics sequences are zero-width, so line zipping composes them), stacked
 // elsewhere. Width is capped by `messages.previewMaxWidth` (default 30);
-// Pi's global expansion (Ctrl+O) lifts the cap for a closer look.
+// Kitty slots use the actual rendered image width to avoid portrait-image gaps;
+// strongly height-mismatched images stack instead of leaving empty rows. Pi's
+// global expansion (Ctrl+O) lifts the cap for a closer look.
 //
 // Fail-closed rules: unknown/malformed entry data renders zero lines (never
 // an error box, never base64 leakage); a theme without fg disables the
 // surface; the config leaf gates both the stage and the render side.
 
 import {
+	type CellDimensions,
 	type Component,
 	getCapabilities,
+	getCellDimensions,
 	getImageDimensions,
 	Image,
 	type ImageDimensions,
@@ -50,6 +54,8 @@ export const IMAGE_PREVIEW_MAX_WIDTH_CELLS = 60;
 /** Grid layout constants (kitty side-by-side). */
 const GRID_GAP = 2;
 const GRID_MIN_COLUMN = 14;
+const GRID_MAX_HEIGHT_RATIO = 1.5;
+const FALLBACK_IMAGE_DIMENSIONS: ImageDimensions = { widthPx: 800, heightPx: 600 };
 
 /** Persisted entry payload: base64 data + mime type per attached image. */
 export interface ImagePreviewImage {
@@ -132,6 +138,7 @@ function parseImageDimensions(image: ImagePreviewImage): ImageDimensions | undef
 /** Per-entry render artifacts (components, labels). */
 interface PreviewCache {
 	readonly images: readonly ImagePreviewImage[];
+	readonly dimensions: readonly (ImageDimensions | undefined)[];
 	readonly components: Image[];
 	readonly labels: string[];
 }
@@ -172,10 +179,10 @@ export function renderImagePreviewEntry(entry: unknown, options: unknown, theme:
 					),
 			);
 			const labels = images.map((_image, index) => imageLabel(themed, index + 1, dims[index]));
-			cached = { images, components, labels };
+			cached = { images, dimensions: dims, components, labels };
 			previewCache.set(entry as object, cached);
 		}
-		const { components, labels } = cached;
+		const { components, dimensions, labels } = cached;
 		// Memoized output: render passes tick on every streaming update; the
 		// same width/expansion/config/capability key returns the SAME array
 		// reference, skipping the grid re-zip and the host's per-line diff.
@@ -196,7 +203,7 @@ export function renderImagePreviewEntry(entry: unknown, options: unknown, theme:
 				let lines: string[];
 				if (width <= 0) lines = [];
 				else if (images.length === 1 || !kitty) lines = renderStacked(width, maxWidth, labels, components);
-				else lines = renderGrid(width, maxWidth, labels, components);
+				else lines = renderGrid(width, maxWidth, labels, components, dimensions);
 				memo = { key, lines };
 				return lines;
 			},
@@ -230,9 +237,17 @@ function stripTrailingSpaces(line: string): string {
 /**
  * Side-by-side grid (kitty graphics only — sequences are zero-width so
  * per-row line zipping composes columns). Columns shrink to fit the width;
- * when fewer than two usable columns fit, this degrades to stacked.
+ * compact slots follow actual image widths; strongly height-mismatched groups
+ * degrade to stacked. When fewer than two usable columns fit, this also
+ * degrades to stacked.
  */
-function renderGrid(width: number, maxWidth: number, labels: string[], components: Image[]): string[] {
+function renderGrid(
+	width: number,
+	maxWidth: number,
+	labels: string[],
+	components: Image[],
+	dimensions: readonly (ImageDimensions | undefined)[],
+): string[] {
 	const usable = Math.max(1, width - 2);
 	const maxColumns = Math.floor((usable + GRID_GAP) / (GRID_MIN_COLUMN + GRID_GAP));
 	const columns = Math.max(1, Math.min(components.length, maxColumns, 3));
@@ -241,41 +256,73 @@ function renderGrid(width: number, maxWidth: number, labels: string[], component
 	if (columnWidth < GRID_MIN_COLUMN) return renderStacked(width, maxWidth, labels, components);
 
 	const lines: string[] = [];
+	const cellDimensions = getCellDimensions();
 	for (let start = 0; start < components.length; start += columns) {
 		const group = components.slice(start, start + columns);
 		const groupLabels = labels.slice(start, start + columns);
+		const groupDimensions = dimensions.slice(start, start + columns);
 		if (start > 0) lines.push("");
 		const rendered = group.map((component) => component.render(columnWidth));
-		// Label row: each label padded to its column width, gap between.
+		const sizes = groupDimensions.map((imageDimensions) => imageCellSize(imageDimensions, columnWidth, cellDimensions));
+
+		// Avoid keeping a short neighbor's column alive for a much taller image.
+		// Similar screenshots remain side-by-side; strongly mismatched images stack.
+		const rowCounts = rendered.map((column) => column.length).filter((count) => count > 0);
+		const minRows = Math.min(...rowCounts);
+		const maxRows = Math.max(...rowCounts);
+		if (rowCounts.length > 1 && minRows > 0 && maxRows >= minRows * GRID_MAX_HEIGHT_RATIO) {
+			return renderStacked(width, maxWidth, labels, components);
+		}
+
+		// Use actual image widths for the slots instead of the shared max width.
+		// This removes unused horizontal space around narrow portrait images.
+		const slotWidths = groupLabels.map((label, index) =>
+			Math.max(sizes[index]?.columns ?? 1, visibleWidth(stripFormatting(label))),
+		);
 		const labelRow = groupLabels
-			.map((label, _index) => {
-				const pad = Math.max(0, columnWidth - visibleWidth(stripFormatting(label)));
+			.map((label, index) => {
+				const pad = Math.max(0, (slotWidths[index] ?? 0) - visibleWidth(stripFormatting(label)));
 				return label + " ".repeat(pad);
 			})
 			.join(" ".repeat(GRID_GAP))
 			.trimEnd();
 		lines.push(labelRow);
-		// Image rows: zip columns line by line. Kitty places each image at the
-		// CURSOR position when its transmission completes, and the sequences are
-		// zero-width — so after image 1 the cursor is still at column 0 and the
-		// second transmission would land ON TOP of image 1. Each subsequent
-		// column therefore starts with a CHA jump (`ESC[<col>G`, 1-based) to its
-		// start column; terminal/herdr cursor tracking follows, and both images
-		// composite side by side.
+
+		// Kitty sequences are zero-width, so each image starts with a CHA jump.
+		// The offset is based on cumulative compact slot widths, not columnWidth.
 		const rows = Math.max(...rendered.map((column) => column.length));
 		for (let row = 0; row < rows; row++) {
 			let line = "";
+			let startCol = 0;
 			for (let column = 0; column < rendered.length; column++) {
-				if (column > 0) {
-					const startCol = column * (columnWidth + GRID_GAP);
-					line += `\x1b[${startCol + 1}G`;
-				}
+				if (column > 0) line += `\x1b[${startCol + 1}G`;
 				line += rendered[column]?.[row] ?? "";
+				startCol += (slotWidths[column] ?? 0) + GRID_GAP;
 			}
 			lines.push(stripTrailingSpaces(line));
 		}
 	}
 	return lines;
+}
+
+/** Match pi-tui Image.render's Kitty cell-size calculation for slot sizing. */
+function imageCellSize(
+	dimensions: ImageDimensions | undefined,
+	requestedWidth: number,
+	cellDimensions: CellDimensions,
+): { columns: number; rows: number } {
+	const imageDimensions = dimensions ?? FALLBACK_IMAGE_DIMENSIONS;
+	const maxWidth = Math.max(1, Math.min(requestedWidth - 2, 60));
+	const maxHeight = Math.max(1, Math.ceil((maxWidth * cellDimensions.widthPx) / cellDimensions.heightPx));
+	const imageWidth = Math.max(1, imageDimensions.widthPx);
+	const imageHeight = Math.max(1, imageDimensions.heightPx);
+	const widthScale = (maxWidth * cellDimensions.widthPx) / imageWidth;
+	const heightScale = (maxHeight * cellDimensions.heightPx) / imageHeight;
+	const scale = Math.min(widthScale, heightScale);
+	return {
+		columns: Math.max(1, Math.min(maxWidth, Math.ceil((imageWidth * scale) / cellDimensions.widthPx))),
+		rows: Math.max(1, Math.min(maxHeight, Math.ceil((imageHeight * scale) / cellDimensions.heightPx))),
+	};
 }
 
 /** Label text may carry ANSI color; measure only the visible part.

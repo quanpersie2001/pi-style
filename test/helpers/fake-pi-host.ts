@@ -60,6 +60,7 @@ export class FakePiHost {
 	readonly registeredFlags = new Map<string, unknown>();
 	readonly registeredMessageRenderers = new Map<string, unknown>();
 	readonly registeredEntryRenderers = new Map<string, unknown>();
+	readonly appendedEntries: Array<{ customType: string; data?: unknown }> = [];
 	activeTools: string[] = [];
 	allTools: unknown[] = [];
 	readonly widgets = new Map<string, { content: unknown; placement: "aboveEditor" | "belowEditor" }>();
@@ -200,7 +201,9 @@ export class FakePiHost {
 			},
 			sendMessage: () => {},
 			sendUserMessage: () => {},
-			appendEntry: () => {},
+			appendEntry: (customType, data) => {
+				this.appendedEntries.push({ customType, data });
+			},
 			setSessionName: () => {},
 			getSessionName: () => undefined,
 			setLabel: () => {},

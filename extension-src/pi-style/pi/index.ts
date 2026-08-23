@@ -76,21 +76,20 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	// entries whose customType has no renderer — and once at extension load is
 	// enough (persisted entries from previous sessions render on resume).
 	registerImagePreviewSurface(pi);
-	// User-prompt image previews (ADR 0008): stage at `before_agent_start` (the
-	// only event carrying the prompt's `images`), flush as a display-only entry
-	// at the first `message_start(assistant)`. Appending at before_agent_start
-	// would land the entry ABOVE the user message — the user message enters the
-	// feed only when UI listeners process message_start(user) and persists at
-	// message_end(user), both after extension handlers. At the first assistant
-	// message the user message is already rendered and persisted, so the host
-	// inserts the entry below it (spliced before the streaming component) and
-	// the session file records user → preview → assistant for identical resume.
-	// Edge: a steered prompt arriving before the first flush overwrites the
-	// staged slot (last write wins) — steer-with-image is a rare corner.
+	// User-prompt image previews (ADR 0008): the prompt's `images` are only
+	// available at `before_agent_start`, but appending there would place the entry
+	// above the user message because extension handlers run before the UI handles
+	// `message_start(user)`. Capture there, then flush on the next event-loop turn
+	// after `message_start(user)` so the preview appears immediately below it.
+	// The assistant-start handler is a synchronous fallback for runtimes that begin
+	// the assistant before the deferred flush runs. A steered prompt arriving before
+	// flush replaces the staged slot (last write wins).
 	let stagedImagePreview: ImagePreviewEntryData | undefined;
+	let previewFlushTimer: ReturnType<typeof setTimeout> | undefined;
 	pi.on("before_agent_start", (event) => {
-		const staged = stageImagePreviewData(event.images ?? []);
-		if (staged) stagedImagePreview = staged;
+		// Always replace the slot: a subsequent image-less prompt must not
+		// accidentally flush the previous prompt's preview.
+		stagedImagePreview = stageImagePreviewData(event.images ?? []);
 	});
 	pi.on("session_start", async (event, ctx) => {
 		resetUsageFromSessionCache(ctx.sessionManager);
@@ -163,9 +162,25 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		// A new message is a batch boundary: quiet-tool (read/ls/find) calls of the
 		// new message start a fresh batch instead of joining the previous one.
 		closeActiveBatch();
-		// Flush the staged image preview below the just-rendered user message
-		// (ADR 0008 ordering — see the before_agent_start comment above).
+		if (event.message?.role === "user" && stagedImagePreview && !previewFlushTimer) {
+			// Extension handlers run before Pi's interactive listener adds the user
+			// message to the chat. Defer one turn so the entry is appended below the
+			// visible user message, but do not wait for assistant content to arrive.
+			const pending = stagedImagePreview;
+			previewFlushTimer = setTimeout(() => {
+				previewFlushTimer = undefined;
+				if (stagedImagePreview !== pending) return;
+				flushImagePreviewEntry(pi, pending);
+				stagedImagePreview = undefined;
+			}, 0);
+		}
+		// Fallback for runtimes that start the assistant before the deferred turn
+		// runs. This preserves the ordering below the user and never duplicates.
 		if (stagedImagePreview && event.message?.role === "assistant") {
+			if (previewFlushTimer) {
+				clearTimeout(previewFlushTimer);
+				previewFlushTimer = undefined;
+			}
 			flushImagePreviewEntry(pi, stagedImagePreview);
 			stagedImagePreview = undefined;
 		}

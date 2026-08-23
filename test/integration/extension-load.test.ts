@@ -58,6 +58,38 @@ describe("pi-style extension lifecycle foundation", () => {
 		expect(vi.getTimerCount()).toBe(0);
 	});
 
+	it("renders submitted image previews immediately after the user message starts", async () => {
+		const host = new FakePiHost();
+		piStyleExtension(host.extensionApi);
+		const image = { type: "image", data: "base64-image", mimeType: "image/png" };
+		await host.emit("before_agent_start", { type: "before_agent_start", images: [image] });
+		expect(host.appendedEntries).toHaveLength(0);
+		await host.emit("message_start", { type: "message_start", message: { role: "user", content: [] } });
+		expect(host.appendedEntries).toHaveLength(0);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(host.appendedEntries).toHaveLength(1);
+		expect(host.appendedEntries[0]?.customType).toBe("pi-style-image-preview");
+		expect(host.appendedEntries[0]?.data).toEqual({
+			images: [{ data: image.data, mimeType: image.mimeType }],
+		});
+		// Assistant start must not append a duplicate if the deferred flush won.
+		await host.emit("message_start", { type: "message_start", message: { role: "assistant", content: [] } });
+		expect(host.appendedEntries).toHaveLength(1);
+	});
+
+	it("clears a staged preview when the next prompt has no images", async () => {
+		const host = new FakePiHost();
+		piStyleExtension(host.extensionApi);
+		await host.emit("before_agent_start", {
+			type: "before_agent_start",
+			images: [{ type: "image", data: "stale", mimeType: "image/png" }],
+		});
+		await host.emit("before_agent_start", { type: "before_agent_start", images: [] });
+		await host.emit("message_start", { type: "message_start", message: { role: "user", content: [] } });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(host.appendedEntries).toHaveLength(0);
+	});
+
 	it("message_start closes the active quiet-tool batch", async () => {
 		const host = new FakePiHost();
 		piStyleExtension(host.extensionApi);
