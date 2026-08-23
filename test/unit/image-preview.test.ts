@@ -212,7 +212,7 @@ describe("multi-image grid (kitty side-by-side)", () => {
 			entry({
 				images: [
 					{ data: pngDimensions(674, 1424), mimeType: "image/png" },
-					{ data: pngDimensions(1600, 600), mimeType: "image/png" }
+					{ data: pngDimensions(1600, 600), mimeType: "image/png" },
 				],
 			}),
 			{ expanded: false },
