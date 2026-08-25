@@ -1,11 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.7] - 2026-08-25
 
 ### Bug Fixes
 
-- *(compat)* Root cause: Pi `0.84.3` switches the Node CLI entrypoint to a minified bundled runtime (`dist/bundle/chunks/*`) whose jiti virtual-module map serves extensions the in-bundle class objects; minification rewrites every certified method's `Function.toString()` text (behavior unchanged), invalidating all 9 recorded fingerprints and failing every Tier C surface closed. Each surface now records both artifact identities — modular (`0.83.0`–`0.84.2`) and bundled (`0.84.3`) — verified against the real `0.83.0`–`0.84.3` runtimes
-- *(compat)* Detect the host Pi version through the `VERSION` export fallback when `import.meta.resolve` cannot see the host package inside the bundled runtime (fixes `piVersion: "unknown"`)
+- *(compat)* Support Pi 0.84.3 bundled runtime identities
 
 ## [0.2.5] - 2026-08-25
 
