@@ -1,6 +1,6 @@
 # Messages and tool presentation
 
-> Status: **Implemented/certified subset — exact Pi 0.83.0; capability-conditioned fallbacks remain native**
+> Status: **Implemented/certified subset — Pi 0.83.0 through 0.84.3; capability-conditioned fallbacks remain native**
 
 ## Scope
 
@@ -60,7 +60,7 @@ Assistant presentation uses a restrained prefix only when it improves role separ
 
 ## Compatibility status
 
-The certified Tier C subset targets exact Pi `0.83.0` only (policy range `>=0.83.0 <0.84.0`). Installation is session-only; the core/message/tool surface flags are default-on (fingerprint-certified, fail-closed elsewhere, conflict-preserving), and the OFF switch is `compatibility.allowCorePatches: false` in config. No execution, tool registration, prompt, filesystem, or process behavior is changed.
+The certified Tier C subset targets recorded runtime identities (observed on Pi `0.83.0`–`0.84.3`; policy range `>=0.83.0 <0.85.0`). Installation is session-only; the core/message/tool surface flags are default-on (fingerprint-certified, fail-closed elsewhere, conflict-preserving), and the OFF switch is `compatibility.allowCorePatches: false` in config. No execution, tool registration, prompt, filesystem, or process behavior is changed.
 
 Certified presentation: assistant prefix; tool call/result selectors with exact markers `[tool]`, `[tool:result]`, `[tool:pending]`, `[tool:running]`, `[tool:error]` (marker style); and boxed special blocks when `tools.style: "compact-box"` and `messages.specialBlocks` are active. Boxed special blocks are certified adapters over the native `updateDisplay`/`rebuild` identities (fingerprint-verified) and fall back to native layout whenever no session theme is cached or the component shape is unsupported. ASCII mode uses configured ASCII markers on already-authorized surfaces.
 

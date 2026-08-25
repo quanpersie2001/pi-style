@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import * as piCodingAgentPackage from "@earendil-works/pi-coding-agent";
 import {
 	AssistantMessageComponent,
 	BashExecutionComponent,
@@ -35,7 +36,13 @@ import {
  * every other surface continues.
  */
 export const SUPPORTED_VERSION_RANGE = ">=0.83.0 <0.85.0";
-export const SUPPORTED_PI_VERSIONS: readonly string[] = Object.freeze(["0.83.0", "0.84.0"]);
+export const SUPPORTED_PI_VERSIONS: readonly string[] = Object.freeze([
+	"0.83.0",
+	"0.84.0",
+	"0.84.1",
+	"0.84.2",
+	"0.84.3",
+]);
 
 /** A recorded native identity for one certified surface. */
 export interface KnownNativeIdentity {
@@ -53,6 +60,17 @@ export interface KnownNativeIdentity {
  * A matching name/arity/hash is evidence of the shipped native method, not a
  * cryptographic proof: code loaded before this module could spoof the same
  * function source. Unrecorded identities therefore fall back natively per surface.
+ *
+ * Identities are recorded per ARTIFACT FAMILY, not just per version: through Pi
+ * 0.84.2 the Node CLI ran the modular `dist/` build and extensions received the
+ * pretty-printed dist classes; 0.84.3 switches the CLI entrypoint to a minified
+ * bundled runtime (`dist/bundle/chunks/*`, see Pi 0.84.3 CHANGELOG "load a bundled
+ * runtime") whose jiti virtual-module map hands extensions the in-bundle class
+ * objects. Minification rewrites every method's `Function.prototype.toString()`
+ * text while behavior stays identical, so each surface carries BOTH the modular
+ * identity (0.83.0–0.84.2) and the bundled identity (0.84.3). The modular
+ * `dist/index.js` itself is unchanged in 0.84.3 — the switch is which class
+ * objects the running CLI actually serves to extensions.
  */
 export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNativeIdentity[]>> = Object.freeze({
 	"native-assistant-message:render": Object.freeze([
@@ -60,7 +78,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "render",
 			arity: 1,
 			fingerprint: "2a39243f",
-			versions: Object.freeze(["0.83.0", "0.84.0"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+		}),
+		Object.freeze({
+			name: "render",
+			arity: 1,
+			fingerprint: "a9be09a3",
+			versions: Object.freeze(["0.84.3"]),
 		}),
 	]),
 	"native-assistant-message:updateContent": Object.freeze([
@@ -77,7 +101,17 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateContent",
 			arity: 1,
 			fingerprint: "d2114491",
-			versions: Object.freeze(["0.84.0"]),
+			versions: Object.freeze(["0.84.0", "0.84.1", "0.84.2"]),
+		}),
+		// 0.84.3: the CLI loads a minified bundled runtime and extensions receive
+		// the in-bundle class objects, so this method's toString() is the minified
+		// text. See the registry docblock (artifact families) — the modular dist
+		// build of 0.84.3 still carries the fingerprint above.
+		Object.freeze({
+			name: "updateContent",
+			arity: 1,
+			fingerprint: "356b7e83",
+			versions: Object.freeze(["0.84.3"]),
 		}),
 	]),
 	"native-compaction-message:updateDisplay": Object.freeze([
@@ -85,7 +119,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "f8c44e78",
-			versions: Object.freeze(["0.83.0", "0.84.0"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+		}),
+		Object.freeze({
+			name: "updateDisplay",
+			arity: 0,
+			fingerprint: "5118a51d",
+			versions: Object.freeze(["0.84.3"]),
 		}),
 	]),
 	"native-branch-message:updateDisplay": Object.freeze([
@@ -93,7 +133,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "415d57b7",
-			versions: Object.freeze(["0.83.0", "0.84.0"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+		}),
+		Object.freeze({
+			name: "updateDisplay",
+			arity: 0,
+			fingerprint: "2185274e",
+			versions: Object.freeze(["0.84.3"]),
 		}),
 	]),
 	"native-skill-message:updateDisplay": Object.freeze([
@@ -101,7 +147,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "48099ea6",
-			versions: Object.freeze(["0.83.0", "0.84.0"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+		}),
+		Object.freeze({
+			name: "updateDisplay",
+			arity: 0,
+			fingerprint: "4051fd65",
+			versions: Object.freeze(["0.84.3"]),
 		}),
 	]),
 	"native-custom-message:rebuild": Object.freeze([
@@ -109,7 +161,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "rebuild",
 			arity: 0,
 			fingerprint: "76ae2e3a",
-			versions: Object.freeze(["0.83.0", "0.84.0"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+		}),
+		Object.freeze({
+			name: "rebuild",
+			arity: 0,
+			fingerprint: "b89987cc",
+			versions: Object.freeze(["0.84.3"]),
 		}),
 	]),
 	"tool-call-renderer:getCallRenderer": Object.freeze([
@@ -117,7 +175,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "getCallRenderer",
 			arity: 0,
 			fingerprint: "951ea0e0",
-			versions: Object.freeze(["0.83.0", "0.84.0"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+		}),
+		Object.freeze({
+			name: "getCallRenderer",
+			arity: 0,
+			fingerprint: "e50613b7",
+			versions: Object.freeze(["0.84.3"]),
 		}),
 	]),
 	"tool-result-renderer:getResultRenderer": Object.freeze([
@@ -125,7 +189,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "getResultRenderer",
 			arity: 0,
 			fingerprint: "8a25cd71",
-			versions: Object.freeze(["0.83.0", "0.84.0"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+		}),
+		Object.freeze({
+			name: "getResultRenderer",
+			arity: 0,
+			fingerprint: "28c4dc22",
+			versions: Object.freeze(["0.84.3"]),
 		}),
 	]),
 	"native-bash-execution:render": Object.freeze([
@@ -137,7 +207,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "BashExecutionComponent",
 			arity: 2,
 			fingerprint: "a5b5abca",
-			versions: Object.freeze(["0.83.0", "0.84.0"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+		}),
+		Object.freeze({
+			name: "BashExecutionComponent",
+			arity: 2,
+			fingerprint: "98d22d96",
+			versions: Object.freeze(["0.84.3"]),
 		}),
 	]),
 });
@@ -267,7 +343,18 @@ function trustedNativeIdentity(spec: TargetSpec): unknown {
 export interface PiVersionResolution {
 	resolvePackageEntry?: (packageName: string) => string;
 	readFile?: (path: string) => string;
+	/** Test-only override for the runtime VERSION-export fallback source. */
+	runtimeVersion?: string;
 }
+
+/**
+ * The running host build's own VERSION constant. Inside the packaged Pi
+ * process extensions are loaded through jiti, where `import.meta.resolve`
+ * cannot see the host package at all — this export is aliased to the exact
+ * host build and is the authoritative version source there. Read defensively
+ * through a namespace import so hosts without the export still load.
+ */
+const RUNTIME_PI_VERSION = (piCodingAgentPackage as { readonly VERSION?: unknown }).VERSION;
 
 export function detectPiVersion(resolution: PiVersionResolution = {}): {
 	version: string | undefined;
@@ -285,6 +372,7 @@ export function detectPiVersion(resolution: PiVersionResolution = {}): {
 			}
 		});
 	const readFile = resolution.readFile ?? ((path: string) => readFileSync(path, "utf8"));
+	let walkDiagnostic: string | undefined;
 	try {
 		const entry = resolvePackageEntry("@earendil-works/pi-coding-agent");
 		let directory = dirname(entry);
@@ -301,13 +389,13 @@ export function detectPiVersion(resolution: PiVersionResolution = {}): {
 			if (parent === directory) break;
 			directory = parent;
 		}
-		return { version: undefined, diagnostic: "Pi package version was not found" };
+		walkDiagnostic = "Pi package version was not found";
 	} catch (error) {
-		return {
-			version: undefined,
-			diagnostic: `Pi package version detection failed: ${error instanceof Error ? error.message : String(error)}`,
-		};
+		walkDiagnostic = `Pi package version detection failed: ${error instanceof Error ? error.message : String(error)}`;
 	}
+	const runtimeVersion = resolution.runtimeVersion !== undefined ? resolution.runtimeVersion : RUNTIME_PI_VERSION;
+	if (typeof runtimeVersion === "string" && runtimeVersion.trim() !== "") return { version: runtimeVersion };
+	return { version: undefined, diagnostic: walkDiagnostic };
 }
 
 function descriptorSnapshot(descriptor: PropertyDescriptor | undefined): CompatibilityDescriptorSnapshot | undefined {

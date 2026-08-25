@@ -170,6 +170,25 @@ describe("identity-certified compatibility probe", () => {
 		expect(SUPPORTED_PI_VERSIONS).toContain(detectPiVersion().version);
 	});
 
+	it("records a certified identity for every surface on each supported Pi build", () => {
+		for (const version of SUPPORTED_PI_VERSIONS) {
+			for (const spec of targetSpecs) {
+				const key = `${spec.subtype}:${spec.method}`;
+				const identities = KNOWN_NATIVE_IDENTITIES[key] ?? [];
+				expect(
+					identities.some((identity) => identity.versions.includes(version)),
+					`${version} ${key}`,
+				).toBe(true);
+			}
+		}
+		// 0.84.3 rebuilds the shipped bundle: every surface must carry the
+		// re-recorded bundled identity or it degrades to native fallback there.
+		const bundledKeys = Object.keys(KNOWN_NATIVE_IDENTITIES).filter((key) =>
+			(KNOWN_NATIVE_IDENTITIES[key] ?? []).some((identity) => identity.versions.includes("0.84.3")),
+		);
+		expect(bundledKeys).toHaveLength(targetSpecs.length);
+	});
+
 	it("records every attempted subtype and delegates real native targets", () => {
 		initTheme("dark", false);
 		const markers = new Set<string>();
@@ -551,15 +570,31 @@ describe("identity-certified compatibility probe", () => {
 			}).version,
 		).toBe("0.83.0");
 		expect(
-			detectPiVersion({ resolvePackageEntry: () => "/tmp/pkg/dist/index.js", readFile: () => "{" }).version,
+			detectPiVersion({
+				resolvePackageEntry: () => "/tmp/pkg/dist/index.js",
+				readFile: () => "{",
+				runtimeVersion: "",
+			}).version,
 		).toBeUndefined();
 		expect(
 			detectPiVersion({
 				resolvePackageEntry: () => {
 					throw new Error("missing");
 				},
+				runtimeVersion: "",
 			}).version,
 		).toBeUndefined();
+		// Inside the packaged Pi process import.meta.resolve cannot see the host
+		// package (jiti aliasing), so the walk fails and the host's own VERSION
+		// export becomes the authoritative version source.
+		expect(
+			detectPiVersion({
+				resolvePackageEntry: () => {
+					throw new Error("Cannot find module");
+				},
+				runtimeVersion: "0.84.3",
+			}).version,
+		).toBe("0.84.3");
 		// The version string is informational: an unknown version still certifies
 		// every surface whose runtime identity matches a recorded fingerprint.
 		for (const version of [undefined, "9.9.9"]) {
