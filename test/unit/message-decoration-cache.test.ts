@@ -10,7 +10,6 @@ const SNAPSHOT = {
 	assistantPrefix: "│ ",
 	assistantEnabled: true,
 	collapseHiddenThinking: false,
-	hideInterimText: false,
 } as const;
 
 afterEach(() => {

@@ -374,7 +374,6 @@ export interface CompatibilityProbeOptions {
 			assistantPrefix: boolean;
 			specialBlocks: boolean;
 			hideThinkingLabel: boolean;
-			hideInterimText: boolean;
 		};
 		tools: { enabled: boolean; style: string; maxCollapsedLines: number; maxExpandedLines: number; dimOutput: boolean };
 		preset: string;
@@ -423,7 +422,7 @@ function surfaceDisabled(spec: TargetSpec, config: CompatibilityProbeOptions["co
 	if (!config.messages.enabled) return true;
 	if (spec.subtype === "native-assistant-message" && spec.method === "render") return !config.messages.assistantPrefix;
 	if (spec.subtype === "native-assistant-message" && spec.method === "updateContent")
-		return !config.messages.hideThinkingLabel && !config.messages.hideInterimText;
+		return !config.messages.hideThinkingLabel;
 	if (isSpecialBlock(spec)) return !config.messages.specialBlocks;
 	return true;
 }

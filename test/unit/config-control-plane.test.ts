@@ -128,7 +128,6 @@ describe("configuration control plane and composition", () => {
 			["messages.enabled", false, "bad"],
 			["messages.assistantPrefix", false, "bad"],
 			["messages.specialBlocks", false, "bad"],
-			["messages.hideInterimText", false, "bad"],
 			["messages.showImagePreviews", false, "bad"],
 			["messages.clipboardImages", false, "bad"],
 			["messages.previewMaxWidth", 30, "bad"],

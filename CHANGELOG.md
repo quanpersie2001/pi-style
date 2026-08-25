@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+
+- *(messages)* Preserve assistant text in mixed messages that also carry tool calls; remove the unsafe `messages.hideInterimText` feature and configuration leaf.
+
 ## [0.2.3] - 2026-08-22
 
 ### Documentation

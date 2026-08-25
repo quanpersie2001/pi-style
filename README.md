@@ -17,7 +17,6 @@
 - **Editor** — compact/boxed/dock `CustomEditor` treatments with prompt glyph, metadata rows, and thinking-level border, preserving Pi keybindings and autocomplete.
 - **Startup** — compact gradient logo header and optional overlay with System & Context / Available Tools panels, rendered from snapshot data collected before mount.
 - **Messages** — assistant prefix and boxed compaction/skill/branch/MCP special blocks, and certified tool call/result selectors with pending/running/error markers.
-- **Interim narration hiding** — the text of assistant messages that also carry tool calls is hidden (`messages.hideInterimText`): the feed shows only the tool blocks, the run summary, and the final answer.
 - **Turn summaries** — when a turn completes, its finalized tool blocks collapse into one summary line (`➔ Read 2 files, ran 4 shell commands · 3.1s`); errors and interrupted turns stay visible, and Pi's global Ctrl+O toggle expands everything again (`tools.collapseAfterTurn`).
 - **User-prompt image previews** — images attached to your prompt render inline **below your message** as display-only session entries (never sent to the LLM) with `#N · WxH` labels tying each image to its marker; multiple images lay out side-by-side on kitty-capable terminals (up to 3 columns, stacked fallback elsewhere), sized by `messages.previewMaxWidth` (default 30) with Pi's global Ctrl+O expanding to 60 (`messages.showImagePreviews`).
 - **Clipboard image input** — the built-in `Ctrl+V` becomes a full image-paste flow with no other extension required: a sync native probe checks the clipboard at keystroke time, an `[Image #N] ` marker appears instantly in the editor (bytes attach asynchronously — no temp-file flash), backspacing right after a marker deletes it as one unit (discarding the image, image-paste semantics), and submit attaches real image attachments; raw pasted paths that bypass the editor still upgrade to `[image]` + attachment (`messages.clipboardImages`).
@@ -194,7 +193,7 @@ npm run check
 
 `npm run check` runs all required automated gates in order.
 
-Current test suite: 817 tests across 41 files.
+Current test suite: 819 tests across 41 files.
 
 ---
 

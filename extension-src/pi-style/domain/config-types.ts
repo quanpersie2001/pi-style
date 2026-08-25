@@ -37,7 +37,6 @@ export interface PiStyleConfig {
 		assistantPrefix?: boolean;
 		specialBlocks?: boolean;
 		hideThinkingLabel?: boolean;
-		hideInterimText?: boolean;
 		/** Inline previews for user-prompt images (ADR 0008); gates append and render. */
 		showImagePreviews?: boolean;
 		/** Clipboard image input (ADR 0009): upgrade built-in paste temp paths to attachments. */
@@ -102,7 +101,6 @@ export interface NormalizedPiStyleConfig {
 		assistantPrefix: boolean;
 		specialBlocks: boolean;
 		hideThinkingLabel: boolean;
-		hideInterimText: boolean;
 		/** Inline previews for user-prompt images (ADR 0008); gates append and render. */
 		showImagePreviews: boolean;
 		/** Clipboard image input (ADR 0009): upgrade built-in paste temp paths to attachments. */

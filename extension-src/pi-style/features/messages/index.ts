@@ -507,8 +507,6 @@ export type MessageDecorationSnapshot = Readonly<{
 	assistantEnabled: boolean;
 	/** Drop the hidden-thinking label row and its trailing spacer (zero-trace collapse). */
 	collapseHiddenThinking: boolean;
-	/** Hide the text of assistant messages that also carry tool calls (interim narration). */
-	hideInterimText: boolean;
 }>;
 
 export function __getMessageDecorationTestState(): Readonly<MessageDecorationTestState> {
@@ -535,7 +533,6 @@ export function decorateMessageRender(
 		assistantPrefix: "│ ",
 		assistantEnabled: true,
 		collapseHiddenThinking: false,
-		hideInterimText: false,
 	},
 ): unknown {
 	if (typeof original !== "function") return undefined;
@@ -563,34 +560,6 @@ export function decorateMessageRender(
 /** Spacer-like: renders empty lines and exposes only setLines among these surfaces. */
 function isSpacerChild(child: unknown): boolean {
 	return typeof (child as { setLines?: unknown } | undefined)?.setLines === "function";
-}
-
-/**
- * The assistant TEXT Markdown block: `Markdown(text, pad, 0, theme, undefined,
- * { transform })` — duck-typed by setText + options object + no defaultTextStyle.
- * Thinking Markdown passes a `{ color, italic }` defaultTextStyle and is
- * therefore excluded; plain Text components carry no `options`.
- */
-function isInterimTextChild(child: unknown): boolean {
-	const candidate = child as { setText?: unknown; options?: unknown; defaultTextStyle?: unknown } | undefined;
-	return (
-		typeof candidate?.setText === "function" &&
-		candidate.options !== undefined &&
-		typeof candidate.options === "object" &&
-		candidate.defaultTextStyle === undefined
-	);
-}
-
-/** Whether the message content includes a toolCall item (interim narration marker). */
-function hasToolCallItems(message: unknown): boolean {
-	if (!message || typeof message !== "object") return false;
-	const content = (message as { content?: unknown }).content;
-	return (
-		Array.isArray(content) &&
-		content.some(
-			(item) => item !== null && typeof item === "object" && (item as { type?: unknown }).type === "toolCall",
-		)
-	);
 }
 
 /**
@@ -652,7 +621,6 @@ export function decorateMessageUpdate(
 		assistantPrefix: "│ ",
 		assistantEnabled: true,
 		collapseHiddenThinking: false,
-		hideInterimText: false,
 	},
 ): unknown {
 	if (typeof original !== "function") return undefined;
@@ -674,18 +642,6 @@ export function decorateMessageUpdate(
 				// another visible block follows; the message keeps only its shared top padding.
 				if (isSpacerChild(children[index])) children.splice(index, 1);
 			}
-		}
-		// Interim narration: assistant messages that carry tool calls use their text
-		// only to narrate while working; the tool blocks tell the story. Hide the text
-		// so the feed shows the run's summary and the final answer. Deterministic per
-		// content — streaming, scroll-back, and resume behave identically. Errors and
-		// truncation notices are Text children and stay; if only spacers remain the
-		// message becomes zero-trace.
-		if (snapshot.hideInterimText && hasToolCallItems(args[0])) {
-			for (let index = children.length - 1; index >= 0; index--) {
-				if (isInterimTextChild(children[index])) children.splice(index, 1);
-			}
-			if (children.every((child) => isSpacerChild(child))) children.length = 0;
 		}
 		markChildrenScanned(instance, children);
 	}
