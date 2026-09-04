@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.8] - 2026-09-05
+
+### Bug Fixes
+
+- *(startup)* Simplify the block-art logo to eight pure-block rows and split the `/ commands` / `! bash` hints onto separate rows
+- *(startup)* Replace the hardcoded `π pi-style` heading with the current project path (home-contracted cwd, tail-truncated so the repo name survives narrow widths; basename then brand fallback)
+- *(compat)* Support Pi 0.85.0 runtime identities (per-run thinking toggles wrap thinking components in a render-transparent MouseRegion; tool renderers resolve solely through the registered toolDefinition now that the builtInToolDefinition fallback is gone). 0.84.4 shares the 0.84.3 identities in both artifact families.
+
 ## [0.2.7] - 2026-08-25
 
 ### Bug Fixes

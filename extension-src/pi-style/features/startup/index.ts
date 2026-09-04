@@ -2,8 +2,9 @@ import type { Component, OverlayHandle, OverlayOptions } from "@earendil-works/p
 import type { NormalizedPiStyleConfig } from "../../domain/config-types.js";
 import type { StatusSnapshot } from "../../domain/status.js";
 import { type ActiveTheme, type ResolvedTheme, resolveTheme } from "../../domain/theme.js";
-import { fitAnsiWidth, truncateAnsi, visibleWidth } from "../../shared/ansi.js";
-import { compactLogoHeader } from "./logo.js";
+import { fitAnsiWidth, fitAnsiWidthTail, truncateAnsi, visibleWidth } from "../../shared/ansi.js";
+import { shortenPath } from "../../shared/box.js";
+import { compactLogoHeader, logoDetailWidth } from "./logo.js";
 
 export type StartupReason = "startup" | "reload" | "new" | "resume" | "fork";
 
@@ -302,6 +303,16 @@ const STARTUP_PADDING_TOP = 2;
 /** Blank rows below the block, separating it from the editor / chat. */
 const STARTUP_PADDING_BOTTOM = 2;
 
+/**
+ * Startup heading title: the working directory of the session (home-contracted
+ * to `~`) — i.e. the path of the repo currently being worked in. Falls back to
+ * the directory basename, then the brand, when the runtime reports no cwd.
+ */
+function startupProjectTitle(snapshot: StartupSnapshot): string {
+	if (snapshot.cwd) return shortenPath(snapshot.cwd);
+	return snapshot.project ?? "pi-style";
+}
+
 function styledLines(
 	theme: ActiveTheme,
 	config: NormalizedPiStyleConfig,
@@ -319,13 +330,22 @@ function styledLines(
 	// Breathing room above the block (separates it from the status line / terminal top).
 	lines.push(...Array.from({ length: STARTUP_PADDING_TOP }, () => ""));
 
-	const logoTitle = resolved.mode === "ascii" ? "pi-style" : `${resolved.glyph("pi")} pi-style`;
+	// Heading: the π glyph followed by the current project path (never the
+	// package name — the heading identifies WHERE you are, not what styles it).
+	// The path is tail-fitted so the repo name survives narrow terminals.
+	const asciiMode = resolved.mode === "ascii";
+	const glyph = resolved.glyph("pi");
+	const projectTitle = startupProjectTitle(snapshot);
+	const titleBudget = Math.max(0, logoDetailWidth(bodyWidth) - (asciiMode ? 0 : visibleWidth(glyph) + 1));
+	const fittedTitle = fitAnsiWidthTail(projectTitle, titleBudget, asciiMode ? "..." : "…");
+	const logoTitle = asciiMode ? fittedTitle : `${glyph} ${fittedTitle}`;
 	lines.push(
 		...compactLogoHeader(
 			resolved,
 			[
 				resolved.apply("accent", logoTitle),
-				resolved.apply("muted", "/ commands · ! bash"),
+				resolved.apply("muted", "/ commands"),
+				resolved.apply("muted", "! bash"),
 				resolved.apply("success", "● ready"),
 			],
 			bodyWidth,

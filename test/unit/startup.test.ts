@@ -1,7 +1,8 @@
+import { homedir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { normalizeConfig } from "../../extension-src/pi-style/domain/config-normalization.js";
 import { renderStartup } from "../../extension-src/pi-style/features/startup/index.js";
-import { visibleWidth } from "../../extension-src/pi-style/shared/ansi.js";
+import { stripAnsi, visibleWidth } from "../../extension-src/pi-style/shared/ansi.js";
 
 const compactConfig = normalizeConfig({
 	startup: { mode: "compact", showResources: true },
@@ -58,6 +59,46 @@ describe("startup presentation", () => {
 		expect(lines.join("\n")).toContain("pi-style");
 		expect(lines.join("\n")).toContain("/ commands");
 		expect(lines.join("\n")).toContain("● ready");
+	});
+
+	it("heads the startup block with the current project path, not the package name", () => {
+		const lines = renderStartup(snapshot, compactConfig, theme, 120);
+		// The title slot is the session cwd (the repo being worked in), never a
+		// hardcoded "pi-style" brand string.
+		expect(stripAnsi(lines.join("\n"))).toContain("/workspace/pi-style");
+	});
+
+	it("home-contracts the project path in the heading", () => {
+		const home = homedir();
+		const lines = renderStartup(
+			{ ...snapshot, cwd: `${home}/Workspace/Personal/pi-dev/some-repo` },
+			compactConfig,
+			theme,
+			120,
+		);
+		const text = stripAnsi(lines.join("\n"));
+		expect(text).toContain("~/Workspace/Personal/pi-dev/some-repo");
+		expect(text).not.toContain(home);
+	});
+
+	it("keeps the repo name (tail) when the project path exceeds the heading width", () => {
+		const lines = renderStartup(
+			{ ...snapshot, cwd: "/very/long/nested/directory/structure/holding/my-repo" },
+			compactConfig,
+			theme,
+			58,
+		);
+		const title = stripAnsi(lines.join("\n"));
+		expect(title).toContain("my-repo");
+		expect(title).toContain("…");
+		expect(title).not.toContain("/very/long");
+	});
+
+	it("falls back to the project basename, then the brand, when no cwd is known", () => {
+		const withBasename = renderStartup({ ...snapshot, cwd: undefined, project: "monorepo" }, compactConfig, theme, 120);
+		expect(stripAnsi(withBasename.join("\n"))).toContain("monorepo");
+		const brand = renderStartup({ ...snapshot, cwd: undefined, project: undefined }, compactConfig, theme, 120);
+		expect(stripAnsi(brand.join("\n"))).toContain("pi-style");
 	});
 
 	it("shows resource chips but keeps panels collapsed unless expanded", () => {

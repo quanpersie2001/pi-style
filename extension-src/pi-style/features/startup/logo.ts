@@ -9,15 +9,14 @@ import { fitAnsiWidth, parseAnsiFgToRgb, visibleWidth } from "../../shared/ansi.
  */
 
 export const PI_LOGO_LINES = [
-	"████████████╗",
-	"████████████║",
-	"████╔═══████║",
-	"████║   ████║",
-	"████████╬═══████╗",
-	"████████║   ████║ ",
-	"████╔═══╝   ████║",
-	"████║       ████║",
-	"╚═══╝       ╚═══╝",
+	"████████████",
+	"████████████",
+	"████    ████",
+	"████    ████",
+	"████████    ████",
+	"████████    ████",
+	"████        ████",
+	"████        ████",
 ] as const;
 
 const LOGO_PALETTE_STEPS = 24;
@@ -117,20 +116,25 @@ export function styledLogoLines(resolved: ResolvedTheme): string[] {
 	return logoGradientCacheLines;
 }
 
+/** Width of the side-detail column next to the block-art logo at a given content width. */
+export function logoDetailWidth(width: number): number {
+	const logoWidth = Math.max(...PI_LOGO_LINES.map((line) => visibleWidth(line)));
+	return Math.max(0, width - logoWidth - visibleWidth(LOGO_GAP));
+}
+
 /**
  * Assemble the compact startup header: gradient logo with side details when
  * wide enough, stacked logo + details next, and a minimal title/status pair
- * for very narrow terminals. Every returned line fits within `width`.
+ * for very narrow terminals. `details` is a column of detail rows — the first
+ * is the title, the last is the status, and the rows between are hints — each
+ * rendered on its own line, vertically centered beside the logo. Every
+ * returned line fits within `width`.
  */
-export function compactLogoHeader(
-	resolved: ResolvedTheme,
-	details: readonly [title: string, hints: string, status: string],
-	width: number,
-): string[] {
+export function compactLogoHeader(resolved: ResolvedTheme, details: readonly string[], width: number): string[] {
 	const logoLines = styledLogoLines(resolved);
-	const logoWidth = Math.max(...PI_LOGO_LINES.map((line) => visibleWidth(line)));
 	const safeWidth = Math.max(1, width);
-	const detailWidth = safeWidth - logoWidth - visibleWidth(LOGO_GAP);
+	const logoWidth = Math.max(...PI_LOGO_LINES.map((line) => visibleWidth(line)));
+	const detailWidth = logoDetailWidth(safeWidth);
 
 	if (detailWidth >= LOGO_SIDE_DETAIL_MIN_WIDTH) {
 		const detailStartRow = Math.max(0, Math.floor((PI_LOGO_LINES.length - details.length) / 2));
@@ -147,5 +151,5 @@ export function compactLogoHeader(
 		return [...logoLines, ...details.map((detail) => fitAnsiWidth(detail, safeWidth))];
 	}
 
-	return [details[0], details[2]].map((detail) => fitAnsiWidth(detail, safeWidth));
+	return [details[0] ?? "", details[details.length - 1] ?? ""].map((detail) => fitAnsiWidth(detail, safeWidth));
 }

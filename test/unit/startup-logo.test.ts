@@ -13,17 +13,17 @@ function resolved(colors: Record<string, string> = {}) {
 	return resolveTheme({ fg: (_token: string) => "" }, config);
 }
 
-const DETAILS: readonly [string, string, string] = ["π pi-style", "/ commands · ! bash", "● ready"];
+const DETAILS: readonly string[] = ["π ~/Workspace/pi-style", "/ commands", "! bash", "● ready"];
 
 describe("startup logo", () => {
-	it("defines the nine-line block-art Pi logo", () => {
-		expect(PI_LOGO_LINES).toHaveLength(9);
+	it("defines the eight-line block-art Pi logo", () => {
+		expect(PI_LOGO_LINES).toHaveLength(8);
 		expect(PI_LOGO_LINES[0]).toContain("█");
 	});
 
 	it("applies an accent gradient when a hex accent is resolvable", () => {
 		const lines = styledLogoLines(resolved({ accent: "#5098ff" }));
-		expect(lines).toHaveLength(9);
+		expect(lines).toHaveLength(8);
 		expect(lines.join("")).toContain("\u001b[38;2;");
 		// every gradient color stays on the accent hue (blue-ish) and forms a real gradient
 		const output = lines.join("");
@@ -44,8 +44,8 @@ describe("startup logo", () => {
 
 	it("renders side details beside the logo on wide widths", () => {
 		const lines = compactLogoHeader(resolved(), DETAILS, 120);
-		expect(lines).toHaveLength(9);
-		expect(lines.join("\n")).toContain("π pi-style");
+		expect(lines).toHaveLength(8);
+		expect(lines.join("\n")).toContain("π ~/Workspace/pi-style");
 		expect(lines.join("\n")).toContain("/ commands");
 		expect(lines.every((line) => visibleWidth(line) <= 120)).toBe(true);
 	});
@@ -53,7 +53,7 @@ describe("startup logo", () => {
 	it("stacks the logo above details on narrow widths", () => {
 		const lines = compactLogoHeader(resolved(), DETAILS, 20);
 		expect(lines).toHaveLength(12);
-		expect(lines.slice(0, 9)).toEqual([...PI_LOGO_LINES]);
+		expect(lines.slice(0, 8)).toEqual([...PI_LOGO_LINES]);
 		expect(lines.every((line) => visibleWidth(line) <= 20)).toBe(true);
 	});
 

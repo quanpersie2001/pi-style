@@ -108,6 +108,51 @@ export function resetAnsi(value: string): string {
 export function fitAnsiWidth(value: string, width: number, ellipsis = "…"): string {
 	return visibleWidth(value) <= width ? value : truncateAnsi(value, width, ellipsis);
 }
+/**
+ * Fit a string by dropping the HEAD (keeping the tail): for path-like values
+ * whose meaningful part is the end (the repo name). ANSI-aware — an escape run
+ * belongs to the visible character it precedes, so dropped characters drop
+ * their styling with them and the first kept character keeps its own escape.
+ */
+export function fitAnsiWidthTail(value: string, width: number, ellipsis = "…"): string {
+	if (width <= 0) return "";
+	if (visibleWidth(value) <= width) return resetAnsi(value);
+	const ellipsisWidth = visibleWidth(ellipsis);
+	if (width <= ellipsisWidth) return resetAnsi(ellipsis);
+	type Unit = { ansi: string; char: string; charWidth: number };
+	const units: Unit[] = [];
+	let pending = "";
+	for (let i = 0; i < value.length; i++) {
+		const code = value.charCodeAt(i);
+		if (code === 27) {
+			const start = i;
+			i++;
+			while (i + 1 < value.length && !isFinal(value[i + 1] ?? "")) i++;
+			i++;
+			pending += value.slice(start, i + 1);
+			continue;
+		}
+		let char = value[i] ?? "";
+		// Keep surrogate pairs (emoji etc.) as one unit.
+		if (code >= 0xd800 && code <= 0xdbff && i + 1 < value.length) char += value[++i];
+		units.push({ ansi: pending, char, charWidth: visibleWidth(char) || 1 });
+		pending = "";
+	}
+	let kept = 0;
+	let used = ellipsisWidth;
+	while (kept < units.length) {
+		const unit = units[units.length - 1 - kept];
+		if (!unit || used + unit.charWidth > width) break;
+		used += unit.charWidth;
+		kept++;
+	}
+	let output = ellipsis;
+	for (let index = units.length - kept; index < units.length; index++) {
+		const unit = units[index];
+		if (unit) output += unit.ansi + unit.char;
+	}
+	return resetAnsi(output);
+}
 export function truncateAnsi(value: string, width: number, ellipsis = "…"): string {
 	if (width <= 0) return "";
 	if (visibleWidth(value) <= width) return resetAnsi(value);
