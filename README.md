@@ -147,7 +147,7 @@ Ordinary mutations are session-only; persistence requires an explicit `global` o
 ## Compatibility
 
 - Public Pi APIs (widgets, editor, header, footer bridge) are preferred and enabled by default.
-- Tier C core patches (message prefixes, special blocks, tool selectors) are identity-certified per surface against recorded fingerprints (Pi `0.83.0`–`0.84.3` observed; Pi `0.84.3` loads the CLI from a minified bundled runtime, so every surface also records the bundled identities), isolated, reversible, and flag/config gated; any surface whose runtime identity is not recorded falls back natively on its own.
+- Tier C core patches (message prefixes, special blocks, tool selectors) are identity-certified per surface against recorded fingerprints (Pi `0.83.0`–`0.85.0` observed; Pi ≥`0.84.3` loads the CLI from a minified bundled runtime, so every surface also records the bundled identities), isolated, reversible, and flag/config gated; any surface whose runtime identity is not recorded falls back natively on its own.
 - No render-time I/O: filesystem, Git, settings, and session data flow through cached providers into immutable snapshots.
 - Terminal-global background synchronization is unsupported/off for technical v1; explicit cell backgrounds and Pi theme APIs remain supported.
 - Terminal multiplexers gate kitty graphics: in herdr, previews (and Pi's own tool-result images) require `experimental.kitty_graphics = true` in `~/.config/herdr/config.toml` plus a server restart; tmux disables images upstream.

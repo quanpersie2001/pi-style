@@ -567,9 +567,21 @@ function isSpacerChild(child: unknown): boolean {
  * rendered content is empty. Duck-typed on the public shape because
  * pi-coding-agent may resolve its own nested pi-tui copy, so `instanceof`
  * across that module boundary is unreliable.
+ *
+ * Pi 0.85.0 wraps every thinking-run component (the hidden label Text or the
+ * visible thinking Markdown) in a `MouseRegion` for click-to-toggle visibility.
+ * `MouseRegion` is render-transparent, so the placeholder check unwraps it first
+ * (duck-typed: a `handleMouse` function plus a `child`), keeping the same
+ * Text detection for the pre-0.85 bare-Text layout.
  */
+function unwrapMouseRegion(child: unknown): unknown {
+	const candidate = child as { handleMouse?: unknown; child?: unknown } | undefined;
+	if (typeof candidate?.handleMouse !== "function" || candidate.child === undefined) return child;
+	return candidate.child;
+}
+
 function isBlankTextChild(child: unknown): boolean {
-	const candidate = child as
+	const candidate = unwrapMouseRegion(child) as
 		| { setCustomBgFn?: unknown; render?: (width: number) => string[]; text?: unknown }
 		| undefined;
 	if (typeof candidate?.setCustomBgFn !== "function" || typeof candidate.render !== "function") return false;
@@ -605,7 +617,8 @@ function markChildrenScanned(instance: object, children: readonly unknown[]): vo
  *
  * Native `AssistantMessageComponent.updateContent` renders the thinking block as
  * `Text(theme.italic(theme.fg("thinkingText", label)), outputPad, 0)` plus a
- * trailing `Spacer(1)`. An empty label is still wrapped in ANSI SGR codes, so
+ * trailing `Spacer(1)` — wrapped in a render-transparent `MouseRegion` since
+ * Pi 0.85.0. An empty label is still wrapped in ANSI SGR codes, so
  * `Text.render` cannot treat it as empty (its check is `text.trim() === ""`,
  * and trim does not strip escape sequences) and emits one full-width invisible
  * line. That invisible row plus the surrounding spacers is the "gap" left when

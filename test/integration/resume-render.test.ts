@@ -1,6 +1,7 @@
 import {
 	AssistantMessageComponent,
 	CompactionSummaryMessageComponent,
+	createReadToolDefinition,
 	initTheme,
 	ToolExecutionComponent,
 	UserMessageComponent,
@@ -32,7 +33,18 @@ function renderRestoredChat() {
 		"hidden",
 		1,
 	);
-	const tool = new ToolExecutionComponent("read", "call_1", { path: "x" }, {}, undefined, undefined, "/fake");
+	// Pi ≥0.85 resolves built-in renderers only through the registered
+	// toolDefinition the interactive mode passes in (the internal
+	// builtInToolDefinition fallback is gone), so mirror production here.
+	const tool = new ToolExecutionComponent(
+		"read",
+		"call_1",
+		{ path: "x" },
+		{},
+		createReadToolDefinition("/fake"),
+		undefined,
+		"/fake",
+	);
 	tool.updateResult({ content: [{ type: "text", text: "file contents" }], details: {}, isError: false });
 	const compaction = new CompactionSummaryMessageComponent(
 		{ tokensBefore: 12000, summary: "old stuff" },
@@ -120,7 +132,15 @@ describe("resumed-session rendering (renderBeforeBind ordering)", () => {
 		const tools: ToolExecutionComponent[] = [];
 		for (let i = 1; i <= 10; i++) {
 			tools.push(
-				new ToolExecutionComponent("read", `call_${i}`, { path: `file${i}.ts` }, {}, undefined, undefined, "/fake"),
+				new ToolExecutionComponent(
+					"read",
+					`call_${i}`,
+					{ path: `file${i}.ts` },
+					{},
+					createReadToolDefinition("/fake"),
+					undefined,
+					"/fake",
+				),
 			);
 		}
 		for (const tool of tools) {

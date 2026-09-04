@@ -73,14 +73,25 @@ function stripAnsi(value: string): string {
 
 // pi-coding-agent resolves its own nested pi-tui copy, so class identity across
 // the module boundary is not shared; assert on the public component shape instead.
+// Pi 0.85.0 wraps thinking-run components in a render-transparent MouseRegion.
+function unwrapMouseRegion(child: unknown): unknown {
+	const candidate = child as { handleMouse?: unknown; child?: unknown } | undefined;
+	if (typeof candidate?.handleMouse !== "function" || candidate.child === undefined) return child;
+	return candidate.child;
+}
 function isSpacerLike(child: unknown): boolean {
 	return typeof (child as { setLines?: unknown }).setLines === "function";
 }
 function isTextLike(child: unknown): boolean {
-	return typeof (child as { setCustomBgFn?: unknown }).setCustomBgFn === "function";
+	return typeof (unwrapMouseRegion(child) as { setCustomBgFn?: unknown }).setCustomBgFn === "function";
 }
 function isMarkdownLike(child: unknown): boolean {
-	return typeof (child as { setText?: unknown }).setText === "function" && !isTextLike(child) && !isSpacerLike(child);
+	const candidate = unwrapMouseRegion(child);
+	return (
+		typeof (candidate as { setText?: unknown }).setText === "function" &&
+		!isTextLike(candidate) &&
+		!isSpacerLike(candidate)
+	);
 }
 
 describe("hidden-thinking label collapse", () => {

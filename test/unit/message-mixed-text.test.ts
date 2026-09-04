@@ -69,7 +69,7 @@ function renderedText(component: AssistantMessageComponent): string {
 }
 
 function isTextMarkdownLike(child: unknown): boolean {
-	const candidate = child as { setText?: unknown; options?: unknown; defaultTextStyle?: unknown };
+	const candidate = unwrapMouseRegion(child) as { setText?: unknown; options?: unknown; defaultTextStyle?: unknown };
 	return (
 		typeof candidate.setText === "function" &&
 		candidate.options !== undefined &&
@@ -79,8 +79,16 @@ function isTextMarkdownLike(child: unknown): boolean {
 }
 
 function isThinkingMarkdownLike(child: unknown): boolean {
-	const candidate = child as { setText?: unknown; defaultTextStyle?: unknown };
+	const candidate = unwrapMouseRegion(child) as { setText?: unknown; defaultTextStyle?: unknown };
 	return typeof candidate.setText === "function" && candidate.defaultTextStyle !== undefined;
+}
+
+// Pi 0.85.0 wraps thinking-run components in a render-transparent MouseRegion
+// (click-to-toggle visibility); unwrap before shape checks.
+function unwrapMouseRegion(child: unknown): unknown {
+	const candidate = child as { handleMouse?: unknown; child?: unknown } | undefined;
+	if (typeof candidate?.handleMouse !== "function" || candidate.child === undefined) return child;
+	return candidate.child;
 }
 
 describe("mixed assistant text preservation", () => {

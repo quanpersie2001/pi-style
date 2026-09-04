@@ -35,13 +35,15 @@ import {
  * changes the identity degrades that single surface to its native fallback while
  * every other surface continues.
  */
-export const SUPPORTED_VERSION_RANGE = ">=0.83.0 <0.85.0";
+export const SUPPORTED_VERSION_RANGE = ">=0.83.0 <0.86.0";
 export const SUPPORTED_PI_VERSIONS: readonly string[] = Object.freeze([
 	"0.83.0",
 	"0.84.0",
 	"0.84.1",
 	"0.84.2",
 	"0.84.3",
+	"0.84.4",
+	"0.85.0",
 ]);
 
 /** A recorded native identity for one certified surface. */
@@ -71,6 +73,17 @@ export interface KnownNativeIdentity {
  * identity (0.83.0–0.84.2) and the bundled identity (0.84.3). The modular
  * `dist/index.js` itself is unchanged in 0.84.3 — the switch is which class
  * objects the running CLI actually serves to extensions.
+ *
+ * 0.84.4 rebuilds both artifact families byte-identically for every surface
+ * below, so it shares the 0.84.3 identities. 0.85.0 drifts exactly three
+ * surfaces (in both families) while preserving name/arity and the adapter
+ * contracts, so each carries a re-recorded 0.85.0 identity:
+ * - `AssistantMessageComponent.updateContent` adds per-run thinking visibility
+ *   overrides (`thinkingVisibilityOverrides` + a `MouseRegion` click toggle per
+ *   thinking run; the `isStreaming` default parameter and arity 1 are unchanged).
+ * - `ToolExecutionComponent.getCallRenderer`/`getResultRenderer` drop the
+ *   `builtInToolDefinition` fallback branches and simply return
+ *   `this.toolDefinition?.renderCall`/`renderResult` (still renderer-or-undefined).
  */
 export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNativeIdentity[]>> = Object.freeze({
 	"native-assistant-message:render": Object.freeze([
@@ -78,13 +91,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "render",
 			arity: 1,
 			fingerprint: "2a39243f",
-			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0"]),
 		}),
 		Object.freeze({
 			name: "render",
 			arity: 1,
 			fingerprint: "a9be09a3",
-			versions: Object.freeze(["0.84.3"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0"]),
 		}),
 	]),
 	"native-assistant-message:updateContent": Object.freeze([
@@ -101,7 +114,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateContent",
 			arity: 1,
 			fingerprint: "d2114491",
-			versions: Object.freeze(["0.84.0", "0.84.1", "0.84.2"]),
+			versions: Object.freeze(["0.84.0", "0.84.1", "0.84.2", "0.84.4"]),
 		}),
 		// 0.84.3: the CLI loads a minified bundled runtime and extensions receive
 		// the in-bundle class objects, so this method's toString() is the minified
@@ -111,7 +124,22 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateContent",
 			arity: 1,
 			fingerprint: "356b7e83",
-			versions: Object.freeze(["0.84.3"]),
+			versions: Object.freeze(["0.84.3", "0.84.4"]),
+		}),
+		// 0.85.0 modular: adds per-run thinking visibility overrides and a
+		// MouseRegion click toggle per thinking run (arity stays 1).
+		Object.freeze({
+			name: "updateContent",
+			arity: 1,
+			fingerprint: "80e338d2",
+			versions: Object.freeze(["0.85.0"]),
+		}),
+		// 0.85.0 bundled: same drift, minified.
+		Object.freeze({
+			name: "updateContent",
+			arity: 1,
+			fingerprint: "c3d72f2b",
+			versions: Object.freeze(["0.85.0"]),
 		}),
 	]),
 	"native-compaction-message:updateDisplay": Object.freeze([
@@ -119,13 +147,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "f8c44e78",
-			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0"]),
 		}),
 		Object.freeze({
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "5118a51d",
-			versions: Object.freeze(["0.84.3"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0"]),
 		}),
 	]),
 	"native-branch-message:updateDisplay": Object.freeze([
@@ -133,13 +161,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "415d57b7",
-			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0"]),
 		}),
 		Object.freeze({
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "2185274e",
-			versions: Object.freeze(["0.84.3"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0"]),
 		}),
 	]),
 	"native-skill-message:updateDisplay": Object.freeze([
@@ -147,13 +175,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "48099ea6",
-			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0"]),
 		}),
 		Object.freeze({
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "4051fd65",
-			versions: Object.freeze(["0.84.3"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0"]),
 		}),
 	]),
 	"native-custom-message:rebuild": Object.freeze([
@@ -161,13 +189,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "rebuild",
 			arity: 0,
 			fingerprint: "76ae2e3a",
-			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0"]),
 		}),
 		Object.freeze({
 			name: "rebuild",
 			arity: 0,
 			fingerprint: "b89987cc",
-			versions: Object.freeze(["0.84.3"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0"]),
 		}),
 	]),
 	"tool-call-renderer:getCallRenderer": Object.freeze([
@@ -175,13 +203,28 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "getCallRenderer",
 			arity: 0,
 			fingerprint: "951ea0e0",
-			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4"]),
 		}),
 		Object.freeze({
 			name: "getCallRenderer",
 			arity: 0,
 			fingerprint: "e50613b7",
-			versions: Object.freeze(["0.84.3"]),
+			versions: Object.freeze(["0.84.3", "0.84.4"]),
+		}),
+		// 0.85.0 modular: drops the `builtInToolDefinition` fallback branches
+		// and returns `this.toolDefinition?.renderCall` directly.
+		Object.freeze({
+			name: "getCallRenderer",
+			arity: 0,
+			fingerprint: "e0a9ed86",
+			versions: Object.freeze(["0.85.0"]),
+		}),
+		// 0.85.0 bundled: same drift, minified.
+		Object.freeze({
+			name: "getCallRenderer",
+			arity: 0,
+			fingerprint: "73116365",
+			versions: Object.freeze(["0.85.0"]),
 		}),
 	]),
 	"tool-result-renderer:getResultRenderer": Object.freeze([
@@ -189,13 +232,28 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "getResultRenderer",
 			arity: 0,
 			fingerprint: "8a25cd71",
-			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4"]),
 		}),
 		Object.freeze({
 			name: "getResultRenderer",
 			arity: 0,
 			fingerprint: "28c4dc22",
-			versions: Object.freeze(["0.84.3"]),
+			versions: Object.freeze(["0.84.3", "0.84.4"]),
+		}),
+		// 0.85.0 modular: drops the `builtInToolDefinition` fallback branches
+		// and returns `this.toolDefinition?.renderResult` directly.
+		Object.freeze({
+			name: "getResultRenderer",
+			arity: 0,
+			fingerprint: "1567dcf4",
+			versions: Object.freeze(["0.85.0"]),
+		}),
+		// 0.85.0 bundled: same drift, minified.
+		Object.freeze({
+			name: "getResultRenderer",
+			arity: 0,
+			fingerprint: "d613a2a3",
+			versions: Object.freeze(["0.85.0"]),
 		}),
 	]),
 	"native-bash-execution:render": Object.freeze([
@@ -207,13 +265,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "BashExecutionComponent",
 			arity: 2,
 			fingerprint: "a5b5abca",
-			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0"]),
 		}),
 		Object.freeze({
 			name: "BashExecutionComponent",
 			arity: 2,
 			fingerprint: "98d22d96",
-			versions: Object.freeze(["0.84.3"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0"]),
 		}),
 	]),
 });
