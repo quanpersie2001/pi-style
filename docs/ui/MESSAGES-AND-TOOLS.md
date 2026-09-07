@@ -58,6 +58,26 @@ Pasting an image with Pi's built-in `Ctrl+V` natively inserts a `<tmpdir>/pi-cli
 
 Assistant presentation uses a restrained prefix only when it improves role separation. It must handle normal text streaming, thinking-only updates, tool-only messages, mixed text and tool calls, aborted/error states, and final render cache reuse without stale partial content. Assistant text always remains visible when the same message carries tool calls: tool presence is not a reliable signal that adjacent prose is disposable narration. Thinking text uses Pi's thinking token and does not visually compete with final assistant text. By default the `Thinking...` placeholder label for hidden thinking blocks is suppressed entirely (`messages.hideThinkingLabel: true`): Pi wraps even an empty label in ANSI codes so its `Text` still occupies one invisible row, and the native layout appends a trailing spacer — together the visible gap where the label used to sit. A certified `AssistantMessageComponent.updateContent` patch (fingerprint-verified 0.83.0, fail-closed elsewhere) drops the invisible row and that trailing spacer, so a hidden thinking block leaves the same single top padding as a text-only message.
 
+Once a thinking run **completes**, the same patch surfaces it as a clickable summary row instead of the zero-trace collapse (`messages.thoughtSummary: true`, default; requires `hideThinkingLabel`):
+
+```text
+▸ Thought for 4.2s
+```
+
+- A run is complete when content follows it (text/tool call), another thinking run starts, or the message finalizes (`isStreaming` false / a `stopReason` — including aborted mid-thought). Runs still streaming keep the zero-trace collapse until they complete.
+- The row reuses Pi's own `MouseRegion` click toggle (Ctrl+T semantics per click): the rewritten label row stays exactly where Pi rendered it, so clicking expands the thinking content; a single `◈` glyph marks the row in both states (`>` in ASCII mode) — the content below an expanded header is what distinguishes the states, and a completed expanded run gets a mirrored `◈ Thought for <n>s` header row above the thinking content. The assistant-role prefix (`│ `) never lands on thought rows: summary rows are skipped as content-start candidates, and when an expanded thinking block leads the message, render-time child accounting places the `│ ` on the answer's first line. Expanded thinking content renders as a quote block under the header — every content line (and blank lines between paragraphs, for a continuous bar; not the trailing gap) carries the `│ ` rail:
+
+```text
+◈ Thought for 4.2s
+│  The user sent "test thinking" — likely just testing whether I'm working
+│  or whether the reasoning capability is active…
+
+│  Final answer…
+```
+- Durations are wall-clock between the first `updateContent` pass that observed the run and the first pass that observed it complete — measured only for runs the extension watched stream live. Pi's `agent_end` removes the streaming component and the history re-render rebuilds the message as a fresh component, so measured durations are also recorded under a content signature (bounded LRU) and recovered by the replacement component; scroll-back re-renders keep their durations the same way. Messages from another process (session resume, restart) render the duration-less `▸ Thought` variant; no duration is ever fabricated.
+- No session theme cached → fail-safe to the plain zero-trace collapse for completed runs too.
+- The summary is presentation-only: message/session content, thinking visibility overrides, and Pi's expansion state are untouched.
+
 ## Compatibility status
 
 The certified Tier C subset targets recorded runtime identities (observed on Pi `0.83.0`–`0.85.0`; policy range `>=0.83.0 <0.86.0`). Installation is session-only; the core/message/tool surface flags are default-on (fingerprint-certified, fail-closed elsewhere, conflict-preserving), and the OFF switch is `compatibility.allowCorePatches: false` in config. No execution, tool registration, prompt, filesystem, or process behavior is changed.
@@ -85,7 +105,7 @@ Compact boxed shape (`tools.style: "compact-box"`):
 ╰─ 1.2s · ~10k words ──────────────────────────────────╯
 ```
 
-Full boxed shape (bash/edit/quick-edit/fallback), with the title in the top border, a single labeled divider before the result, and the metrics footer embedded in the bottom border. The `Response` divider and the metrics footer appear **only when the tool settles** — while a call runs, the same box stays open with a live running status instead of a premature result frame:
+Full boxed shape (bash/edit/quick-edit/fallback), with the title in the top border, a single labeled divider before the result, and the metrics footer embedded in the bottom border. Boxes carry the semantic status fill themselves (`toolPendingBg`/`toolErrorBg`/`toolSuccessBg` — box ⇒ background), while boxless surfaces (quiet-tool rows/tree panels, git/gh semantic cards, turn summaries) stay transparent; the native container fill is always neutralized so a single tool can mix both (git: boxless card + boxed diff frames). The `Response` divider and the metrics footer appear **only when the tool settles** — while a call runs, the same box stays open with a live running status instead of a premature result frame:
 
 ```text
 ╭─ ➔ Bash ◌ ─────────────────────────────────────────╮
@@ -110,7 +130,7 @@ Partial output streams into the open card under an `Output` divider (no `Respons
 ╰─ Exit 0 · 1.2s · ~3 words ── Ctrl+O for more ───────╯
 ```
 
-Compact (summary) tools render `➔ <Tool> ✓ · <detail>` with the footer in the bottom border; bash renders a full call box with the command, a `Response` divider, and the expand hint on the bottom border when output is truncated. Edit/quick-edit render the path in the header and the diff under a `Diff · +N -M` divider. Write renders a compact preview box: the path in the top border, the written content as numbered lines (cat -n style) in the body, and the metrics footer in the bottom border with a `Ctrl+O for more` hint when the preview is truncated; expanded reveals the expanded line budget. `tools.style: "marker"` keeps the marker style (`[read] src/index.ts`).
+Compact (summary) tools render `➔ <Tool> ✓ · <detail>` with the footer in the bottom border; bash renders a full call box with the command, a `Response` divider, and the expand hint on the bottom border when output is truncated. Edit/quick-edit render the path **and the diff stats** in the header (`➔ Edit ✓ · path · +3 -0`) with the diff body continuing the box directly — no `Diff` divider. Write renders a compact preview box: the path in the top border, the written content as numbered lines (cat -n style) in the body, and the metrics footer in the bottom border with a `Ctrl+O for more` hint when the preview is truncated; expanded reveals the expanded line budget. `tools.style: "marker"` keeps the marker style (`[read] src/index.ts`).
 
 ### Tool state machine
 
@@ -179,7 +199,7 @@ test/config.test.ts
 - Match rows render `*<line>: <content>` (the `*` marks the hit); context rows render ` <line>: <content>` (leading space, dim). The marker distinguishes a hit from context without color alone (TOOL-002).
 - Context rows adjacent to a shown match are free of the match budget; the budget counts matches only. A trailing `… N more matches` row collapses long results.
 
-Header requirements: stable human-readable tool label (`formatToolName`); concise primary argument; pending/success/error via `✓`/`✗` (the native `toolPendingBg`/`toolErrorBg`/`toolSuccessBg` container fill is neutralized for boxed rendering); no leaking of hidden/sensitive values beyond native Pi behavior; incomplete streaming arguments render safely; labels and glyphs remain meaningful in ASCII/no-color mode.
+Header requirements: stable human-readable tool label (`formatToolName`); concise primary argument; pending/success/error via `✓`/`✗` glyphs, the self-applied `toolPendingBg`/`toolErrorBg`/`toolSuccessBg` status tint on framed boxes, and — on failure — an error-colored frame (borders and side bars render in the theme's error color; direct-bash cancelled boxes use warning); boxless surfaces stay transparent (see the background rule above); no leaking of hidden/sensitive values beyond native Pi behavior; incomplete streaming arguments render safely; labels and glyphs remain meaningful in ASCII/no-color mode.
 
 #### git / gh semantic views
 
@@ -190,7 +210,7 @@ Three presentation tiers, matching the bash tree pattern:
 | Content | Box | Shape |
 | --- | --- | --- |
 | `git status`, `add`, `commit`, `push`, `pull`, `fetch`, `restore`, `reset`, `switch`/`checkout`, `diff --stat`, `show --stat`, short `log` | Boxless compact card | summary header + `├─/└─` rows + `… N more` (same family as `List`/`Glob`/`Grep`) |
-| `git diff`, `git show`, conflict, CI logs | Box on the content only | `renderBoxedToolResult` + the same adaptive diff component `Edit` uses (`Diff · +N -M` divider, one frame per file) |
+| `git diff`, `git show`, conflict, CI logs | Box on the content only | `renderBoxedToolResult` + the same adaptive diff component `Edit` uses (`path · +N -M` frame header, one frame per file) |
 | `gh pr list/view/checks/create`, `issue list/view`, `run list/view` | Boxless compact card | summary header + state-colored `├─/└─` rows + `… N more` (same family as the git cards) |
 | `gh run view --job=<id>` job log | Box on the content only | `renderBoxedToolResult` + a `Log · <id>` divider (one frame, head/tail budget for long logs) |
 
@@ -224,17 +244,16 @@ Default body is compact when settled and supports native expansion. pi-style nev
 
 ### Edit / quick-edit diffs
 
-Edit, quick-edit, substitute-edit, and target-edit render their diff **adaptively**: split (side-by-side `old │ new`) only for short corresponding changes on a wide terminal, unified otherwise — additions/removals-only diffs, narrow terminals, and lines that would wrap badly in a half pane always render unified. Long runs of unchanged context collapse into a single `⋯ N unchanged lines hidden` row instead of arbitrary truncation; when the diff still exceeds the row budget a `⋯ N lines omitted · Ctrl+O to show full diff` row is shown, and a `Ctrl+O more` hint sits on the divider's right side. The divider carries the change stats (`Diff · +3 -0`), and the footer shows `1 file · +3 -0` (elapsed time first when known):
+Edit, quick-edit, substitute-edit, and target-edit render their diff **adaptively**: split (side-by-side `old │ new`) only for short corresponding changes on a wide terminal, unified otherwise — additions/removals-only diffs, narrow terminals, and lines that would wrap badly in a half pane always render unified. Long runs of unchanged context collapse into a single `⋯ N unchanged lines hidden` row instead of arbitrary truncation; when the diff still exceeds the row budget a `⋯ N lines omitted · Ctrl+O to show full diff` row is shown, and a `Ctrl+O more` hint sits on the bottom border's right side. There is no `Diff` divider — the change stats (`+3 -0`, colored) live in the box header next to the path, published by the result renderer through the shared renderer state (the same call/result state-sharing contract as the write footer), and the footer carries only the elapsed time (a single edited file is implied, so no `1 file` filler):
 
 ```text
-╭─ ➔ Edit ✓ · CHANGELOG.md ─────────────────────╮
-├─ Diff · +3 -0 ───────────────── Ctrl+O more ───┤
+╭─ ➔ Edit ✓ · CHANGELOG.md · +3 -0 ─────────────╮
 │                                                │
 │     1  # Changelog                             │
 │  +  5  - **Fixed: ...                          │
 │  ⋯ 23 unchanged lines hidden                   │
 │                                                │
-╰─ 1 file · +3 -0 ──────────────────────────────╯
+╰─ 1.2s ────────────────────────── Ctrl+O more ──╯
 ```
 
 ## Tool-specific presentation
@@ -243,7 +262,7 @@ Edit, quick-edit, substitute-edit, and target-edit render their diff **adaptivel
 | --- | --- |
 | Read | Badge + normalized path, optional line range; native syntax-highlighted content when possible; truncation notice preserved. Consecutive reads batch into one boxless tree panel. |
 | Write | Path in the header; numbered preview of the written content (cat -n style, `Ctrl+O for more` hint when truncated, expanded reveals more); concise success/error. |
-| Edit | Path in the header; adaptive diff (unified/split) with collapsed unchanged context; failed unique-match errors prominent. |
+| Edit | Path **and diff stats** in the header (`path · +3 -0`); adaptive diff (unified/split) with collapsed unchanged context; failed unique-match errors prominent. |
 | Find/list/grep | Boxless file-anchored tree (ADR 0006): `ls`/`find` render a `List:`/`Glob: <pattern> <N> files · in <path>` tree (clean rows; `find` paths grouped by directory; nested per call when batched); `grep` renders a `Grep: <pattern> <N> matches · <M> files · in <path>` tree with per-file headers, `*line: content` match rows, and ` line:` context rows. `ls`/`find` batch like reads; `grep` is unbatched so match previews are never hidden. Pending/failed calls without output fall back to the path-row tree; a trailing `… N more` row collapses long lists. |
 | Bash | Concise command header, running/exit status (including timeout/cancelled), stdout/stderr distinction where host data supports it. When the command is a plain `ls`/`find`/`grep`/`rg` (no pipes, redirects, `;`, `&&`, or command substitution), its output renders as the same boxless output tree as the native tool — including `ls -l`/`ls -la` long format (parsed into names) and single-file `rg`/`grep` (`line: content` attributed to the file). `git`/`gh` invocations render as semantic views (status/diff/log cards, boxed diffs, PR/issue/run summaries; see [git / gh semantic views](#git--gh-semantic-views)) with the same gate. Unparseable output (e.g. `rg -c`, `rg -l`) falls back to the boxed command/response shell. Execution, environment, timeout, and shell behavior are never changed. |
 
@@ -282,6 +301,8 @@ showSummary(call) =
   (isMutatingTool(call.toolName) ? config.tools.collapseMutatingTools === "on" : true);
 ```
 
+The summary also reports the turn's aggregate diff stats — `· Edit +6 -2` (dim label, diff-colored `+N`/`-M`) — computed purely from tool-result data: `details.diff` for `edit`, the parsed `── diff ──` output section for the quick-edit family (the same sources the box renderers read). The stats aggregate over non-error edit-family members regardless of the mutating exemption (they describe exactly the edit blocks that stay visible beside the line) and survive session resume via the restore path; `write` carries no diff and is skipped. A turn with no diff stats omits the part entirely.
+
 - `turnEnded` is derived from the session tree (message completed, a subsequent message or session end exists) — never from runtime event flags — so scroll-back and session resume render identically.
 - Never collapsed: error results, partial/pending blocks, interrupted turns, the running turn. Error blocks stay visible below the summary; the summary may carry a `· N failure(s)` marker.
 - **Mutating tools** (`edit`/`write`/`quick_edit`/`substitute_edit`/`target_edit`) are never summarized by default (`tools.collapseMutatingTools: "off"`): their blocks are the record of what was done to the user's files, so they stay visible as compact previews beside the summary line. Only read-only tools (`read`/`ls`/`find`/`grep`/`bash`) collapse. A turn made of mutating tools only collapses nothing. `bash` is deliberately exempt from the classification — read-only and mutating commands are indistinguishable without parsing.
@@ -314,6 +335,7 @@ If another extension already owns a message/tool renderer: compose only through 
 - **MSG-005:** message patches are idempotent and reversible.
 - **MSG-006:** images and native rich content remain usable.
 - **MSG-007:** assistant text remains visible when a message also carries tool calls; presentation must never infer that mixed-message text is disposable narration.
+- **MSG-008:** a completed hidden thinking run renders a clickable `◈ Thought for <n>s` summary row (single glyph both states; `>` in ASCII mode) instead of the zero-trace collapse when `messages.thoughtSummary` is on; runs still streaming keep the zero-trace collapse, durations are shown only for runs streamed live in this process (the content-signature registry recovers them across Pi's history component rebuilds; duration-less `◈ Thought` otherwise), neither the summary row nor expanded thinking content shifts the `│ ` landing spot (child accounting lands it on the answer's first line; expanded thinking content instead renders as a `│ `-railed quote block under the header), the row preserves Pi's native click-to-expand (mirrored `◈` header when expanded), and a missing session theme fails safe to zero-trace.
 - **IMG-001:** images attached to a user prompt render as an inline preview entry directly below the user message; the entry is a CustomEntry (display-only, never sent to the LLM).
 - **IMG-002:** previews persist in the session and render identically live, in scroll-back, and after resume — no in-process event state.
 - **IMG-003:** terminals without image support render one ANSI-safe fallback line per image (mime + dimensions, themed); base64 data never leaks into any rendered line, and malformed entry data renders zero lines.
@@ -336,13 +358,13 @@ If another extension already owns a message/tool renderer: compose only through 
 - **TOOL-006:** patches/overrides are idempotent, reversible, and identity-safe.
 - **TOOL-007:** renderers perform no filesystem/process work.
 - **SUM-001:** when the agent run completes, that run's finalized collapsible tool blocks collapse into a single summary line (leader renders the summary; other collapsible tool items render zero lines) when `tools.collapseAfterTurn` is enabled; a turn made of mutating tools only collapses nothing.
-- **SUM-002:** the summary aggregates per-tool counts with total elapsed; error/partial/interrupted blocks are never collapsed and remain visible (a `· N failure(s)` marker may reference them).
+- **SUM-002:** the summary aggregates per-tool counts with total elapsed; error/partial/interrupted blocks are never collapsed and remain visible (a `· N failure(s)` marker may reference them). Aggregate edit-family diff stats render as `· Edit +N -M` (diff colors) computed from tool-result data (`details.diff`, quick-edit output) — registry-derived, so resume renders identically; `write` and error members contribute nothing.
 - **SUM-003:** collapse state is derived from session content, so scroll-back and session resume render identically without in-process `turn_end` events.
 - **SUM-004:** Pi's global expansion state is preserved — when expanded (Ctrl+O) every block renders in full and toggling back restores summaries; pi-style never mutates Pi's expansion state.
 - **SUM-005:** `user_bash` blocks and the running turn are never summarized; rendering performs no filesystem/process work and no new Pi-core patch identity.
 - **SUM-006:** mutating tools (`edit`/`write`/`quick_edit`/`substitute_edit`/`target_edit`) are not summarized when `tools.collapseMutatingTools` is off (default): their blocks remain visible beside the summary line, and the summary counts/elapsed cover only the collapsed (read-only) members.
 - **GIT-001:** `git status`/`add`/`commit`/`push`/`pull`/`fetch`/`restore`/`reset`/`switch`/`checkout`/`merge`/`rebase`/`diff --stat`/`show --stat`/short `log` render as a boxless compact card (summary + grouped `├─/└─` rows + `… N more`), not a full boxed shell.
-- **GIT-002:** `git diff`/`git show`/conflict render the diff in a content box using the same adaptive diff component as `Edit` (per-file frame, `Diff · +N -M` divider), without a second diff visual language.
+- **GIT-002:** `git diff`/`git show`/conflict render the diff in a content box using the same adaptive diff component as `Edit` (per-file frame with `path · +N -M` in the top border), without a second diff visual language.
 - **GIT-003:** a `git`/`gh` command with pipes/redirects/`&&`/`;`/command substitution, an unparseable result, or a plumbing/`gh api` scope renders the raw boxed Bash shell unchanged.
 - **GIT-004:** nonzero exit preserves raw stderr; a semantic error view renders only when the output still parses.
 - **GH-001:** `gh pr list/view/checks/create` and `issue list/view` render as boxless summary cards (table output or `gh --json`); `gh run list/view` render as boxless run cards, `gh run view --job=<id>` renders the job log in a boxed result (`Log · <id>` divider), and `gh run watch`/`gh api` stay raw.
@@ -351,12 +373,13 @@ If another extension already owns a message/tool renderer: compose only through 
 ## Certified and fallback tests
 
 - assistant multiline prefixes at wide/narrow widths; partial/final transitions;
+- thought summary: streaming zero-trace, completed-run label rewrite (duration and duration-less variants), duration recovery across component replacement (agent_end history rebuild) and scroll-back, stopReason completion, multi-run mapping, ASCII glyph, role-prefix never on thought rows, expanded thinking content `│ ` quote rail via child accounting, click-toggle `◈` header via the probe path, theme-missing fallback, `thoughtSummary: off` zero-trace;
 - thinking-only/tool-only/mixed messages; each special block collapsed/expanded;
 - built-in tools with incomplete args, partial updates, success, error, cancellation, truncation;
 - diff and syntax-highlight preservation; no-color/ASCII/theme invalidation;
 - git/gh parsers (long and `--short` status, `diff --stat`, `log`, `gh --json` records) accept valid output and return `null` on hostile input;
 - git/gh render snapshots: compact card, boxed diff reuse, raw fallback, nonzero-exit stderr preservation;
-- turn summary render snapshots: Nerd/Unicode/ASCII/no-color line formats, zero-line members, leader rendering, `expanded` override, error-block preservation;
+- turn summary render snapshots: Nerd/Unicode/ASCII/no-color line formats, zero-line members, leader rendering, `expanded` override, error-block preservation, diff-stats part (diff colors, omission when diff-less), registry diff extraction (`details.diff`, quick-edit output, restore parity, write/error exclusion);
 - turn registry unit tests: grouping, leader selection, counts/elapsed, resume rebuild, session-boundary resets;
 - lifecycle/e2e: `turn_end` → deferred collapse, scroll-back consistency, Ctrl+O expand/restore round-trip;
 - unsupported target shapes; repeated reload and later-owner replacement; native fallback snapshots;

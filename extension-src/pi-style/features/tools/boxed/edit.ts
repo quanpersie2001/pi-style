@@ -23,11 +23,14 @@ import { isResultSeen } from "./session-config.js";
 import {
 	type BoxedToolContext,
 	type BoxedToolDefinition,
+	clearDiffHeaderStats,
+	diffHeaderStatsSuffix,
 	displayPath,
 	getRenderCacheKey,
 	memoizedStateComponent,
 	noteBoxedCallState,
 	noteBoxedResultPhase,
+	noteDiffHeaderStats,
 	noteExecutionStart,
 	resultFooterLines,
 	stateElapsedMs,
@@ -46,36 +49,28 @@ const EMPTY_EDIT_RESULT: Component = Object.freeze({
 
 type EditResultDetails = { diff?: string; path?: string } | undefined;
 
-/** `Diff · +3 -0` divider label. */
-function diffDividerLabel(theme: BoxTheme, stats: { additions: number; removals: number }): string {
-	const plus = stats.additions > 0 ? theme.fg("toolDiffAdded", `+${stats.additions}`) : theme.fg("dim", "+0");
-	const minus = stats.removals > 0 ? theme.fg("toolDiffRemoved", `-${stats.removals}`) : theme.fg("dim", "-0");
-	return `Diff · ${plus} ${minus}`;
-}
-
-/** Edit footer: `1 file · +3 -0`, prefixed with elapsed time when known. */
+/** Edit footer: elapsed time only. The diff stats live in the box header and
+ *  a single edited file is implied, so neither repeats in the footer. */
 function editDiffFooter(
 	theme: BoxTheme,
 	result: { content?: readonly unknown[]; details?: unknown },
 	context: BoxedToolContext,
-	stats: { additions: number; removals: number },
 ): string {
 	const elapsedMs = getElapsedMs(result) ?? stateElapsedMs(context);
-	const parts: string[] = [];
-	if (elapsedMs !== undefined) parts.push(theme.fg("text", formatElapsedMs(elapsedMs)));
-	const plus = stats.additions > 0 ? theme.fg("toolDiffAdded", `+${stats.additions}`) : theme.fg("dim", "+0");
-	const minus = stats.removals > 0 ? theme.fg("toolDiffRemoved", `-${stats.removals}`) : theme.fg("dim", "-0");
-	parts.push(theme.fg("dim", "1 file"), `${plus} ${minus}`);
-	return parts.join(theme.fg("dim", " · "));
+	return elapsedMs === undefined ? "" : theme.fg("text", formatElapsedMs(elapsedMs));
 }
 
 export const editTool: BoxedToolDefinition = {
 	call(args, theme, context) {
 		noteExecutionStart(context);
 		noteBoxedCallState(context);
-		const detail = displayPath(String(args?.path ?? args?.file_path ?? ""), context);
+		const path = displayPath(String(args?.path ?? args?.file_path ?? ""), context);
 		return renderBoxedToolCall(theme, "Edit", [], {
-			headerDetail: detail,
+			// Lazy: the settled result publishes diff stats into the shared renderer
+			// state, and this function resolves at render time — so the header picks
+			// up `· +N -M` on the same paint the diff body appears (the write footer
+			// uses the same state-sharing contract).
+			headerDetail: () => `${path}${diffHeaderStatsSuffix(theme, context)}`,
 			isError: Boolean(context.isError),
 			isPartial: Boolean(context.isPartial),
 			isPending: Boolean(context.isPartial),
@@ -98,6 +93,7 @@ export const editTool: BoxedToolDefinition = {
 
 		// Handle errors
 		if (context.isError) {
+			clearDiffHeaderStats(context);
 			const output = getTextOutput(result);
 			return renderBoxedToolResult(theme, () => [theme.fg("error", stripAnsi(output).trim() || "Error")], {
 				footerLines: resultFooterLines(theme, result, context),
@@ -110,6 +106,7 @@ export const editTool: BoxedToolDefinition = {
 		const diff = details?.diff as string | undefined;
 
 		if (!diff) {
+			clearDiffHeaderStats(context);
 			const output = stripAnsi(getTextOutput(result)).trim();
 			const fallback = `↳ ${output || "Edit applied"}`;
 			return renderBoxedToolResult(theme, () => [theme.fg("dim", fallback)], {
@@ -122,21 +119,16 @@ export const editTool: BoxedToolDefinition = {
 		const argPath = String(context?.args?.path ?? context?.args?.file_path ?? "");
 		const sourcePath = details?.path ?? (argPath || extractEditedPath(message));
 		const expanded = options.expanded;
-		// Stats feed the footer, which is part of the cache key (cheap line scan —
-		// unlike the row/component construction below, which must not run on hits).
+		// Stats feed the header slot and the cache key (cheap line scan — unlike
+		// the row/component construction below, which must not run on hits).
 		const stats = countDiffStats(diff);
+		noteDiffHeaderStats(context, stats);
+		const footer = editDiffFooter(theme, result, context);
 
 		return memoizedStateComponent(
 			context.state,
 			"__piStyleEditDiffResult",
-			getRenderCacheKey(
-				"edit-diff-result",
-				theme,
-				Boolean(expanded),
-				diff,
-				sourcePath ?? "",
-				editDiffFooter(theme, result, context, stats),
-			),
+			getRenderCacheKey("edit-diff-result", theme, Boolean(expanded), diff, sourcePath ?? "", footer),
 			() => {
 				// Expensive construction (buildSplitRows + AdaptiveDiffComponent,
 				// ~0.4ms for a 160-row diff) runs only on cache misses, never per
@@ -162,9 +154,12 @@ export const editTool: BoxedToolDefinition = {
 						},
 					},
 					{
-						dividerLabel: diffDividerLabel(theme, stats),
-						...(expandHint ? { dividerRightLabel: expandHint } : {}),
-						footerLines: [editDiffFooter(theme, result, context, stats)],
+						// Stats live in the box header (`➔ Edit ✓ · path · +N -M`), so no
+						// `Diff` divider: the body continues the open call box directly.
+						showDivider: false,
+						skipLeadingBlank: true,
+						...(expandHint ? { expandHint } : {}),
+						footerLines: footer ? [footer] : [],
 					},
 				);
 			},

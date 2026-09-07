@@ -89,6 +89,7 @@ function renderWritePreviewBox(
 		isError: options.isError,
 		isPending: options.isPending,
 		running: Boolean(options.running),
+		tint: true, // the write preview is a framed box — it owns its status tint
 		bodyLines: () => {
 			if (preview.length === 0) return [];
 			const shown = preview.slice(0, budget).map((line) => formatNumberedLine(theme, line));

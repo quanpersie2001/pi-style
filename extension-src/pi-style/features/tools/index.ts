@@ -15,13 +15,16 @@ function hideBatchMember(instance: object): void {
 }
 
 /**
- * Neutralize the native ToolExecutionComponent status background for boxed
+ * Neutralize the native ToolExecutionComponent container fill for boxed
  * rendering: Pi's updateDisplay sets contentBox/selfRenderContainer bgFn to
  * toolPendingBg/toolErrorBg/toolSuccessBg before invoking the renderers. The
- * boxed renderers own their visual boundary (borders + ✓/✗ state marks), so the
- * container fill is removed (no background slab).
- * Runs on every boxed dispatch; updateDisplay re-applies the bgFn on the next
- * pass and this wrapper re-neutralizes it.
+ * rendered boxes own their tint (box ⇒ background): boxed components wrap
+ * their own lines in the status fill while boxless surfaces (quiet-tool rows,
+ * tree panels, git/gh semantic cards, turn summaries) stay transparent — so
+ * the container fill is always removed. The native Box padding (1,1) is
+ * zeroed as well, or the frame would gain stray blank rows and an indent.
+ * Runs on every boxed dispatch; updateDisplay re-applies both on the next
+ * pass and this wrapper re-neutralizes them.
  */
 function neutralizeToolContainerBackground(instance: object): void {
 	const host = instance as {
@@ -421,7 +424,6 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 				// fallback renderer, mirroring the generic boxed fallback used for
 				// unknown tool names.
 				if (typeof renderer !== "function") {
-					neutralizeToolContainerBackground(instance);
 					if (subtype === "tool-call-renderer")
 						return (callArgs: unknown, theme: unknown, context: unknown) => {
 							const component = renderBoxedToolCall(
@@ -430,6 +432,7 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 								theme as never,
 								context as never,
 							);
+							neutralizeToolContainerBackground(instance);
 							// Same batch-member contract as the native-renderer path: a
 							// collapsed turn member (or quiet batch member) returns the
 							// singleton and must be hidden, or Pi leaves a stray native
@@ -445,6 +448,7 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 							theme as never,
 							context as never,
 						);
+						neutralizeToolContainerBackground(instance);
 						if (component === EMPTY_BATCH_COMPONENT) hideBatchMember(instance);
 						return component;
 					};

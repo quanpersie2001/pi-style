@@ -257,8 +257,12 @@ describe("boxed tool renderers", () => {
 		);
 		const lines = result.render(120);
 		// Short corresponding change at a wide width: split side-by-side layout.
-		expect(stripAnsi(lines.join("\n"))).toContain("Diff · +1 -1");
-		expect(stripAnsi(lines.join("\n"))).toContain("1 file · +1 -1");
+		// Stats live in the box header (`Edit ✓ · path · +N -M`) — the result
+		// body carries no `Diff` divider, and the footer does not repeat them.
+		const header = stripAnsi(dispatchCall("edit", ctx.args, theme, ctx).render(120)[0]);
+		expect(header).toContain("Edit ✓ · src/a.ts · +1 -1");
+		expect(stripAnsi(lines.join("\n"))).not.toContain("Diff · ");
+		expect(stripAnsi(lines.join("\n"))).not.toContain("file"); // a single file is implied
 		expect(stripAnsi(lines.join("\n"))).toContain("old"); // split column header
 		assertFit(lines, 120);
 	});
@@ -292,9 +296,11 @@ describe("boxed tool renderers", () => {
 		);
 		const lines = result.render(120);
 		const text = stripAnsi(lines.join("\n"));
-		// Additions-only: unified layout, stats in the divider, no progress meter.
-		expect(text).toContain("Diff · +2 -0");
-		expect(text).toContain("1 file · +2 -0");
+		// Additions-only: unified layout, stats in the box header, no progress meter.
+		const header = stripAnsi(dispatchCall("edit", ctx.args, theme, ctx).render(120)[0]);
+		expect(header).toContain("CHANGELOG.md · +2 -0");
+		expect(text).not.toContain("Diff · ");
+		expect(text).not.toContain("file"); // a single file is implied
 		expect(text).not.toContain("━━");
 		// Long trailing context is collapsed into a single row.
 		expect(text).toContain("⋯ 8 unchanged lines hidden");
@@ -314,11 +320,30 @@ describe("boxed tool renderers", () => {
 				ctx,
 			).render(width);
 			const text = stripAnsi(lines.join("\n"));
-			expect(text).toContain("Diff · +1 -1");
 			expect(text).toContain("const timeout = 300;");
 			expect(text).toContain("const timeout = 60;");
 			assertFit(lines, Math.max(12, width));
 		}
+		// The header still carries the stats (resolved lazily from shared state).
+		expect(stripAnsi(dispatchCall("edit", ctx.args, theme, ctx).render(80)[0])).toContain("+1 -1");
+	});
+
+	it("picks diff stats up in the call header on the same paint", () => {
+		// Pi's updateDisplay rebuilds the call component on every pass — the pass
+		// that delivers the result builds a fresh call component AFTER the result
+		// renderer will have stored the stats (result renderers run later in the
+		// same pass), and its headerDetail resolves lazily at render time.
+		const ctx = context({ args: { path: "/fake/src/a.ts" } });
+		expect(stripAnsi(dispatchCall("edit", ctx.args, theme, ctx).render(80)[0])).not.toContain("+1 -0");
+		dispatchResult(
+			"edit",
+			{ content: [], details: { diff: "+ 1 added", path: "/fake/src/a.ts" } },
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		);
+		// The re-dispatched call (the settled updateDisplay pass) shows the stats.
+		expect(stripAnsi(dispatchCall("edit", ctx.args, theme, ctx).render(80)[0])).toContain("Edit ✓ · src/a.ts · +1 -0");
 	});
 
 	it("shows a Ctrl+O omission hint when a huge diff exceeds the row budget", () => {
@@ -780,6 +805,113 @@ describe("bash execution states", () => {
 });
 
 describe("boxed tool decoration owner", () => {
+	it("always neutralizes the native container fill; boxes tint themselves", () => {
+		const owner = createToolDecorationOwner({ style: "compact-box" });
+		const native = () => undefined;
+		const makeContainer = () => {
+			const c = {
+				paddingX: 1,
+				paddingY: 1,
+				setBgFnCalls: 0,
+				setBgFn(_fn: (text: string) => string) {
+					c.setBgFnCalls++;
+				},
+			};
+			return c;
+		};
+		// Boxed (TaskUpdate fallback) and boxless (read) dispatches alike: the
+		// container fill is always removed — rendered components own the tint.
+		for (const toolName of ["read", "TaskUpdate"]) {
+			const container = makeContainer();
+			const renderer = owner.decorateToolRendererSelection(
+				"tool-call-renderer",
+				native,
+				{ toolName, contentBox: container },
+				[],
+			);
+			(renderer as (a: unknown, t: unknown, c: unknown) => unknown)({ path: "/fake/a.ts" }, theme, context());
+			expect(container.setBgFnCalls).toBe(1);
+			expect(container.paddingX).toBe(0);
+			expect(container.paddingY).toBe(0);
+		}
+	});
+
+	it("tints rendered boxes but not boxless surfaces (box => background)", () => {
+		const tinted = createFakeTheme({
+			backgrounds: { toolPendingBg: "#20222a", toolSuccessBg: "#203020", toolErrorBg: "#3a2020" },
+		});
+		const isTinted = (line: string) => line.startsWith("\x1b[48;2;");
+
+		// Full call box (edit) — every line wrapped in the status fill.
+		const editCall = dispatchCall(
+			"edit",
+			{ path: "/fake/src/a.ts" },
+			tinted,
+			context({ args: { path: "/fake/src/a.ts" } }),
+		).render(80);
+		expect(editCall.length).toBeGreaterThan(0);
+		for (const line of editCall) expect(isTinted(line)).toBe(true);
+
+		// Compact framed box (write preview) — tinted via its opt-in.
+		const writeCall = dispatchCall(
+			"write",
+			{ path: "/tmp/x.md", content: "hello" },
+			tinted,
+			context({ args: { path: "/tmp/x.md", content: "hello" } }),
+		).render(80);
+		for (const line of writeCall) expect(isTinted(line)).toBe(true);
+
+		// Boxed result (edit diff frame) — tinted.
+		const res = dispatchResult(
+			"edit",
+			{ content: [], details: { diff: "+ 1 x", path: "/fake/src/a.ts" } },
+			{ expanded: false, isPartial: false },
+			tinted,
+			context({ args: { path: "/fake/src/a.ts" } }),
+		).render(80);
+		for (const line of res) expect(isTinted(line)).toBe(true);
+
+		// Boxless quiet-tool row (read) — transparent.
+		const readCall = dispatchCall(
+			"read",
+			{ path: "/fake/src/a.ts" },
+			tinted,
+			context({ args: { path: "/fake/src/a.ts" } }),
+		).render(80);
+		expect(readCall.join("\n")).not.toContain("\x1b[48;");
+	});
+
+	it("renders failed boxes with an error-colored frame", () => {
+		const redError = createFakeTheme({ colors: { error: "#ff0000" } });
+		const ERROR_RED = "\x1b[38;2;255;0;0m";
+
+		// Failed call box: the top border carries the error color around the
+		// already error-colored `➔ Name ✗` title.
+		const call = dispatchCall(
+			"bash",
+			{ command: "tsc" },
+			redError,
+			context({ args: { command: "tsc" }, isError: true }),
+		);
+		const callLines = call.render(80);
+		expect(callLines[0]).toContain(ERROR_RED);
+		expect(stripAnsi(callLines[0])).toContain("➔ Bash ✗");
+
+		// Failed result: every frame line (divider, body side bars, bottom
+		// border) renders in the error color; content colors stay untouched.
+		const lines = dispatchResult(
+			"bash",
+			{ content: [{ type: "text", text: "error TS2304: Cannot find name" }], details: {} },
+			{ expanded: false, isPartial: false },
+			redError,
+			context({ args: { command: "tsc" }, isError: true }),
+		).render(80);
+		expect(lines.length).toBeGreaterThan(0);
+		for (const line of lines) expect(line).toContain(ERROR_RED);
+		const plain = stripAnsi(lines.join("\n"));
+		expect(plain).toContain("Response");
+		expect(plain).toContain("error TS2304");
+	});
 	it("provides a boxed fallback renderer when the tool has no native renderer", () => {
 		const owner = createToolDecorationOwner({ style: "compact-box" });
 		// Extension tools (e.g. TaskUpdate) register no renderCall/renderResult:

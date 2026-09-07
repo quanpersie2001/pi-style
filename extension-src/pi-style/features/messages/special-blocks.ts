@@ -46,13 +46,12 @@ interface MessageBlockInstance {
 	expanded?: unknown;
 	_expanded?: unknown;
 	markdownTheme?: unknown;
-	box?: { clear(): void; addChild(child: unknown): void; setBgFn?(fn: (text: string) => string): void };
+	box?: { clear(): void; addChild(child: unknown): void };
 	customComponent?: unknown;
 	customRenderer?: unknown;
 	clear?(): void;
 	addChild(child: unknown): void;
 	removeChild(child: unknown): void;
-	setBgFn?(fn: (text: string) => string): void;
 }
 
 const EXPAND_HINT = "Ctrl+O to expand";
@@ -77,16 +76,6 @@ function createMarkdownBody(
 	return (contentWidth: number) => md.render(contentWidth);
 }
 
-/**
- * Neutralize the native customMessageBg fill for boxed blocks: the boxed block
- * owns its visual boundary, so the parent background is removed (the box sits
- * directly on the terminal/page background).
- */
-function neutralizeMessageBlockBackground(target: { setBgFn?(fn: (text: string) => string): void } | undefined): void {
-	if (!target) return;
-	if (typeof target.setBgFn === "function") target.setBgFn((text) => text);
-}
-
 function patchCompaction(instance: MessageBlockInstance, _original: () => void, theme: BoxTheme): boolean {
 	const tokensBefore = instance.message?.tokensBefore;
 	if (tokensBefore == null) return false;
@@ -97,12 +86,9 @@ function patchCompaction(instance: MessageBlockInstance, _original: () => void, 
 	const summary = typeof instance.message?.summary === "string" ? instance.message.summary : "";
 	const markdownTheme = instance.markdownTheme as MarkdownTheme | undefined;
 
-	neutralizeMessageBlockBackground(instance as { setBgFn?(fn: (text: string) => string): void });
-
 	const body = expanded && summary && markdownTheme ? createMarkdownBody(summary, markdownTheme, theme) : () => [];
 
 	const tokenStr = Number(tokensBefore).toLocaleString();
-	neutralizeMessageBlockBackground(instance as { setBgFn?(fn: (text: string) => string): void });
 	const block = renderBoxedMessageBlock(theme, {
 		kind: "Compaction",
 		title: `${tokenStr} tokens`,
@@ -124,8 +110,6 @@ function patchSkill(instance: MessageBlockInstance, _original: () => void, theme
 	const expanded = Boolean(instance.expanded);
 	const content = typeof instance.skillBlock?.content === "string" ? instance.skillBlock.content : "";
 	const markdownTheme = instance.markdownTheme as MarkdownTheme | undefined;
-
-	neutralizeMessageBlockBackground(instance as { setBgFn?(fn: (text: string) => string): void });
 
 	const body = expanded && content && markdownTheme ? createMarkdownBody(content, markdownTheme, theme) : () => [];
 
@@ -149,8 +133,6 @@ function patchBranch(instance: MessageBlockInstance, _original: () => void, them
 	const expanded = Boolean(instance.expanded);
 	const summary = typeof instance.message?.summary === "string" ? instance.message.summary : "";
 	const markdownTheme = instance.markdownTheme as MarkdownTheme | undefined;
-
-	neutralizeMessageBlockBackground(instance as { setBgFn?(fn: (text: string) => string): void });
 
 	const body = expanded && summary && markdownTheme ? createMarkdownBody(summary, markdownTheme, theme) : () => [];
 
@@ -185,9 +167,7 @@ function patchCustomMessage(instance: MessageBlockInstance, _original: () => voi
 	}
 	if (instance.box) instance.removeChild(instance.box);
 
-	// The boxed shell owns its boundary; drop the native customMessageBg fill.
-	neutralizeMessageBlockBackground(instance.box);
-	neutralizeMessageBlockBackground(instance as { setBgFn?(fn: (text: string) => string): void });
+	// The boxed shell owns its boundary; the native customMessageBg fill stays.
 
 	const rawCustomType = instance.message?.customType;
 	const customType = typeof rawCustomType === "string" ? rawCustomType : "Custom";

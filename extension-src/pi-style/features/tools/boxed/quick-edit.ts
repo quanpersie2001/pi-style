@@ -15,11 +15,14 @@ import { getStateElapsedMs, isResultSeen } from "./session-config.js";
 import {
 	type BoxedToolContext,
 	type BoxedToolDefinition,
+	clearDiffHeaderStats,
+	diffHeaderStatsSuffix,
 	displayPath,
 	getRenderCacheKey,
 	memoizedStateComponent,
 	noteBoxedCallState,
 	noteBoxedResultPhase,
+	noteDiffHeaderStats,
 	noteExecutionStart,
 	stateElapsedMs,
 } from "./shared.js";
@@ -63,7 +66,12 @@ export function getQuickEditToolConfig(toolName: unknown): QuickEditToolConfig |
 	return typeof toolName === "string" ? QUICK_EDIT_TOOLS[toolName] : undefined;
 }
 
-function extractQuickEditDiff(text: string): string | undefined {
+/**
+ * Parse the `── diff ──` section of a quick-edit-family output text into a
+ * synthetic unified diff (exported for the turn-summary registry, which
+ * derives diff stats from session content without a renderer).
+ */
+export function extractQuickEditDiff(text: string): string | undefined {
 	const lines = stripAnsi(text).replace(/\r/g, "").split("\n");
 	const start = lines.indexOf("── diff ──");
 	if (start < 0) return undefined;
@@ -117,27 +125,15 @@ function extractQuickEditDiff(text: string): string | undefined {
 	return diffLines.length > 0 ? diffLines.join("\n") : undefined;
 }
 
-/** `Diff · +3 -0` divider label. */
-function quickEditDividerLabel(theme: BoxTheme, stats: { additions: number; removals: number }): string {
-	const plus = stats.additions > 0 ? theme.fg("toolDiffAdded", `+${stats.additions}`) : theme.fg("dim", "+0");
-	const minus = stats.removals > 0 ? theme.fg("toolDiffRemoved", `-${stats.removals}`) : theme.fg("dim", "-0");
-	return `Diff · ${plus} ${minus}`;
-}
-
-/** Quick-edit footer: `1 file · +3 -0`, prefixed with elapsed time when known. */
+/** Quick-edit footer: elapsed time only. The diff stats live in the box
+ *  header and a single edited file is implied, so neither repeats there. */
 function quickEditDiffFooter(
 	theme: BoxTheme,
 	result: { content?: readonly unknown[]; details?: unknown },
 	context: BoxedToolContext,
-	stats: { additions: number; removals: number },
 ): string {
 	const elapsedMs = getElapsedMs(result) ?? getStateElapsedMs(context.state);
-	const parts: string[] = [];
-	if (elapsedMs !== undefined) parts.push(theme.fg("text", formatElapsedMs(elapsedMs)));
-	const plus = stats.additions > 0 ? theme.fg("toolDiffAdded", `+${stats.additions}`) : theme.fg("dim", "+0");
-	const minus = stats.removals > 0 ? theme.fg("toolDiffRemoved", `-${stats.removals}`) : theme.fg("dim", "-0");
-	parts.push(theme.fg("dim", "1 file"), `${plus} ${minus}`);
-	return parts.join(theme.fg("dim", " · "));
+	return elapsedMs === undefined ? "" : theme.fg("text", formatElapsedMs(elapsedMs));
 }
 
 function renderQuickEditResult(
@@ -160,38 +156,36 @@ function renderQuickEditResult(
 
 	const output = getTextOutput(result);
 	if (context.isError) {
+		clearDiffHeaderStats(context);
+		const footer = quickEditFooter(theme, context);
 		return renderBoxedToolResult(theme, () => [theme.fg("error", stripAnsi(output).trim() || "Error")], {
-			footerLines: [quickEditFooter(theme, context)],
+			...(footer ? { footerLines: [footer] } : {}),
 			isError: true,
 		});
 	}
 
 	const diff = extractQuickEditDiff(output);
 	if (!diff) {
+		clearDiffHeaderStats(context);
 		const fallback = stripAnsi(output).trim() || config.fallbackLabel;
+		const footer = quickEditFooter(theme, context);
 		return renderBoxedToolResult(theme, () => [`${theme.fg("dim", "↳")} ${theme.fg("muted", fallback)}`], {
-			footerLines: [quickEditFooter(theme, context)],
+			...(footer ? { footerLines: [footer] } : {}),
 		});
 	}
 
 	const expanded = options.expanded;
 	const argPath = String(context?.args?.path ?? "");
-	// Stats feed the footer, which is part of the cache key (cheap line scan —
-	// unlike the row/component construction below, which must not run on hits).
+	// Stats feed the header slot and the cache key (cheap line scan — unlike
+	// the row/component construction below, which must not run on hits).
 	const stats = countDiffStats(diff);
+	noteDiffHeaderStats(context, stats);
+	const footer = quickEditDiffFooter(theme, result, context);
 
 	return memoizedStateComponent(
 		context.state,
 		"__piStyleQuickEditDiffResult",
-		getRenderCacheKey(
-			"quick-edit-diff-result",
-			theme,
-			config.toolLabel,
-			Boolean(expanded),
-			diff,
-			argPath,
-			quickEditDiffFooter(theme, result, context, stats),
-		),
+		getRenderCacheKey("quick-edit-diff-result", theme, config.toolLabel, Boolean(expanded), diff, argPath, footer),
 		() => {
 			// Expensive construction (buildSplitRows + AdaptiveDiffComponent) runs
 			// only on cache misses, never per render pass. Everything below is a
@@ -216,9 +210,12 @@ function renderQuickEditResult(
 					},
 				},
 				{
-					dividerLabel: quickEditDividerLabel(theme, stats),
-					...(expandHint ? { dividerRightLabel: expandHint } : {}),
-					footerLines: [quickEditDiffFooter(theme, result, context, stats)],
+					// Stats live in the box header (`➔ Quick Edit ✓ · path · +N -M`),
+					// so no `Diff` divider: the body continues the open call box directly.
+					showDivider: false,
+					skipLeadingBlank: true,
+					...(expandHint ? { expandHint } : {}),
+					footerLines: footer ? [footer] : [],
 				},
 			);
 		},
@@ -227,10 +224,7 @@ function renderQuickEditResult(
 
 function quickEditFooter(theme: BoxTheme, context: BoxedToolContext): string {
 	const elapsedMs = getStateElapsedMs(context.state);
-	const parts: string[] = [];
-	if (elapsedMs !== undefined) parts.push(theme.fg("text", formatElapsedMs(elapsedMs)));
-	parts.push(theme.fg("dim", "1 file"));
-	return parts.join(theme.fg("dim", " · "));
+	return elapsedMs === undefined ? "" : theme.fg("text", formatElapsedMs(elapsedMs));
 }
 
 export function quickEditTool(config: QuickEditToolConfig): BoxedToolDefinition {
@@ -238,9 +232,12 @@ export function quickEditTool(config: QuickEditToolConfig): BoxedToolDefinition 
 		call(args, theme, context) {
 			noteExecutionStart(context);
 			noteBoxedCallState(context);
-			const detail = displayPath(String(args?.path ?? ""), context);
+			const path = displayPath(String(args?.path ?? ""), context);
 			return renderBoxedToolCall(theme, config.toolLabel, [], {
-				headerDetail: detail,
+				// Lazy: the settled result publishes diff stats into the shared renderer
+				// state, and this function resolves at render time — so the header picks
+				// up `· +N -M` on the same paint the diff body appears.
+				headerDetail: () => `${path}${diffHeaderStatsSuffix(theme, context)}`,
 				isError: Boolean(context.isError),
 				isPartial: Boolean(context.isPartial),
 				isPending: Boolean(context.isPartial),

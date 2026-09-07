@@ -1840,21 +1840,24 @@ export function renderGitCardLines(
 // `renderBoxedToolResult` + the same `AdaptiveDiffComponent` `Edit` uses — no
 // second diff visual language (ADR 0005 / GIT-002). The Git header lives
 // outside the box (the call panel card); each file gets its own `╭…╰` frame
-// with a `Diff · +N -M` divider and a `Ctrl+O more` expand hint when collapsed.
+// whose top border carries `path · +N -M` (no divider — the stats live in the
+// header, exactly like `Edit`), with a `Ctrl+O more` expand hint on the bottom
+// border when collapsed.
 
 const GIT_DIFF_MAX_HIGHLIGHT_CHARS = 12000;
 const GIT_DIFF_MAX_HIGHLIGHT_ROWS = 120;
 const GIT_DIFF_MAX_ROWS_COLLAPSED = 36;
 const GIT_DIFF_MAX_ROWS_EXPANDED = 160;
 
-function diffDividerLabel(theme: BoxTheme, stats: { additions: number; removals: number }): string {
+/** Colored `+N -M` stats fragment shared by diff frame headers. */
+function diffStatsFragment(theme: BoxTheme, stats: { additions: number; removals: number }): string {
 	const plus = stats.additions > 0 ? theme.fg("toolDiffAdded", `+${stats.additions}`) : theme.fg("dim", "+0");
 	const minus = stats.removals > 0 ? theme.fg("toolDiffRemoved", `-${stats.removals}`) : theme.fg("dim", "-0");
-	return `Diff · ${plus} ${minus}`;
+	return `${plus} ${minus}`;
 }
 
-function fileBoxTopLabel(theme: BoxTheme, path: string): string {
-	const body = theme.fg("text", path);
+function fileBoxTopLabel(theme: BoxTheme, path: string, stats?: { additions: number; removals: number }): string {
+	const body = stats ? `${theme.fg("text", path)} · ${diffStatsFragment(theme, stats)}` : theme.fg("text", path);
 	return typeof theme?.bold === "function" ? theme.bold(body) : body;
 }
 
@@ -1928,7 +1931,9 @@ function buildGitDiffResultComponent(
 
 	const footerParts: string[] = [];
 	if (elapsedMs !== undefined) footerParts.push(theme.fg("text", formatElapsedMs(elapsedMs)));
-	footerParts.push(theme.fg("dim", `${fileCount} ${pluralForm("file", fileCount)}`));
+	// A single frame already implies one file — the count is only worth a footer
+	// slot when the diff spans several.
+	if (fileCount > 1) footerParts.push(theme.fg("dim", `${fileCount} ${pluralForm("file", fileCount)}`));
 	const footer = footerParts.join(theme.fg("dim", " · "));
 
 	const fileBoxes: DiffFileBox[] = [];
@@ -1942,18 +1947,19 @@ function buildGitDiffResultComponent(
 			topLabel: fileBoxTopLabel(theme, parsed.show ? "Git show" : "Git diff"),
 			resultComponent: renderBoxedToolResult(theme, () => [theme.fg("muted", "No changes")], {
 				showDivider: false,
+				skipLeadingBlank: true,
 				footerLines: emptyFooter ? [emptyFooter] : [],
 			}),
 		});
 	} else {
 		for (const file of parsed.files) {
-			const topLabel = fileBoxTopLabel(theme, file.path);
 			if (file.binary) {
 				fileBoxes.push({
-					topLabel,
+					topLabel: fileBoxTopLabel(theme, file.path),
 					resultComponent: renderBoxedToolResult(theme, () => [binaryBodyLine(theme, file.status)], {
-						dividerLabel: "Binary",
-						footerLines: [footer],
+						showDivider: false,
+						skipLeadingBlank: true,
+						footerLines: footer ? [footer] : [],
 					}),
 				});
 				continue;
@@ -1968,10 +1974,12 @@ function buildGitDiffResultComponent(
 			const view = new AdaptiveDiffComponent(theme, rows, maxRows, shouldHighlight ? language : undefined);
 			const expandHint = !expanded && view.hasCollapsed() ? "Ctrl+O more" : undefined;
 			fileBoxes.push({
-				topLabel,
+				topLabel: fileBoxTopLabel(theme, file.path, countDiffStats(file.body)),
 				resultComponent: renderBoxedToolResult(theme, view, {
-					dividerLabel: diffDividerLabel(theme, countDiffStats(file.body)),
-					footerLines: [footer],
+					// Stats live in the frame's top border (`path · +N -M`) — no divider.
+					showDivider: false,
+					skipLeadingBlank: true,
+					footerLines: footer ? [footer] : [],
 					...(expandHint ? { expandHint } : {}),
 				}),
 			});

@@ -3,6 +3,12 @@ import { Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 export interface FakeThemeOptions {
 	name?: string;
 	colors?: Partial<Record<ThemeColor, string>>;
+	backgrounds?: Partial<
+		Record<
+			"selectedBg" | "userMessageBg" | "customMessageBg" | "toolPendingBg" | "toolSuccessBg" | "toolErrorBg",
+			string
+		>
+	>;
 }
 
 export function createFakeTheme(options: FakeThemeOptions = {}): Theme {
@@ -66,6 +72,7 @@ export function createFakeTheme(options: FakeThemeOptions = {}): Theme {
 		toolPendingBg: "",
 		toolSuccessBg: "",
 		toolErrorBg: "",
+		...(options.backgrounds ?? {}),
 	};
 	return new Theme(foregrounds, backgrounds, "truecolor", { name: options.name ?? "fake" });
 }

@@ -2,11 +2,13 @@
 //
 // Two deliberate design points:
 //
-// 1. Background painting is removed. Boxed lines are foreground-only; the
-//    enclosing native ToolExecutionComponent container applies the semantic
-//    status background (toolPendingBg / toolErrorBg / toolSuccessBg), and the
-//    message-block Box applies customMessageBg. This avoids double-background
-//    conflicts and keeps pi-style's patches renderer-scoped.
+// 1. A rendered box owns its background: boxed surfaces wrap every line in
+//    the semantic status fill (toolPendingBg / toolErrorBg / toolSuccessBg,
+//    or customMessageBg for message blocks), while boxless surfaces (quiet
+//    tool rows/tree panels, git/gh semantic cards, turn summaries) stay
+//    transparent. The native container fill is always neutralized so the
+//    tint always comes from the component that draws the frame — one tool
+//    can mix both (git: boxless card + boxed diff frames).
 //
 // 2. Theme functions are accessed through a minimal structural interface
 //    (BoxTheme) instead of `any`.
@@ -30,10 +32,29 @@ import { getThemeExtra } from "./theme-extras.js";
 /** Minimal structural view of Pi's Theme as used by the boxed renderers. */
 export interface BoxTheme {
 	fg(color: string, text: string): string;
+	bg?(color: string, text: string): string;
 	bold?(text: string): string;
 	italic?(text: string): string;
 	inverse?(text: string): string;
 	getColorMode?(): string;
+}
+
+/** Semantic status background name for a tool surface (mirrors Pi's native
+ *  container fill selection). */
+export function boxedToolBgName(isError?: boolean, isPartial?: boolean): string {
+	return isPartial ? "toolPendingBg" : isError ? "toolErrorBg" : "toolSuccessBg";
+}
+
+/** Wrap every line in the status background fill. Best-effort: themes
+ *  without a bg() (or without the token) keep their lines untouched, and an
+ *  empty theme color resolves to a no-op reset escape. */
+export function applyBgTint(theme: BoxTheme, bgName: string, lines: string[]): string[] {
+	if (typeof theme.bg !== "function") return lines;
+	try {
+		return lines.map((line) => theme.bg?.(bgName, line) ?? line);
+	} catch {
+		return lines;
+	}
 }
 
 const THEME_CACHE_KEYS = new WeakMap<object, number>();
@@ -49,8 +70,11 @@ export function themeCacheKey(theme: object): number {
 
 export interface BoxedRenderOptions {
 	widthKey?: string;
-	/** Detail embedded in the top-border title after the tool name (e.g. the path). */
-	headerDetail?: string;
+	/** Detail embedded in the top-border title after the tool name (e.g. the
+	 *  path). A function form is resolved lazily at render time so the header can
+	 *  pick up state a result renderer published in the same updateDisplay pass
+	 *  (e.g. diff stats: `path · +3 -0`). */
+	headerDetail?: string | (() => string);
 	isError?: boolean;
 	isPartial?: boolean;
 	isPending?: boolean;
@@ -74,6 +98,10 @@ export interface BoxedRenderOptions {
 	/** Right-side label embedded in the compact box bottom border before the
 	 *  corner (e.g. an expand hint such as `Ctrl+O for more`). */
 	bottomRightLabel?: string;
+	/** Tint the compact box with the semantic status background. Only framed
+	 *  compact surfaces (e.g. the write preview box) opt in — boxless compact
+	 *  surfaces (quiet-tool rows, tree panels) stay transparent. */
+	tint?: boolean;
 }
 
 export function isExpanded(options: { expanded?: boolean } | undefined): boolean {
@@ -461,15 +489,13 @@ export function dimLine(text: string): string {
 	return `\x1b[2m${text}\x1b[22m`;
 }
 
-function boxText(_theme: BoxTheme, text: string): string {
-	return dimLine(text);
+/** Frame chrome (borders, side bars, dividers). Dim by default; error boxes
+ *  pass a theme color name so the whole frame reads as failed at a glance. */
+function boxText(_theme: BoxTheme, text: string, color?: string): string {
+	return color ? _theme.fg(color, text) : dimLine(text);
 }
-function boxFrameText(_theme: BoxTheme, text: string): string {
-	return dimLine(text);
-}
-
-export function boxedToolBgName(isError?: boolean, isPartial?: boolean): string {
-	return isPartial ? "toolPendingBg" : isError ? "toolErrorBg" : "toolSuccessBg";
+function boxFrameText(_theme: BoxTheme, text: string, color?: string): string {
+	return color ? _theme.fg(color, text) : dimLine(text);
 }
 
 export function boxBorder(theme: BoxTheme, left: string, right: string, width: number): string {
@@ -493,6 +519,7 @@ export function boxLabeledBorder(
 	leftLabel: string,
 	rightLabel: string | undefined,
 	width: number,
+	frameColor?: string,
 ): string {
 	const renderedWidth = boxWidth(width);
 	let left = leftLabel ?? "";
@@ -532,22 +559,26 @@ export function boxLabeledBorder(
 	// applying the border color to the whole line in one wrap would leave every
 	// dash after a label in the default color, making one border render with
 	// mixed brightness.
-	const parts: string[] = [boxFrameText(theme, `${start}${left ? "─ " : ""}`)];
+	const parts: string[] = [boxFrameText(theme, `${start}${left ? "─ " : ""}`, frameColor)];
 	if (left) parts.push(left);
-	parts.push(boxFrameText(theme, `${left ? " " : ""}${BOX_HORIZONTAL.repeat(Math.max(0, fill))}`));
+	parts.push(boxFrameText(theme, `${left ? " " : ""}${BOX_HORIZONTAL.repeat(Math.max(0, fill))}`, frameColor));
 	if (right) {
-		parts.push(boxFrameText(theme, " "), right, boxFrameText(theme, ` ${BOX_HORIZONTAL.repeat(rightFill)}`));
+		parts.push(
+			boxFrameText(theme, " ", frameColor),
+			right,
+			boxFrameText(theme, ` ${BOX_HORIZONTAL.repeat(rightFill)}`, frameColor),
+		);
 	}
-	parts.push(boxFrameText(theme, end));
+	parts.push(boxFrameText(theme, end, frameColor));
 	return parts.join("");
 }
 
 /** Empty content line used for breathing room inside a box. */
-export function boxBlankLine(theme: BoxTheme, width: number): string {
+export function boxBlankLine(theme: BoxTheme, width: number, frameColor?: string): string {
 	const renderedWidth = boxWidth(width);
 	const contentWidth = boxInnerWidth(renderedWidth);
 	const sidePad = " ".repeat(BOX_SIDE_PADDING);
-	return `${boxFrameText(theme, BOX_VERTICAL)}${sidePad}${" ".repeat(contentWidth)}${sidePad}${boxFrameText(theme, BOX_VERTICAL)}`;
+	return `${boxFrameText(theme, BOX_VERTICAL, frameColor)}${sidePad}${" ".repeat(contentWidth)}${sidePad}${boxFrameText(theme, BOX_VERTICAL, frameColor)}`;
 }
 
 export function boxLineAligned(theme: BoxTheme, left: string, right: string, width: number): string {
@@ -584,19 +615,19 @@ export function boxLineWithRight(theme: BoxTheme, left: string, right: string, w
 	return `${boxFrameText(theme, BOX_VERTICAL)}${sidePad}${truncatedLeft}${gap}${divider}${right}${sidePad}${boxFrameText(theme, BOX_VERTICAL)}`;
 }
 
-export function boxLine(theme: BoxTheme, content: string, width: number): string {
+export function boxLine(theme: BoxTheme, content: string, width: number, frameColor?: string): string {
 	const renderedWidth = boxWidth(width);
 	const contentWidth = boxInnerWidth(renderedWidth);
 	const fastContent = fastBoxLineContent(content, contentWidth);
 	const sidePad = " ".repeat(BOX_SIDE_PADDING);
 	if (fastContent) {
 		const fill = " ".repeat(Math.max(0, contentWidth - fastContent.visibleWidth));
-		return `${boxFrameText(theme, BOX_VERTICAL)}${sidePad}${fastContent.text}${fill}${sidePad}${boxFrameText(theme, BOX_VERTICAL)}`;
+		return `${boxFrameText(theme, BOX_VERTICAL, frameColor)}${sidePad}${fastContent.text}${fill}${sidePad}${boxFrameText(theme, BOX_VERTICAL, frameColor)}`;
 	}
 
 	const truncated = safeTruncateToWidth(content, contentWidth, "…");
 	const fill = " ".repeat(Math.max(0, contentWidth - safeVisibleWidth(truncated)));
-	return `${boxFrameText(theme, BOX_VERTICAL)}${sidePad}${truncated}${fill}${sidePad}${boxFrameText(theme, BOX_VERTICAL)}`;
+	return `${boxFrameText(theme, BOX_VERTICAL, frameColor)}${sidePad}${truncated}${fill}${sidePad}${boxFrameText(theme, BOX_VERTICAL, frameColor)}`;
 }
 
 export function boxInsetDivider(theme: BoxTheme, width: number): string {
@@ -606,12 +637,12 @@ export function boxInsetDivider(theme: BoxTheme, width: number): string {
 	return `${boxFrameText(theme, BOX_VERTICAL)}${sidePad}${boxText(theme, BOX_HORIZONTAL.repeat(lineWidth))}${sidePad}${boxFrameText(theme, BOX_VERTICAL)}`;
 }
 
-export function boxedWrappedLines(theme: BoxTheme, content: string, width: number): string[] {
-	return safeWrapTextWithAnsi(content, boxInnerWidth(width)).map((line) => boxLine(theme, line, width));
+export function boxedWrappedLines(theme: BoxTheme, content: string, width: number, frameColor?: string): string[] {
+	return safeWrapTextWithAnsi(content, boxInnerWidth(width)).map((line) => boxLine(theme, line, width, frameColor));
 }
 
-function boxedTruncatedLine(theme: BoxTheme, content: string, width: number): string {
-	return boxLine(theme, safeTruncateToWidth(content, boxInnerWidth(width), "…"), width);
+function boxedTruncatedLine(theme: BoxTheme, content: string, width: number, frameColor?: string): string {
+	return boxLine(theme, safeTruncateToWidth(content, boxInnerWidth(width), "…"), width, frameColor);
 }
 
 type RenderLinesCache = {
@@ -635,6 +666,7 @@ function renderBoxedOutputLines(
 	outputLines: string[],
 	width: number,
 	rawLineBudget = DEFAULT_COLLAPSED_RENDER_LINES,
+	frameColor?: string,
 ): string[] {
 	const budget = boxedResultRenderBudget(rawLineBudget);
 	const headLimit = Math.max(0, Math.min(budget.headLines, budget.maxRenderedLines));
@@ -651,7 +683,7 @@ function renderBoxedOutputLines(
 		const fragments = (outputLines[nextInputIndex] ?? "").split("\n");
 		let headExceeded = false;
 		for (const fragment of fragments) {
-			const line = boxedTruncatedLine(theme, fragment, width);
+			const line = boxedTruncatedLine(theme, fragment, width, frameColor);
 			if (!pushBoundedLines(head, [line], headLimit)) {
 				headExceeded = true;
 				break;
@@ -671,7 +703,7 @@ function renderBoxedOutputLines(
 	for (let i = tailStart; i < outputLines.length; i++) {
 		const fragments = (outputLines[i] ?? "").split("\n");
 		for (const fragment of fragments) {
-			const line = boxedTruncatedLine(theme, fragment, width);
+			const line = boxedTruncatedLine(theme, fragment, width, frameColor);
 			tail.push(line);
 			if (tail.length > tailLimit) tail.splice(0, tail.length - tailLimit);
 		}
@@ -682,7 +714,7 @@ function renderBoxedOutputLines(
 		skippedInputLines > 0
 			? `… rendered output truncated; ${skippedInputLines} input lines skipped before tail`
 			: "… rendered output truncated";
-	return [...head, boxLine(theme, theme.fg("muted", skippedText), width), ...tail];
+	return [...head, boxLine(theme, theme.fg("muted", skippedText), width, frameColor), ...tail];
 }
 
 export function renderBoxedToolCall(
@@ -704,12 +736,23 @@ export function renderBoxedToolCall(
 				options.isError,
 				options.isPending ? (options.running ? "running" : "pending") : undefined,
 			);
-			const headerLabel = options.headerDetail ? `${title} · ${options.headerDetail}` : title;
+			const headerDetail = typeof options.headerDetail === "function" ? options.headerDetail() : options.headerDetail;
+			const headerLabel = headerDetail ? `${title} · ${headerDetail}` : title;
 			const renderedWidth = boxWidth(width);
+			// A failed call renders its whole frame in the error color.
+			const frameColor = options.isError ? "error" : undefined;
 			const lines = [
-				boxLabeledBorder(theme, BOX_ROUND_TOP_LEFT, BOX_ROUND_TOP_RIGHT, headerLabel, undefined, renderedWidth),
-				boxBlankLine(theme, renderedWidth),
-				...detailLines.flatMap((line) => boxedWrappedLines(theme, line, renderedWidth)),
+				boxLabeledBorder(
+					theme,
+					BOX_ROUND_TOP_LEFT,
+					BOX_ROUND_TOP_RIGHT,
+					headerLabel,
+					undefined,
+					renderedWidth,
+					frameColor,
+				),
+				boxBlankLine(theme, renderedWidth, frameColor),
+				...detailLines.flatMap((line) => boxedWrappedLines(theme, line, renderedWidth, frameColor)),
 			];
 			if (options.isPending && !options.resultSeen) {
 				// Pending/running card: close the box with the status label. Once a
@@ -718,7 +761,7 @@ export function renderBoxedToolCall(
 				const pendingLabel =
 					options.pendingLabel ?? theme.fg("dim", `… ${options.pendingText ?? "Waiting for output…"}`);
 				lines.push(
-					boxBlankLine(theme, renderedWidth),
+					boxBlankLine(theme, renderedWidth, frameColor),
 					boxLabeledBorder(
 						theme,
 						BOX_ROUND_BOTTOM_LEFT,
@@ -726,15 +769,19 @@ export function renderBoxedToolCall(
 						pendingLabel,
 						undefined,
 						renderedWidth,
+						frameColor,
 					),
 				);
 			} else {
 				// Leave the box open with trailing breathing room; the result renderer
 				// continues it with the result divider.
-				lines.push(boxBlankLine(theme, renderedWidth));
+				lines.push(boxBlankLine(theme, renderedWidth, frameColor));
 			}
-			cache = { width, lines };
-			return lines;
+			// A rendered call box owns its status tint (the container fill is
+			// neutralized — see tighten/neutralize in features/tools).
+			const tinted = applyBgTint(theme, boxedToolBgName(options.isError, options.isPartial), lines);
+			cache = { width, lines: tinted };
+			return tinted;
 		},
 	};
 }
@@ -772,11 +819,20 @@ export function renderCompactBoxedToolCall(
 			const _footerIsError = Boolean(options.state?.[COMPACT_FOOTER_ERROR_KEY]);
 			const _footerIsPartial = Boolean(options.state?.[COMPACT_FOOTER_PARTIAL_KEY]);
 			const bodyLines = options.bodyLines ? options.bodyLines(boxInnerWidth(renderedWidth)) : [];
+			const frameColor = options.isError ? "error" : undefined;
 			const lines = [
-				boxLabeledBorder(theme, BOX_ROUND_TOP_LEFT, BOX_ROUND_TOP_RIGHT, headerLabel, undefined, renderedWidth),
+				boxLabeledBorder(
+					theme,
+					BOX_ROUND_TOP_LEFT,
+					BOX_ROUND_TOP_RIGHT,
+					headerLabel,
+					undefined,
+					renderedWidth,
+					frameColor,
+				),
 				...(bodyLines.length > 0
-					? bodyLines.map((line) => boxLine(theme, line, renderedWidth))
-					: [boxBlankLine(theme, renderedWidth)]),
+					? bodyLines.map((line) => boxLine(theme, line, renderedWidth, frameColor))
+					: [boxBlankLine(theme, renderedWidth, frameColor)]),
 			];
 			if (compactFooter) {
 				lines.push(
@@ -787,6 +843,7 @@ export function renderCompactBoxedToolCall(
 						compactFooter,
 						options.bottomRightLabel,
 						renderedWidth,
+						frameColor,
 					),
 				);
 			} else if (options.isPending) {
@@ -803,13 +860,17 @@ export function renderCompactBoxedToolCall(
 						pendingLabel,
 						options.bottomRightLabel,
 						renderedWidth,
+						frameColor,
 					),
 				);
 			} else {
 				// No footer yet (transient, or the result opens the result divider):
 				// leave the box open so the result renderer continues the same box.
 			}
-			return lines;
+			// Compact boxes tint only when the surface is a real framed box (e.g.
+			// the write preview) — boxless compact surfaces (quiet-tool rows,
+			// tree panels) stay transparent.
+			return options.tint ? applyBgTint(theme, boxedToolBgName(options.isError, options.isPartial), lines) : lines;
 		},
 	};
 }
@@ -830,6 +891,10 @@ export function renderBoxedToolResult(
 		dividerLabel?: string | ((width: number) => string);
 		/** Right-side label embedded in the divider between the call and the result. */
 		dividerRightLabel?: string;
+		/** Skip the blank line between the divider (or box top) and the body — used
+		 *  when the enclosing call box already left breathing room, e.g. the
+		 *  divider-less diff results whose stats live in the box header. */
+		skipLeadingBlank?: boolean;
 		/** Right-side label embedded in the bottom border (e.g. the expand hint). */
 		expandHint?: string;
 		isError?: boolean;
@@ -838,6 +903,10 @@ export function renderBoxedToolResult(
 		showDivider?: boolean;
 		/** Error state marker prepended to the body (default `✗ Error`). */
 		errorLabel?: string;
+		/** Tint the result box with the semantic status background. Default on —
+		 *  every current caller draws a framed box; pass false for a boxless
+		 *  continuation. */
+		tint?: boolean;
 	} = {},
 ): Component {
 	let cache: RenderLinesCache | null = null;
@@ -861,6 +930,8 @@ export function renderBoxedToolResult(
 			// rows instead of one "line" whose embedded rows break the frame.
 			const outputFragments = outputLines.flatMap((line) => line.split("\n"));
 			const footerText = (options.footerLines ?? []).join(" · ");
+			// A failed result renders its whole frame in the error color.
+			const frameColor = options.isError ? "error" : undefined;
 			const dividerText =
 				typeof options.dividerLabel === "function"
 					? options.dividerLabel(renderedWidth)
@@ -876,16 +947,18 @@ export function renderBoxedToolResult(
 								theme.fg("dim", dividerText),
 								options.dividerRightLabel ? theme.fg("dim", options.dividerRightLabel) : undefined,
 								renderedWidth,
+								frameColor,
 							),
 						]),
-				boxBlankLine(theme, renderedWidth),
+				...(options.skipLeadingBlank ? [] : [boxBlankLine(theme, renderedWidth, frameColor)]),
 				...renderBoxedOutputLines(
 					theme,
 					outputFragments,
 					renderedWidth,
 					options.renderLineBudget ?? outputFragments.length,
+					frameColor,
 				),
-				boxBlankLine(theme, renderedWidth),
+				boxBlankLine(theme, renderedWidth, frameColor),
 				boxLabeledBorder(
 					theme,
 					BOX_ROUND_BOTTOM_LEFT,
@@ -893,10 +966,16 @@ export function renderBoxedToolResult(
 					footerText,
 					options.expandHint ? theme.fg("dim", options.expandHint) : undefined,
 					renderedWidth,
+					frameColor,
 				),
 			];
-			cache = { width, lines: rendered };
-			return rendered;
+			// The result box owns its status tint (the container fill is neutralized).
+			const tinted =
+				options.tint === false
+					? rendered
+					: applyBgTint(theme, boxedToolBgName(options.isError, options.isPartial), rendered);
+			cache = { width, lines: tinted };
+			return tinted;
 		},
 	};
 }

@@ -1314,13 +1314,15 @@ describe("bash dispatch — git routing", () => {
 		const callLines = plain(call.render(80));
 		expect(callLines[0]).toBe("Git diff");
 		expect(callLines[1]).toBe("  1 file +1 -1");
-		// Result: one complete box per file — top border with the path, a
-		// `Diff · +N -M` divider, the diff body, and a footer with file count.
+		// Result: one complete box per file — the frame top border carries
+		// `path · +N -M` (no `Diff` divider), then the diff body and a footer
+		// with the file count.
 		const out = plain(result.render(80)).join("\n");
 		expect(result.render(80).length).toBeGreaterThan(0); // NOT the empty tree result
 		expect(out).toContain("docs/ui/THEMING.md");
-		expect(out).toContain("Diff · +1 -1");
-		expect(out).toContain("1 file");
+		expect(out).toContain("docs/ui/THEMING.md · +1 -1");
+		expect(out).not.toContain("Diff · ");
+		expect(out).not.toContain("1 file"); // single frame implies the count
 		expect(out).toContain("╭─"); // a per-file frame top border
 		expect(out).toContain("╰─"); // a per-file frame bottom border
 		expect(out).toContain("+"); // an added diff line marker

@@ -13,6 +13,7 @@
 
 import type { BoxTheme } from "../../shared/box.js";
 import {
+	applyBgTint,
 	boxBlankLine,
 	boxInnerWidth,
 	boxLabeledBorder,
@@ -102,21 +103,36 @@ export function renderBashExecutionBox(instance: unknown, args: unknown[]): stri
 		const cacheKey = `${themeCacheKey(theme)}|${width}|${host.status}|${host.exitCode ?? ""}|${host.command}`;
 		if (host.status !== "running" && host.piStyleRenderCache?.key === cacheKey) return host.piStyleRenderCache.lines;
 		const inner = boxInnerWidth(renderedWidth);
+		// The box owns its status tint (box ⇒ background) and, on failure, its
+		// frame color; the leading spacer line sits outside the frame and stays
+		// transparent.
+		const frameColor = host.status === "error" ? "error" : host.status === "cancelled" ? "warning" : undefined;
+		const bgName =
+			host.status === "running" ? "toolPendingBg" : host.status === "complete" ? "toolSuccessBg" : "toolErrorBg"; // error | cancelled
 		// The native Text children render one leading padding space per line;
 		// drop it so boxLine's own side padding produces symmetric borders.
 		const wrapped = content
 			.render(inner)
-			.map((line) => boxLine(theme, line.startsWith(" ") ? line.slice(1) : line, renderedWidth));
-		const lines = [
+			.map((line) => boxLine(theme, line.startsWith(" ") ? line.slice(1) : line, renderedWidth, frameColor));
+		const [spacer, ...boxLines] = [
 			"",
-			boxLabeledBorder(theme, TOP_LEFT, TOP_RIGHT, bashBoxTitle(theme, host), undefined, renderedWidth),
-			boxBlankLine(theme, renderedWidth),
+			boxLabeledBorder(theme, TOP_LEFT, TOP_RIGHT, bashBoxTitle(theme, host), undefined, renderedWidth, frameColor),
+			boxBlankLine(theme, renderedWidth, frameColor),
 			...wrapped,
-			boxBlankLine(theme, renderedWidth),
-			boxLabeledBorder(theme, BOTTOM_LEFT, BOTTOM_RIGHT, bashBoxFooter(theme, host), undefined, renderedWidth),
+			boxBlankLine(theme, renderedWidth, frameColor),
+			boxLabeledBorder(
+				theme,
+				BOTTOM_LEFT,
+				BOTTOM_RIGHT,
+				bashBoxFooter(theme, host),
+				undefined,
+				renderedWidth,
+				frameColor,
+			),
 		];
-		if (host.status !== "running") host.piStyleRenderCache = { key: cacheKey, lines };
-		return lines;
+		const tinted = [spacer ?? "", ...applyBgTint(theme, bgName, boxLines)];
+		if (host.status !== "running") host.piStyleRenderCache = { key: cacheKey, lines: tinted };
+		return tinted;
 	} catch {
 		return undefined;
 	}
