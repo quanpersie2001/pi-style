@@ -1,18 +1,20 @@
 # Changelog
 
-## [Unreleased]
-
-### Features
-
-- *(messages)* Completed hidden thinking runs now surface as a clickable `◈ Thought for <n>s` summary row (`messages.thoughtSummary`, default on, requires `hideThinkingLabel`) instead of the zero-trace collapse: a single `◈` glyph marks both states (`>` ASCII), runs still streaming keep zero-trace, durations are wall-clock measurements shown only for runs streamed live in this process — recovered across Pi's agent-end history component rebuilds via a bounded content-signature registry (resume/history-from-disk render the duration-less `◈ Thought`) — neither the summary row nor expanded thinking content shifts the `│ ` landing spot (child accounting lands it on the answer's first line; expanded thinking content renders as a `│ `-railed quote block under the header) — the row reuses Pi's native click-to-expand with a mirrored `◈ Thought for <n>s` header when expanded, and a missing session theme fails safe to zero-trace
-
-- *(tools)* Collapsed turn summaries now report the turn's aggregate diff stats (`· Edit +6 -2`, diff colors) computed purely from tool-result data (`details.diff` for edit, the parsed `── diff ──` section for the quick-edit family — the same sources the box renderers read), so live, scroll-back, and resume render identically; `write` carries no diff and error members never contribute
-
-- *(tools)* Diff stats moved from the `Diff · +N -M` divider into the box header (`➔ Edit ✓ · path · +3 -0`, git diff frames get `path · +N -M` in their top border) — the divider and its blank row are gone, and the footer drops the redundant stats/`1 file` (elapsed time only; git keeps `N files` when a diff spans several); boxes now own their status background (self-applied `toolPendingBg`/`toolErrorBg`/`toolSuccessBg` fill hugging the frame, native container fill always neutralized) while boxless surfaces — quiet-tool rows/tree panels, git/gh semantic cards, turn summaries — stay transparent, so one tool can mix both (git: boxless card plus boxed diff frames); failed boxes render their whole frame in the theme's error color (direct-bash cancelled boxes use warning)
+## [0.2.10] - 2026-09-07
 
 ### Bug Fixes
 
-- *(compat)* Support Pi 0.85.1 runtime identities: the rebundled runtime renames minified parameters (assistant `updateContent` drifts; every surface re-verified live against the shipped bundle), and the hidden-thinking label is no longer blanked when the certified `updateContent` surface cannot install — an uninstalled surface keeps Pi's native `Thinking...` label instead of leaving an invisible gap
+- *(compat)* Support Pi 0.85.1 runtime identities
+
+### Documentation
+
+- *(changelog)* Describe the unreleased tools work; refresh test counts
+
+### Features
+
+- *(messages)* Surface completed thinking runs as a clickable summary row
+- *(tools)* Report aggregate diff stats in the collapsed turn summary
+- *(tools)* Boxes own their status background; failed boxes render error frames
 
 ## [0.2.9] - 2026-09-04
 
