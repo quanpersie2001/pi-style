@@ -1,4 +1,7 @@
+import { Text } from "@earendil-works/pi-tui";
 import { visibleWidth } from "../../shared/ansi.js";
+import type { BoxTheme } from "../../shared/box.js";
+import { formatElapsedMs } from "../../shared/elapsed.js";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
@@ -364,12 +367,18 @@ function decorateMessageLine(
 		prefix: string;
 		prefixWidth: number;
 		continuationLead: string;
+		/** Rail range (inclusive): lines of an expanded leading thinking region
+		 *  that render with the role-prefix rail instead of no lead. */
+		railStart: number | undefined;
+		railEnd: number | undefined;
 	},
 	analysis = getLineAnalysis(line),
 ): string {
-	const { firstEnvelope, firstHasStart, multilineEnvelope, prefix, prefixWidth, continuationLead } = options;
-	const lead = index === contentIndex ? prefix : index > contentIndex ? continuationLead : "";
-	const leadWidth = index < contentIndex ? 0 : prefixWidth;
+	const { firstEnvelope, firstHasStart, multilineEnvelope, prefix, prefixWidth, continuationLead, railStart, railEnd } =
+		options;
+	const railed = railStart !== undefined && railEnd !== undefined && index >= railStart && index <= railEnd;
+	const lead = railed ? prefix : index === contentIndex ? prefix : index > contentIndex ? continuationLead : "";
+	const leadWidth = railed || index >= contentIndex ? prefixWidth : 0;
 	if (index === contentIndex && firstEnvelope)
 		return `${firstEnvelope.start}${rebuildAtWidth(firstEnvelope.body, width, prefix, prefixWidth)}${firstEnvelope.end}`;
 	if (index === contentIndex && firstHasStart)
@@ -405,8 +414,8 @@ function sameLines(left: readonly string[], right: readonly string[]): boolean {
 	return true;
 }
 
-function cacheKey(width: number, prefix: string): string {
-	return `${width}\u0000${prefix}`;
+function cacheKey(width: number, prefix: string, skip: number | undefined): string {
+	return `${width}\u0000${prefix}\u0000${skip ?? ""}`;
 }
 
 function getRenderCache(instance: object): Map<string, DecoratedRenderCacheEntry> {
@@ -424,9 +433,10 @@ function storeRenderCache(
 	prefix: string,
 	native: readonly string[],
 	result: readonly string[],
+	skip: number | undefined,
 ): void {
 	const cache = getRenderCache(instance);
-	const key = cacheKey(width, prefix);
+	const key = cacheKey(width, prefix, skip);
 	if (cache.has(key)) cache.delete(key);
 	cache.set(key, { nativeRef: native, nativeLines: [...native], result: [...result] });
 	while (cache.size > MAX_RENDER_CACHE_KEYS_PER_INSTANCE) {
@@ -436,7 +446,51 @@ function storeRenderCache(
 	}
 }
 
-function prefixNative(lines: unknown, width: number, prefix: string): string[] | undefined {
+/** Whether a rendered line's visible text is a thought-summary row (collapsed
+ *  label or expanded header). Such rows carry their own `▸`/`∨` (or ASCII
+ *  `>`/`v`) state glyph, so the assistant-role prefix skips them: the glyph
+ *  marks the row, `│ ` keeps marking the message's first real content line. */
+function isThoughtSummaryRenderLine(line: string, glyph: string): boolean {
+	return contentText(line).trim().startsWith(`${glyph} Thought`);
+}
+
+/** Leading thought-region children (top spacer, label/header rows, expanded
+ *  thinking content, trailing spacer) of instances whose message STARTS with
+ *  an expanded thinking run. At render time their line count tells the prefix
+ *  decoration exactly where the first answer line begins, so thinking content
+ *  never receives the `│ ` role prefix. */
+type ThoughtLeadingSkip = { children: readonly object[] };
+
+let thoughtLeadingSkipByInstance = new WeakMap<object, ThoughtLeadingSkip>();
+
+/** Render-time line accounting over the recorded leading children; `undefined`
+ *  when the state is absent or a child cannot be rendered (fall back to the
+ *  content scan). Children render deterministically and pi-tui caches renders
+ *  by width, so the accounting re-uses the upcoming full-render work. */
+function leadingSkipLineCount(instance: object, width: number): number | undefined {
+	const state = thoughtLeadingSkipByInstance.get(instance);
+	if (!state || state.children.length === 0) return undefined;
+	let count = 0;
+	for (const child of state.children) {
+		const render = (child as { render?: unknown }).render;
+		if (typeof render !== "function") return undefined;
+		const lines = (render as (width: number) => unknown).call(child, width);
+		if (!Array.isArray(lines) || !lines.every((line) => typeof line === "string")) return undefined;
+		count += lines.length;
+	}
+	return count;
+}
+
+function prefixNative(
+	lines: unknown,
+	width: number,
+	prefix: string,
+	thoughtGlyph: string | undefined,
+	/** Structural first-content override: when an expanded thinking block leads
+	 *  the message, the prefix must land on the answer's first line, not on the
+	 *  thinking content — computed by child accounting in decorateMessageRender. */
+	forcedFirstContentIndex: number | undefined,
+): string[] | undefined {
 	if (!Array.isArray(lines) || lines.length === 0 || !lines.every((line) => typeof line === "string")) return undefined;
 	messageDecorationTestState.decoratePasses++;
 	const nativeLines = lines as string[];
@@ -455,30 +509,81 @@ function prefixNative(lines: unknown, width: number, prefix: string): string[] |
 	// sits on the final line ([OSC133_A, OSC133_END+FINAL+body]); excluding it
 	// would drop the prefix for every short assistant reply.
 	let firstContentIndex = -1;
-	for (let index = 0; index < nativeLines.length; index++) {
-		const analysis = analyses[index] ?? getLineAnalysis(nativeLines[index] ?? "");
-		if (index !== nativeLines.length - 1 || !multilineEnvelope) {
-			if (analysis.hasContent) {
-				firstContentIndex = index;
-				break;
-			}
-			continue;
+	let scanForFirstContent = true;
+	if (forcedFirstContentIndex !== undefined) {
+		if (forcedFirstContentIndex >= nativeLines.length) return nativeLines;
+		const forcedAnalysis =
+			analyses[forcedFirstContentIndex] ?? getLineAnalysis(nativeLines[forcedFirstContentIndex] ?? "");
+		if (forcedAnalysis.hasContent) {
+			firstContentIndex = forcedFirstContentIndex;
+			scanForFirstContent = false;
 		}
-		let earlierHasContent = false;
-		for (let earlier = 0; earlier < index; earlier++) {
-			if ((analyses[earlier] ?? getLineAnalysis(nativeLines[earlier] ?? "")).hasContent) {
-				earlierHasContent = true;
-				break;
-			}
-		}
-		if (!earlierHasContent && lastAnalysis.hasContent) firstContentIndex = index;
-		break;
 	}
+	if (scanForFirstContent)
+		for (let index = 0; index < nativeLines.length; index++) {
+			const analysis = analyses[index] ?? getLineAnalysis(nativeLines[index] ?? "");
+			if (index !== nativeLines.length - 1 || !multilineEnvelope) {
+				if (analysis.hasContent) {
+					// Thought-summary rows render with their own state glyph and take the
+					// continuation indent instead of the role prefix.
+					if (thoughtGlyph && isThoughtSummaryRenderLine(nativeLines[index] ?? "", thoughtGlyph)) continue;
+					firstContentIndex = index;
+					break;
+				}
+				continue;
+			}
+			let earlierHasContent = false;
+			for (let earlier = 0; earlier < index; earlier++) {
+				const earlierAnalysis = analyses[earlier] ?? getLineAnalysis(nativeLines[earlier] ?? "");
+				// Thought-summary rows are content-start candidates themselves, so they do
+				// not count as "earlier content" either — otherwise the skipped row would
+				// suppress the prefix on the first real content line.
+				if (
+					earlierAnalysis.hasContent &&
+					!(thoughtGlyph && isThoughtSummaryRenderLine(nativeLines[earlier] ?? "", thoughtGlyph))
+				) {
+					earlierHasContent = true;
+					break;
+				}
+			}
+			if (
+				!earlierHasContent &&
+				lastAnalysis.hasContent &&
+				!(thoughtGlyph && isThoughtSummaryRenderLine(last, thoughtGlyph))
+			) {
+				firstContentIndex = index;
+			}
+			break;
+		}
 	if (firstContentIndex < 0) return nativeLines;
 	const firstAnalysis = analyses[0] ?? getLineAnalysis(nativeLines[0] ?? "");
 	const firstEnvelope = firstContentIndex === 0 ? firstAnalysis.oscEnvelope : undefined;
 	const firstHasStart = firstContentIndex === 0 && firstAnalysis.hasOscStart;
 	const continuationLead = " ".repeat(prefixWidth);
+	// Rail range: when a leading expanded thinking block precedes the first
+	// content line, its content lines (after the summary header, up to the
+	// region's last content line — blank lines inside keep the rail for a
+	// continuous quote bar, trailing blanks do not) render with the `│ ` rail.
+	let railStart: number | undefined;
+	let railEnd: number | undefined;
+	if (forcedFirstContentIndex !== undefined && forcedFirstContentIndex > 0) {
+		let headerIndex = -1;
+		let lastContent = -1;
+		for (let regionIndex = 0; regionIndex < forcedFirstContentIndex; regionIndex++) {
+			const regionLine = nativeLines[regionIndex] ?? "";
+			const regionAnalysis = analyses[regionIndex] ?? getLineAnalysis(regionLine);
+			if (!regionAnalysis.hasContent) continue;
+			if (headerIndex < 0 && thoughtGlyph && isThoughtSummaryRenderLine(regionLine, thoughtGlyph)) {
+				headerIndex = regionIndex;
+				continue;
+			}
+			lastContent = regionIndex;
+		}
+		if (headerIndex >= 0 && lastContent > headerIndex) {
+			railStart = headerIndex + 1;
+			railEnd = lastContent;
+		}
+	}
 	const decorated = nativeLines.map((line, index) =>
 		decorateMessageLine(
 			line,
@@ -493,6 +598,8 @@ function prefixNative(lines: unknown, width: number, prefix: string): string[] |
 				prefix,
 				prefixWidth,
 				continuationLead,
+				railStart,
+				railEnd,
 			},
 			analyses[index],
 		),
@@ -507,6 +614,15 @@ export type MessageDecorationSnapshot = Readonly<{
 	assistantEnabled: boolean;
 	/** Drop the hidden-thinking label row and its trailing spacer (zero-trace collapse). */
 	collapseHiddenThinking: boolean;
+	/** Replace the blanked label of a COMPLETED thinking run with a clickable
+	 *  `<glyph> Thought for <n>s` summary (runs still streaming keep the zero-trace
+	 *  collapse). Requires collapseHiddenThinking; no session theme → zero-trace. */
+	thoughtSummary?: boolean;
+	/** Glyph for the thought summary row — one glyph for both states (the
+	 *  content below an expanded header is what distinguishes them). Unicode
+	 *  `◈` by default (`>` in ASCII mode; U+23F5 ⏵ was rejected for spotty
+	 *  monospace-font coverage — swap here if a variant is ever wanted). */
+	thoughtGlyph?: string;
 }>;
 
 export function __getMessageDecorationTestState(): Readonly<MessageDecorationTestState> {
@@ -522,6 +638,10 @@ export function __resetMessageDecorationTestState(): void {
 	renderCacheByInstance = new WeakMap<object, Map<string, DecoratedRenderCacheEntry>>();
 	lineAnalysisCache = new Map<string, LineAnalysis>();
 	lineCacheEvictionCursor = undefined;
+	thoughtTimingByInstance = new WeakMap<object, ThoughtTimingState>();
+	thoughtDurationsBySignature = new Map<string, number>();
+	thoughtLeadingSkipByInstance = new WeakMap<object, ThoughtLeadingSkip>();
+	sessionThoughtTheme = undefined;
 	childrenScanByInstance = new WeakMap<object, ChildrenScanState>();
 }
 
@@ -546,14 +666,17 @@ export function decorateMessageRender(
 	const reducedWidth = width - prefixWidth;
 	const native = Reflect.apply(original, instance, [reducedWidth, ...args.slice(1)]);
 	if (!Array.isArray(native) || !native.every((line) => typeof line === "string")) return native;
-	const cached = getRenderCache(instance).get(cacheKey(width, prefix));
+	// One accounting per pass (children render deterministically; pi-tui caches
+	// renders by width, so the accounting re-uses the full-render work).
+	const leadingSkip = leadingSkipLineCount(instance, reducedWidth);
+	const cached = getRenderCache(instance).get(cacheKey(width, prefix, leadingSkip));
 	if (cached && (cached.nativeRef === native || sameLines(cached.nativeLines, native))) {
 		messageDecorationTestState.cacheHits++;
 		return [...cached.result];
 	}
 	messageDecorationTestState.cacheMisses++;
-	const decorated = prefixNative(native, width, prefix) ?? native;
-	storeRenderCache(instance, width, prefix, native, decorated);
+	const decorated = prefixNative(native, width, prefix, snapshot.thoughtGlyph, leadingSkip) ?? native;
+	storeRenderCache(instance, width, prefix, native, decorated, leadingSkip);
 	return decorated;
 }
 
@@ -613,7 +736,184 @@ function markChildrenScanned(instance: object, children: readonly unknown[]): vo
 }
 
 /**
- * Collapse Pi's hidden-thinking placeholder row to zero trace.
+ * Per-instance thinking-run timing for the thought summary label. `startedAt`
+ * is the first updateContent pass that observed the run, `endedAt` the first
+ * pass that observed it complete, and `streamed` whether a pass ever saw the
+ * run mid-stream. Durations are only shown for runs the extension watched
+ * stream live: messages restored from history (resume/scroll-back rebuilds)
+ * are first observed already complete, so they fall back to a duration-less
+ * `Thought` label instead of a fabricated number.
+ */
+interface ThoughtRunTiming {
+	startedAt: number;
+	endedAt: number | undefined;
+	streamed: boolean;
+}
+type ThoughtTimingState = { runs: Map<number, ThoughtRunTiming> };
+
+let thoughtTimingByInstance = new WeakMap<object, ThoughtTimingState>();
+
+/**
+ * Completed-run durations keyed by thinking-content signature. Pi's `agent_end`
+ * removes the streaming AssistantMessageComponent and the history re-render
+ * rebuilds every message as a fresh component, so per-instance timing never
+ * reaches the component the user actually sees. A finalized run's duration is
+ * therefore also recorded under a content signature (length + head/tail of the
+ * run's thinking text), and a replacement component first observing the run
+ * already complete looks the duration up instead of falling back to the
+ * duration-less label. Insertion-order LRU, bounded: real reasoning text never
+ * repeats across messages, so a collision would require identical content
+ * (harmless — identical content earns the same duration). Truly new processes
+ * (resume/restart) start with an empty registry and keep the duration-less
+ * fallback by design.
+ */
+const THOUGHT_DURATION_REGISTRY_LIMIT = 256;
+let thoughtDurationsBySignature = new Map<string, number>();
+
+function thoughtDurationKey(runIndex: number, text: string): string {
+	const head = text.slice(0, 64);
+	const tail = text.length > 64 ? text.slice(-64) : "";
+	return `#${runIndex}:${text.length}:${head}⋮${tail}`;
+}
+
+function recordThoughtDuration(key: string, durationMs: number): void {
+	if (thoughtDurationsBySignature.has(key)) thoughtDurationsBySignature.delete(key);
+	thoughtDurationsBySignature.set(key, durationMs);
+	if (thoughtDurationsBySignature.size > THOUGHT_DURATION_REGISTRY_LIMIT) {
+		const oldest = thoughtDurationsBySignature.keys().next().value;
+		if (oldest !== undefined) thoughtDurationsBySignature.delete(oldest);
+	}
+}
+
+/** Session theme for the thought summary label, cached per session by the
+ *  session coordinator (never read during render). No theme → zero-trace. */
+let sessionThoughtTheme: BoxTheme | undefined;
+
+export function setThoughtLabelTheme(theme: BoxTheme | undefined): void {
+	sessionThoughtTheme = theme;
+}
+
+/** Thinking-run layout of an assistant message, mirroring the native
+ *  `updateContent` grouping: maximal runs of consecutive thinking blocks with
+ *  at least one non-empty string (all-empty groups render no child and do not
+ *  consume a run index). `complete[k]` marks runs that can no longer grow;
+ *  `texts[k]` is the run's joined thinking text (content-signature key). */
+function parseThinkingRuns(
+	message: unknown,
+	streaming: boolean,
+): { count: number; complete: boolean[]; texts: string[] } {
+	const complete: boolean[] = [];
+	const texts: string[] = [];
+	const content = (message as { content?: unknown } | undefined)?.content;
+	if (!Array.isArray(content)) return { count: 0, complete, texts };
+	// One pass, tracking whether any substantive non-thinking block follows the
+	// current (still-open) run — that, another run starting, or a finalized
+	// message (isStreaming false / stopReason set) closes it.
+	let openRun = -1;
+	let openText = "";
+	const stopReason = (message as { stopReason?: unknown } | undefined)?.stopReason;
+	const closeRun = () => {
+		if (openRun < 0) return;
+		texts[openRun] = openText;
+		openRun = -1;
+		openText = "";
+	};
+	for (let index = 0; index < content.length; index++) {
+		const block = content[index] as { type?: unknown; thinking?: unknown; text?: unknown } | undefined;
+		if (!block || typeof block !== "object") continue;
+		if (block.type === "thinking") {
+			if (typeof block.thinking === "string" && block.thinking.trim() !== "") {
+				if (openRun < 0) {
+					openRun = complete.length;
+					complete.push(false);
+					texts.push("");
+				}
+				openText = openText === "" ? block.thinking : `${openText}\n\n${block.thinking}`;
+			}
+			continue;
+		}
+		// Non-thinking block: a substantive text block or any tool call closes the
+		// open run (whitespace-only text renders nothing and is not a boundary).
+		const closes =
+			block.type === "toolCall" ||
+			(block.type === "text" && typeof block.text === "string" && block.text.trim() !== "");
+		if (openRun >= 0 && closes) {
+			complete[openRun] = true;
+			closeRun();
+		}
+	}
+	if (openRun >= 0 && (!streaming || stopReason)) {
+		complete[openRun] = true;
+		closeRun();
+	} else if (openRun >= 0) {
+		texts[openRun] = openText;
+	}
+	return { count: complete.length, complete, texts };
+}
+
+/** Fold one observed pass into the timing state. Returns per-run durations:
+ *  a live-streamed run carries its measured duration (also recorded in the
+ *  content-signature registry), and a replacement component first observing a
+ *  run already complete recovers the recorded duration from the registry —
+ *  only truly unknown runs (new process / resume) stay `undefined`. */
+function updateThoughtTiming(
+	instance: object,
+	runs: { count: number; complete: boolean[]; texts: string[] },
+): (number | undefined)[] {
+	let state = thoughtTimingByInstance.get(instance);
+	if (!state) {
+		state = { runs: new Map() };
+		thoughtTimingByInstance.set(instance, state);
+	}
+	const now = Date.now();
+	const durations: (number | undefined)[] = [];
+	for (let index = 0; index < runs.count; index++) {
+		const complete = runs.complete[index] === true;
+		const key = thoughtDurationKey(index, runs.texts[index] ?? "");
+		const entry = state.runs.get(index);
+		if (!entry) {
+			state.runs.set(index, { startedAt: now, endedAt: undefined, streamed: !complete });
+			// First observation already complete (history rebuild / replacement
+			// component): recover the recorded duration, if any.
+			if (complete) durations[index] = thoughtDurationsBySignature.get(key);
+			continue;
+		}
+		if (!complete) {
+			entry.streamed = true;
+			continue;
+		}
+		if (entry.endedAt === undefined) entry.endedAt = now;
+		if (entry.streamed) {
+			const duration = entry.endedAt - entry.startedAt;
+			recordThoughtDuration(key, duration);
+			durations[index] = duration;
+		} else {
+			// This instance never saw the run stream, but a predecessor may have.
+			durations[index] = thoughtDurationsBySignature.get(key);
+		}
+	}
+	return durations;
+}
+
+function thoughtLabelText(glyph: string, durationMs: number | undefined): string {
+	return durationMs === undefined ? `${glyph} Thought` : `${glyph} Thought for ${formatElapsedMs(durationMs)}`;
+}
+
+function styleThoughtText(text: string): string {
+	if (!sessionThoughtTheme) return text;
+	const colored = sessionThoughtTheme.fg("thinkingText", text);
+	return sessionThoughtTheme.italic ? sessionThoughtTheme.italic(colored) : colored;
+}
+
+/** Whether an (unwrapped) child is a Text-like component (the hidden label / error rows). */
+function isTextComponent(child: unknown): boolean {
+	return typeof (child as { setCustomBgFn?: unknown } | undefined)?.setCustomBgFn === "function";
+}
+
+/**
+ * Collapse Pi's hidden-thinking placeholder row to zero trace, and — once a
+ * thinking run completes — surface it as a clickable `▸ Thought for <n>s`
+ * summary instead (`messages.thoughtSummary`).
  *
  * Native `AssistantMessageComponent.updateContent` renders the thinking block as
  * `Text(theme.italic(theme.fg("thinkingText", label)), outputPad, 0)` plus a
@@ -622,9 +922,23 @@ function markChildrenScanned(instance: object, children: readonly unknown[]): vo
  * `Text.render` cannot treat it as empty (its check is `text.trim() === ""`,
  * and trim does not strip escape sequences) and emits one full-width invisible
  * line. That invisible row plus the surrounding spacers is the "gap" left when
- * the label is hidden. This wrapper runs the native layout, then drops the
- * invisible label row and the spacer the native layout appends after the
- * thinking run, leaving the same single top padding as a text-only message.
+ * the label is hidden. This wrapper runs the native layout, then:
+ *
+ * - a run still streaming (thinking is the trailing content and the message is
+ *   not finalized) keeps the zero-trace collapse: the invisible label row and
+ *   the spacer after it are dropped, leaving the same single top padding as a
+ *   text-only message;
+ * - a completed run keeps its `MouseRegion`-wrapped label row and rewrites it
+ *   to the styled summary, so Pi's native click-to-toggle keeps working (the
+ *   `>`/`▸` glyph hints at it);
+ * - a completed run the user expanded re-gets a `∨ Thought for <n>s` header row
+ *   above the thinking content, mirroring the collapsed summary.
+ *
+ * Runs first observed already complete by a NEW process (resume, restart) never
+ * carried a measured duration and render the duration-less `Thought` variant;
+ * within the same process, Pi's history rebuilds (which replace the streaming
+ * component at `agent_end`) recover the recorded duration via the
+ * content-signature registry.
  */
 export function decorateMessageUpdate(
 	original: unknown,
@@ -641,6 +955,8 @@ export function decorateMessageUpdate(
 	const target = instance as {
 		hideThinkingBlock?: boolean;
 		hiddenThinkingLabel?: string;
+		isStreaming?: boolean;
+		outputPad?: number;
 		contentContainer?: { children?: unknown[] };
 	};
 	const children = target.contentContainer?.children;
@@ -648,12 +964,97 @@ export function decorateMessageUpdate(
 		// Only meaningful when Pi renders the hidden-block label (hideThinkingBlock)
 		// and the extension has blanked that label out ("" — the zero-trace mode).
 		if (snapshot.collapseHiddenThinking && target.hideThinkingBlock === true && target.hiddenThinkingLabel === "") {
+			// `updateContent` stores the effective streaming flag on the instance
+			// (explicit arg or its own default), so it is current after the native call.
+			const runs = parseThinkingRuns(args[0], target.isStreaming !== false);
+			const durations = updateThoughtTiming(instance, runs);
+			const summary = Boolean(snapshot.thoughtSummary) && sessionThoughtTheme !== undefined;
+			const glyph = snapshot.thoughtGlyph ?? "◈";
+			// Children are laid out in content order, thinking runs (hidden label or
+			// expanded Markdown, each in a MouseRegion) in run order; walking backward
+			// keeps splice/insert indices valid and assigns runs from the last.
+			let runCursor = runs.count - 1;
+			let expandedRunSeen = false;
 			for (let index = children.length - 1; index >= 0; index--) {
-				if (!isBlankTextChild(children[index])) continue;
-				children.splice(index, 1);
-				// Drop the Spacer(1) the native layout appends after the thinking run when
-				// another visible block follows; the message keeps only its shared top padding.
-				if (isSpacerChild(children[index])) children.splice(index, 1);
+				const child = children[index];
+				if (isSpacerChild(child)) continue;
+				const region = unwrapMouseRegion(child) !== child ? (child as { child: unknown }) : undefined;
+				const inner = region?.child;
+				if (isBlankTextChild(child)) {
+					// Hidden thinking-run label (MouseRegion-wrapped blank Text).
+					const run = runCursor--;
+					if (run < 0) continue;
+					if (summary && runs.complete[run]) {
+						// Rewrite the label in place: the row (and its MouseRegion click
+						// toggle) stays, now carrying the completed-run summary.
+						const text = thoughtLabelText(glyph, durations[run]);
+						(inner as { setText?: (text: string) => void } | undefined)?.setText?.(styleThoughtText(text));
+						continue;
+					}
+					children.splice(index, 1);
+					// Drop the Spacer(1) the native layout appends after the thinking run when
+					// another visible block follows; the message keeps only its shared top padding.
+					if (isSpacerChild(children[index])) children.splice(index, 1);
+				} else if (
+					region &&
+					inner !== undefined &&
+					typeof (inner as { render?: unknown }).render === "function" &&
+					!isTextComponent(inner)
+				) {
+					// Expanded thinking run: MouseRegion(Markdown). Give a completed run a
+					// summary header above its content, mirroring the collapsed label.
+					const run = runCursor--;
+					expandedRunSeen = true;
+					if (run >= 0 && summary && runs.complete[run]) {
+						const marker = new Text(
+							styleThoughtText(thoughtLabelText(glyph, durations[run])),
+							typeof target.outputPad === "number" ? target.outputPad : 1,
+							0,
+						);
+						children.splice(index, 0, marker);
+					}
+				}
+			}
+			// When an expanded thinking block leads the message, the role prefix must
+			// land on the answer's first line (not the thinking content): record the
+			// leading thought-region children for render-time line accounting. The
+			// collapsed-only layout needs no accounting — the summary row itself is
+			// skipped as a thought-summary line by the render decoration.
+			if (summary && expandedRunSeen) {
+				const leading: object[] = [];
+				for (const rawChild of children) {
+					const child = rawChild as object;
+					if (isSpacerChild(child)) {
+						leading.push(child);
+						continue;
+					}
+					const region = unwrapMouseRegion(child) !== child ? (child as { child?: unknown }) : undefined;
+					const inner = region?.child;
+					if (
+						region &&
+						inner !== undefined &&
+						typeof (inner as { render?: unknown }).render === "function" &&
+						!isTextComponent(inner)
+					) {
+						// Expanded thinking content (MouseRegion-wrapped Markdown).
+						leading.push(child);
+						continue;
+					}
+					if (region && isTextComponent(inner)) {
+						// Collapsed label row (MouseRegion-wrapped Text).
+						leading.push(child);
+						continue;
+					}
+					if (!region && isTextComponent(child)) {
+						// Our inserted header row (bare Text).
+						leading.push(child);
+						continue;
+					}
+					break; // First answer Markdown (or anything unexpected) ends the region.
+				}
+				thoughtLeadingSkipByInstance.set(instance, { children: leading });
+			} else {
+				thoughtLeadingSkipByInstance.delete(instance);
 			}
 		}
 		markChildrenScanned(instance, children);
