@@ -142,6 +142,40 @@ export function stateElapsedMs(context: BoxedToolContext): number | undefined {
 	return getStateElapsedMs(context.state);
 }
 
+/** State slot a diff result renderer publishes its stats into so the call
+ *  renderer can append them to the box header (`path · +3 -0`) on the same
+ *  paint. One slot suffices: renderer state is per tool call, and a call never
+ *  renders two diffs. */
+const DIFF_HEADER_STATS_KEY = "__piStyleDiffHeaderStats";
+
+/** Publish diff stats for the call header (called by settled result renderers). */
+export function noteDiffHeaderStats(context: BoxedToolContext, stats: { additions: number; removals: number }): void {
+	context.state[DIFF_HEADER_STATS_KEY] = { additions: stats.additions, removals: stats.removals };
+}
+
+/** Drop published diff stats (error / no-diff results keep the header clean). */
+export function clearDiffHeaderStats(context: BoxedToolContext): void {
+	delete context.state[DIFF_HEADER_STATS_KEY];
+}
+
+/** Colored `+N -M` diff stats pair: diff colors when nonzero, dim zeros. */
+export function formatDiffStatsPair(theme: BoxTheme, additions: number, removals: number): string {
+	const plus = additions > 0 ? theme.fg("toolDiffAdded", `+${additions}`) : theme.fg("dim", "+0");
+	const minus = removals > 0 ? theme.fg("toolDiffRemoved", `-${removals}`) : theme.fg("dim", "-0");
+	return `${plus} ${minus}`;
+}
+
+/** ` · +3 -0` header suffix with diff colors, or "" while no stats are
+ *  published (pending call / error result). */
+export function diffHeaderStatsSuffix(theme: BoxTheme, context: BoxedToolContext): string {
+	const stats = context.state[DIFF_HEADER_STATS_KEY] as { additions?: unknown; removals?: unknown } | undefined;
+	if (!stats || typeof stats !== "object") return "";
+	const additions = Number(stats.additions);
+	const removals = Number(stats.removals);
+	if (!Number.isFinite(additions) || !Number.isFinite(removals)) return "";
+	return ` · ${formatDiffStatsPair(theme, additions, removals)}`;
+}
+
 /** Footer parts with state-based elapsed when result.details lacks timing. */
 export function boxedFooterWithState(
 	theme: BoxTheme,

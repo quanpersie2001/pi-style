@@ -169,6 +169,37 @@ describe("turn summary through the boxed dispatcher", () => {
 		expect(line).toContain("· 0.05s");
 	});
 
+	it("summary reports aggregate edit diff stats with diff colors", () => {
+		beginAgentRun();
+		registerTurnFromMessage(message([toolCall("r1", "read"), toolCall("e1", "edit")]), [
+			result("r1"),
+			{ toolCallId: "e1", isError: false, details: { diff: "+a\n+b\n-c\n-d\n" } },
+		]);
+		finishAgentRun();
+		const leader = dispatchCall("read", { path: "a.ts" }, theme, context({ toolCallId: "r1" }));
+		const lines = leader.render(80);
+		expect(lines).toHaveLength(1);
+		const line = stripAnsi(lines[0]);
+		expect(line).toContain("Read 1 file · Edit +2 -2");
+
+		// The stats pair keeps its diff colors (not dim like the rest of the line):
+		// truecolor foreground set immediately before, fg-reset right after.
+		const colored = createFakeTheme({
+			colors: { toolDiffAdded: "#00ff00", toolDiffRemoved: "#ff0000", dim: "#808080" },
+		});
+		const coloredLeader = dispatchCall("read", { path: "a.ts" }, colored, context({ toolCallId: "r1" }));
+		const raw = coloredLeader.render(80)[0] ?? "";
+		expect(raw).toContain(`\u001b[38;2;0;255;0m+2\u001b[39m`);
+		expect(raw).toContain(`\u001b[38;2;255;0;0m-2\u001b[39m`);
+		expect(stripAnsi(raw)).toContain("· Edit +2 -2");
+	});
+
+	it("summary omits the diff part when no member carried a diff", () => {
+		completedTurn([toolCall("r1", "read")]);
+		const leader = dispatchCall("read", { path: "a.ts" }, theme, context({ toolCallId: "r1" }));
+		expect(stripAnsi(leader.render(80)[0])).not.toContain("Edit");
+	});
+
 	it("pluralizes the failure marker ('failures' for many)", () => {
 		beginAgentRun();
 		registerTurnFromMessage(

@@ -8,6 +8,13 @@
 // global tool-output toggle (Ctrl+O) expands everything again
 // (`options.expanded` is read, never written).
 //
+// The summary also reports the turn's aggregate diff stats (`· Edit +6 -2`,
+// diff colors) computed purely from tool-result data — `details.diff` for
+// edit, the parsed `── diff ──` output section for the quick-edit family
+// (the same sources the box renderers read) — so live, scroll-back, and
+// resume render identically. `write` carries no diff and is skipped; error
+// members keep their visible blocks and never contribute stats.
+//
 // Mutating tools (edit/write/quick_edit/substitute_edit/target_edit) are
 // exempt from the summary by default (`tools.collapseMutatingTools: off`):
 // their blocks are the record of what was done to the user's files, so they
@@ -34,8 +41,11 @@
 import type { Component } from "@earendil-works/pi-tui";
 import type { BoxTheme } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
+import { countDiffStats, firstText } from "../../../shared/split-diff.js";
 import { pluralForm } from "./output-tree.js";
+import { extractQuickEditDiff, getQuickEditToolConfig } from "./quick-edit.js";
 import { getToolsRenderConfig } from "./session-config.js";
+import { formatDiffStatsPair } from "./shared.js";
 
 export interface TurnMemberInfo {
 	readonly toolCallId: string;
@@ -45,6 +55,8 @@ export interface TurnMemberInfo {
 	isError: boolean;
 	/** Frozen wall-clock elapsed (ms), recorded from the renderer context state. */
 	elapsedMs?: number;
+	/** Frozen diff line stats recorded from the tool result (edit family). */
+	diffStats?: { additions: number; removals: number } | undefined;
 }
 
 export interface TurnState {
@@ -114,22 +126,72 @@ function toolCallsOf(message: unknown): ToolCallLike[] {
 	return calls;
 }
 
+/** Tool-result fields the registry consumes (ToolResultMessage subset). */
+export interface TurnResultLike {
+	readonly toolCallId: string;
+	readonly isError?: boolean;
+	readonly content?: readonly unknown[] | undefined;
+	readonly details?: unknown;
+}
+
+/** Result facts per tool call id: presence, error flag, and raw payload. */
+interface RawMemberResult {
+	readonly isError: boolean;
+	readonly content?: readonly unknown[] | undefined;
+	readonly details?: unknown;
+}
+
+/**
+ * Extract a mutating member's diff line stats from its tool result — the
+ * same sources the box renderers read: `details.diff` for `edit`, the
+ * parsed `── diff ──` output section for the quick-edit family. `write`
+ * carries no diff and yields undefined. Pure: no render-time work.
+ */
+function diffStatsFromResult(
+	toolName: string,
+	result: RawMemberResult | undefined,
+): { additions: number; removals: number } | undefined {
+	if (!result) return undefined;
+	if (isMutatingTool(toolName) && toolName !== "write") {
+		const diff = (result.details as { diff?: unknown } | undefined)?.diff;
+		if (typeof diff === "string" && diff.length > 0) return countDiffStats(diff);
+	}
+	if (getQuickEditToolConfig(toolName)) {
+		const text = Array.isArray(result.content)
+			? firstText(result.content as Array<{ type: string; text?: string }>)
+			: "";
+		const diff = text ? extractQuickEditDiff(text) : undefined;
+		if (diff) return countDiffStats(diff);
+	}
+	return undefined;
+}
+
+function buildMembers(
+	calls: readonly ToolCallLike[],
+	resultsById: ReadonlyMap<string, RawMemberResult>,
+): TurnMemberInfo[] {
+	return calls.map((call) => {
+		const toolCallId = String(call.id ?? "");
+		const toolName = typeof call.name === "string" ? call.name : "tool";
+		const result = resultsById.get(toolCallId);
+		return {
+			toolCallId,
+			toolName,
+			hasResult: result !== undefined,
+			isError: result?.isError === true,
+			diffStats: diffStatsFromResult(toolName, result),
+		};
+	});
+}
+
 function registerTurn(
 	calls: readonly ToolCallLike[],
-	isErrorById: ReadonlyMap<string, boolean>,
+	resultsById: ReadonlyMap<string, RawMemberResult>,
 	ended: boolean,
 ): TurnState | undefined {
 	if (calls.length === 0) return undefined;
-	const complete = calls.every((call) => typeof call.id === "string" && isErrorById.has(call.id));
-	const members: TurnMemberInfo[] = calls.map((call) => {
-		const toolCallId = String(call.id ?? "");
-		return {
-			toolCallId,
-			toolName: typeof call.name === "string" ? call.name : "tool",
-			hasResult: isErrorById.has(toolCallId),
-			isError: isErrorById.get(toolCallId) === true,
-		};
-	});
+	const complete = calls.every((call) => typeof call.id === "string" && resultsById.has(String(call.id ?? "")));
+	const members: TurnMemberInfo[] = buildMembers(calls, resultsById);
 	const leader = members.find((member) => !member.isError && (!isMutatingTool(member.toolName) || mutatingCollapses()));
 	const turn: TurnState = {
 		leaderId: leader?.toolCallId ?? "",
@@ -138,11 +200,6 @@ function registerTurn(
 	};
 	for (const member of members) memberByCallId.set(member.toolCallId, { turn, member });
 	return turn;
-}
-
-export interface TurnResultLike {
-	readonly toolCallId: string;
-	readonly isError?: boolean;
 }
 
 /**
@@ -165,20 +222,16 @@ export function beginAgentRun(): void {
 export function registerTurnFromMessage(message: unknown, toolResults: readonly TurnResultLike[]): void {
 	const calls = toolCallsOf(message);
 	if (calls.length === 0) return;
-	const isErrorById = new Map<string, boolean>();
+	const resultsById = new Map<string, RawMemberResult>();
 	for (const result of toolResults) {
 		if (typeof result?.toolCallId !== "string") continue;
-		isErrorById.set(result.toolCallId, result.isError === true);
+		resultsById.set(result.toolCallId, {
+			isError: result.isError === true,
+			content: result.content,
+			details: result.details,
+		});
 	}
-	const newMembers: TurnMemberInfo[] = calls.map((call) => {
-		const toolCallId = String(call.id ?? "");
-		return {
-			toolCallId,
-			toolName: typeof call.name === "string" ? call.name : "tool",
-			hasResult: isErrorById.has(toolCallId),
-			isError: isErrorById.get(toolCallId) === true,
-		};
-	});
+	const newMembers: TurnMemberInfo[] = buildMembers(calls, resultsById);
 	const leader = newMembers.find(
 		(member) => !member.isError && (!isMutatingTool(member.toolName) || mutatingCollapses()),
 	);
@@ -215,6 +268,7 @@ interface TurnEntryLike {
 	readonly message?: {
 		readonly role?: unknown;
 		readonly content?: unknown;
+		readonly details?: unknown;
 		readonly stopReason?: unknown;
 		readonly toolCallId?: unknown;
 		readonly isError?: unknown;
@@ -231,8 +285,7 @@ interface TurnEntryLike {
 export function rebuildTurnRegistryFromEntries(entries: readonly TurnEntryLike[] | undefined): void {
 	memberByCallId.clear();
 	if (!Array.isArray(entries)) return;
-	const isErrorById = new Map<string, boolean>();
-	const resultById = new Set<string>();
+	const resultsById = new Map<string, RawMemberResult>();
 	const runs: Array<{
 		calls: ToolCallLike[];
 		lastStopReason: string | undefined;
@@ -247,8 +300,11 @@ export function rebuildTurnRegistryFromEntries(entries: readonly TurnEntryLike[]
 		if (entry?.type !== "message") return;
 		const message = entry.message;
 		if (message?.role === "toolResult" && typeof message.toolCallId === "string") {
-			resultById.add(message.toolCallId);
-			isErrorById.set(message.toolCallId, message.isError === true);
+			resultsById.set(message.toolCallId, {
+				isError: message.isError === true,
+				content: Array.isArray(message.content) ? (message.content as readonly unknown[]) : undefined,
+				details: message.details,
+			});
 		} else if (message?.role === "assistant") {
 			if (!current) current = { calls: [], lastStopReason: undefined, followedByUser: false };
 			const calls = toolCallsOf(message);
@@ -267,9 +323,9 @@ export function rebuildTurnRegistryFromEntries(entries: readonly TurnEntryLike[]
 	});
 	closeRun();
 	for (const run of runs) {
-		const complete = run.calls.every((call) => typeof call.id === "string" && resultById.has(call.id));
+		const complete = run.calls.every((call) => typeof call.id === "string" && resultsById.has(String(call.id ?? "")));
 		const ended = complete && (run.followedByUser || run.lastStopReason !== undefined);
-		registerTurn(run.calls, isErrorById, ended);
+		registerTurn(run.calls, resultsById, ended);
 	}
 }
 
@@ -349,24 +405,36 @@ export interface TurnSummaryParts {
 	readonly failedCount: number;
 	/** Sum of members' frozen elapsed; undefined when nothing was recorded. */
 	readonly elapsedMs: number | undefined;
+	/** Aggregate diff line stats over non-error edit-family members; undefined
+	 * when none carried a diff. Collected regardless of the mutating exemption:
+	 * visible edit blocks are exactly what these stats describe. */
+	readonly diffStats: { additions: number; removals: number } | undefined;
 }
 
 /**
  * Aggregate a turn's collapsed members into summary parts (pure). Mutating
- * members are excluded unless `tools.collapseMutatingTools` is on — by default
- * their visible blocks are the record; the summary describes only what it
- * hides.
+ * members are excluded from counts/elapsed unless `tools.collapseMutatingTools`
+ * is on — by default their visible blocks are the record; the summary counts
+ * only what it hides. Their diff stats aggregate either way.
  */
 export function turnSummaryParts(turn: TurnState): TurnSummaryParts {
 	const counts = new Map<string, number>();
 	const order: string[] = [];
 	let failedCount = 0;
 	let elapsedMs: number | undefined;
+	let diffAdditions = 0;
+	let diffRemovals = 0;
+	let diffMembers = 0;
 	const collapseMutating = mutatingCollapses();
 	for (const member of turn.members) {
 		if (member.isError) {
 			failedCount++;
 			continue;
+		}
+		if (member.diffStats !== undefined) {
+			diffAdditions += member.diffStats.additions;
+			diffRemovals += member.diffStats.removals;
+			diffMembers++;
 		}
 		if (!collapseMutating && isMutatingTool(member.toolName)) continue;
 		if (member.elapsedMs !== undefined) elapsedMs = (elapsedMs ?? 0) + member.elapsedMs;
@@ -383,16 +451,24 @@ export function turnSummaryParts(turn: TurnState): TurnSummaryParts {
 		// neutral phrasing with the invariant tool name: `used 5 TaskCreate`.
 		return style ? `${style.verb} ${count} ${pluralForm(style.unit, count)}` : `used ${count} ${toolName}`;
 	});
-	return { parts, failedCount, elapsedMs };
+	return {
+		parts,
+		failedCount,
+		elapsedMs,
+		diffStats: diffMembers > 0 ? { additions: diffAdditions, removals: diffRemovals } : undefined,
+	};
 }
 
 function formatTurnSummaryLine(theme: BoxTheme, turn: TurnState): string {
 	const summary = turnSummaryParts(turn);
 	// The summary is deliberately quiet: the whole line renders dim so completed
-	// tool work recedes behind the assistant's answer. Only the failed marker
-	// stays error-colored (errors must remain visible).
+	// tool work recedes behind the assistant's answer. Only the diff stats
+	// (`+N` added / `-M` removed) and the failed marker stay color-coded —
+	// changes and errors must remain visible at a glance.
 	const parts = summary.parts.join(", ");
 	let line = `${theme.fg("dim", `➔ ${parts}`)}`;
+	if (summary.diffStats !== undefined)
+		line += `${theme.fg("dim", " · Edit ")}${formatDiffStatsPair(theme, summary.diffStats.additions, summary.diffStats.removals)}`;
 	if (summary.failedCount > 0)
 		line += theme.fg("error", ` · ${summary.failedCount} ${pluralForm("failure", summary.failedCount)}`);
 	if (summary.elapsedMs !== undefined) line += theme.fg("dim", ` · ${(summary.elapsedMs / 1000).toFixed(2)}s`);

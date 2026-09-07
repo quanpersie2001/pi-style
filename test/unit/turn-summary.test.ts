@@ -29,12 +29,17 @@ function result(id: string, isError = false): { toolCallId: string; isError: boo
 	return { toolCallId: id, isError };
 }
 
+/** Tool result carrying an edit `details.diff` payload (ToolResultMessage subset). */
+function resultWithDiff(id: string, diff: string, isError = false) {
+	return { toolCallId: id, isError, details: { diff } };
+}
+
 function message(calls: readonly ReturnType<typeof toolCall>[], stopReason?: string) {
 	return { role: "assistant", content: calls, ...(stopReason ? { stopReason } : {}) };
 }
 
-function toolResultEntry(id: string, isError = false) {
-	return { type: "message", message: { role: "toolResult", toolCallId: id, isError } };
+function toolResultEntry(id: string, isError = false, details?: unknown, content?: unknown[]) {
+	return { type: "message", message: { role: "toolResult", toolCallId: id, isError, details, content } };
 }
 
 function entry(message: unknown) {
@@ -337,5 +342,101 @@ describe("turnSummaryParts", () => {
 			{ calls: [toolCall("a", "gh"), toolCall("b", "gh")], results: [result("a"), result("b")] },
 		]);
 		expect(turnSummaryParts(run).parts).toEqual(["used 2 gh"]);
+	});
+});
+
+describe("turn summary diff stats", () => {
+	it("aggregates edit diff stats from details.diff (live path)", () => {
+		const run = completedRun([
+			{
+				calls: [toolCall("r", "read"), toolCall("e1", "edit"), toolCall("e2", "edit")],
+				results: [
+					result("r"),
+					resultWithDiff("e1", "ctx\n+added\n+added2\n-removed"),
+					resultWithDiff("e2", "+later\n-gone\n-gone2\n-gone3"),
+				],
+			},
+		]);
+		const parts = turnSummaryParts(run);
+		expect(parts.parts).toEqual(["Read 1 file"]);
+		expect(parts.diffStats).toEqual({ additions: 3, removals: 4 });
+	});
+
+	it("diff stats cover mutating members even though counts exclude them", () => {
+		const run = completedRun([
+			{
+				calls: [toolCall("r", "read"), toolCall("e", "edit")],
+				results: [result("r"), resultWithDiff("e", "+x\n-y")],
+			},
+		]);
+		const parts = turnSummaryParts(run);
+		expect(parts.parts).toEqual(["Read 1 file"]);
+		expect(parts.diffStats).toEqual({ additions: 1, removals: 1 });
+	});
+
+	it("writes and diff-less edits contribute no stats", () => {
+		const run = completedRun([
+			{
+				calls: [toolCall("w", "write"), toolCall("e", "edit")],
+				results: [result("w"), result("e")],
+			},
+		]);
+		expect(turnSummaryParts(run).diffStats).toBeUndefined();
+	});
+
+	it("error members never contribute diff stats", () => {
+		const run = completedRun([
+			{
+				calls: [toolCall("e", "edit")],
+				results: [resultWithDiff("e", "+x", true)],
+			},
+		]);
+		const parts = turnSummaryParts(run);
+		expect(parts.diffStats).toBeUndefined();
+		expect(parts.failedCount).toBe(1);
+	});
+
+	it("parses quick-edit diffs from the output text", () => {
+		const quickEditOutput = [
+			"Applied quick edit to src/a.ts",
+			"── diff ──",
+			":17",
+			"- 17 old line",
+			"+ 17 new line",
+			"",
+			"done",
+		].join("\n");
+		const run = completedRun([
+			{
+				calls: [toolCall("q", "quick_edit")],
+				results: [{ toolCallId: "q", isError: false, content: [{ type: "text", text: quickEditOutput }] }],
+			},
+		]);
+		expect(turnSummaryParts(run).diffStats).toEqual({ additions: 1, removals: 1 });
+	});
+
+	it("restore path recovers diff stats from session entries (resume parity)", () => {
+		const entries = [
+			entry({ role: "user", content: "fix it" }),
+			entry(message([toolCall("e1", "edit"), toolCall("e2", "edit")], "stop")),
+			toolResultEntry("e1", false, { diff: "+a\n-b\n-c" }),
+			toolResultEntry("e2", false, { diff: "+d" }),
+		];
+		rebuildTurnRegistryFromEntries(entries);
+		const restored = getTurnEntry("e1");
+		if (!restored) throw new Error("expected e1 registered on restore");
+		expect(turnSummaryParts(restored.turn).diffStats).toEqual({ additions: 2, removals: 2 });
+	});
+
+	it("collapseMutatingTools on keeps diff stats alongside the counts", () => {
+		setToolsRenderConfig({ collapseAfterTurn: true, collapseMutatingTools: true });
+		try {
+			const run = completedRun([{ calls: [toolCall("e", "edit")], results: [resultWithDiff("e", "+x\n-y")] }]);
+			const parts = turnSummaryParts(run);
+			expect(parts.parts).toEqual(["Edited 1 file"]);
+			expect(parts.diffStats).toEqual({ additions: 1, removals: 1 });
+		} finally {
+			setToolsRenderConfig({ collapseAfterTurn: true, collapseMutatingTools: false });
+		}
 	});
 });
