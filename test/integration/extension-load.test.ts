@@ -158,6 +158,17 @@ describe("pi-style extension lifecycle foundation", () => {
 		coordinator.shutdown();
 	});
 
+	it("keeps the native Thinking... label when the certified updateContent surface cannot install", async () => {
+		// Fail-safe: blanking the label without the certified patch would leave
+		// Pi's native invisible-row gap (worse than the label it replaces), so an
+		// uninstalled surface keeps the native `Thinking...` label instead.
+		const host = new FakePiHost({ flags: { "pi-style-core-patches": false } });
+		piStyleExtension(host.extensionApi);
+		await host.sessionStart();
+		expect(host.hiddenThinkingLabel).toBeUndefined();
+		await host.sessionShutdown();
+	});
+
 	it("repeated lifecycle cycles do not accumulate handlers, timers, or UI", async () => {
 		const host = new FakePiHost();
 		piStyleExtension(host.extensionApi);

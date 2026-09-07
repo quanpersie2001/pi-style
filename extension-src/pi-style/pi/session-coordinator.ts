@@ -4,6 +4,7 @@ import type { ConfigFilePort } from "../app/config-storage.js";
 import { createPiStyleApp, type PiStyleApp } from "../app/index.js";
 import { resolveTheme } from "../domain/theme.js";
 import { resetPendingImageRegistry } from "../features/messages/image-input.js";
+import { setThoughtLabelTheme } from "../features/messages/index.js";
 import { setMessagesRenderConfig } from "../features/messages/render-config.js";
 import { setSpecialBlockTheme } from "../features/messages/special-blocks.js";
 import { setBashExecutionTheme } from "../features/tools/bash-execution.js";
@@ -94,9 +95,26 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 	 * Hide Pi's "Thinking..." placeholder label: an empty label renders zero
 	 * lines, so the thinking block leaves no trace while content stays hidden.
 	 * Passing undefined restores the default label.
+	 *
+	 * Gated on the certified `updateContent` surface actually being installed:
+	 * blanking without the patch leaves Pi's native invisible-row gap (worse
+	 * than the label it replaces), so an unsupported runtime identity keeps the
+	 * native `Thinking...` label instead.
 	 */
+	const thinkingCollapseInstalled = (): boolean => {
+		const records = compatibility.report?.recordSnapshots ?? [];
+		return records.some(
+			(record) =>
+				record.subtype === "native-assistant-message" &&
+				record.method === "updateContent" &&
+				record.shape === "installed" &&
+				!record.disposed,
+		);
+	};
 	const applyMessagesConfig = (config: import("../domain/config-types.js").NormalizedPiStyleConfig) => {
-		sessionUi?.setHiddenThinkingLabel?.(config.messages.hideThinkingLabel ? "" : undefined);
+		sessionUi?.setHiddenThinkingLabel?.(
+			config.messages.hideThinkingLabel && thinkingCollapseInstalled() ? "" : undefined,
+		);
 		// User-prompt image previews (ADR 0008) + clipboard image input (ADR
 		// 0009): the leaves gate their respective sides (preview: stage+render;
 		// clipboard: input transform) and size the preview images.
@@ -211,6 +229,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			applyMessagesConfig(app.config);
 			if (ctx.ui?.theme) setSpecialBlockTheme(ctx.ui.theme as never);
 			if (ctx.ui?.theme) setBashExecutionTheme(ctx.ui.theme as never);
+			if (ctx.ui?.theme) setThoughtLabelTheme(ctx.ui.theme as never);
 			const toolDetails = collectToolDetails(pi.getActiveTools?.(), pi.getAllTools?.());
 			app.sessionStart(
 				{

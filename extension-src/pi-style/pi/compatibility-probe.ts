@@ -44,6 +44,7 @@ export const SUPPORTED_PI_VERSIONS: readonly string[] = Object.freeze([
 	"0.84.3",
 	"0.84.4",
 	"0.85.0",
+	"0.85.1",
 ]);
 
 /** A recorded native identity for one certified surface. */
@@ -97,7 +98,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "render",
 			arity: 1,
 			fingerprint: "a9be09a3",
-			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1"]),
 		}),
 	]),
 	"native-assistant-message:updateContent": Object.freeze([
@@ -132,7 +133,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateContent",
 			arity: 1,
 			fingerprint: "80e338d2",
-			versions: Object.freeze(["0.85.0"]),
+			versions: Object.freeze(["0.85.0", "0.85.1"]),
 		}),
 		// 0.85.0 bundled: same drift, minified.
 		Object.freeze({
@@ -140,6 +141,16 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			arity: 1,
 			fingerprint: "c3d72f2b",
 			versions: Object.freeze(["0.85.0"]),
+		}),
+		// 0.85.1 bundled: the rebundled runtime renames the minified `message2`
+		// parameter to `message` — the modular dist is unchanged from 0.85.0 (only
+		// the GPT-6 Astra model catalog and fullscreen-scroll fixes landed), so the
+		// minified method text drifts while behavior stays identical.
+		Object.freeze({
+			name: "updateContent",
+			arity: 1,
+			fingerprint: "31632e19",
+			versions: Object.freeze(["0.85.1"]),
 		}),
 	]),
 	"native-compaction-message:updateDisplay": Object.freeze([
@@ -153,7 +164,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "5118a51d",
-			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1"]),
 		}),
 	]),
 	"native-branch-message:updateDisplay": Object.freeze([
@@ -167,7 +178,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "2185274e",
-			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1"]),
 		}),
 	]),
 	"native-skill-message:updateDisplay": Object.freeze([
@@ -181,7 +192,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "4051fd65",
-			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1"]),
 		}),
 	]),
 	"native-custom-message:rebuild": Object.freeze([
@@ -195,7 +206,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "rebuild",
 			arity: 0,
 			fingerprint: "b89987cc",
-			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1"]),
 		}),
 	]),
 	"tool-call-renderer:getCallRenderer": Object.freeze([
@@ -224,7 +235,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "getCallRenderer",
 			arity: 0,
 			fingerprint: "73116365",
-			versions: Object.freeze(["0.85.0"]),
+			versions: Object.freeze(["0.85.0", "0.85.1"]),
 		}),
 	]),
 	"tool-result-renderer:getResultRenderer": Object.freeze([
@@ -253,7 +264,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "getResultRenderer",
 			arity: 0,
 			fingerprint: "d613a2a3",
-			versions: Object.freeze(["0.85.0"]),
+			versions: Object.freeze(["0.85.0", "0.85.1"]),
 		}),
 	]),
 	"native-bash-execution:render": Object.freeze([
@@ -271,7 +282,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "BashExecutionComponent",
 			arity: 2,
 			fingerprint: "98d22d96",
-			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1"]),
 		}),
 	]),
 });
