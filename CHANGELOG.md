@@ -1,16 +1,10 @@
 # Changelog
 
-## [Unreleased]
-
-### Features
-
-- *(messages)* Completed agent runs now surface one clickable `◈ N thoughts · <time>` aggregate per contiguous thought segment (`messages.thoughtSummary`, default on, requires `hideThinkingLabel`): substantive assistant text splits segments and keeps each summary at its original transcript position, while tool-only cycles may still aggregate to avoid adjacent generic rows. Intermediate labels stay zero-trace until `agent_end`; each segment leader toggles only its own thinking blocks. Duration is summed only when every member was measured live, survives component rebuilds and session/extension rebinds in the same Pi process through a bounded global registry, and is omitted after process restart/disk-only history. Expanded segments retain continuous `│ ` quote rails across nonleader and thinking-only tool-call messages without shifting the answer prefix; ASCII uses `>`, and a missing session theme fails safe to zero-trace
+## [0.2.11] - 2026-09-09
 
 ### Bug Fixes
 
-- *(messages)* Completed globally visible thought segments now receive the same aggregate `◈ N thoughts` header and continuous `│ ` quote rail as click expansion; nonleader and thinking-only tool-calling messages keep the rail even when there is no answer line in the assistant component
-- *(compat)* Session runner rebinds now reclaim only pi-style wrappers explicitly retained for render-before-bind, then reinstall them and reapply the hidden-thinking label; this prevents summaries from reverting to repeated native `Thinking...` rows after reload/new/resume flows while preserving unrelated or still-active owners
-- *(compat)* Harden Pi 0.85.1 support for its rebundled assistant `updateContent` identity, and keep Pi's native `Thinking...` label whenever the certified surface cannot install instead of leaving an invisible gap
+- *(messages)* Stabilize segmented thought summaries
 
 ## [0.2.10] - 2026-09-07
 
