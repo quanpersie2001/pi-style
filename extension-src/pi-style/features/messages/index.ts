@@ -1,7 +1,13 @@
-import { Text } from "@earendil-works/pi-tui";
+import { type Component, MouseRegion, Text } from "@earendil-works/pi-tui";
 import { visibleWidth } from "../../shared/ansi.js";
 import type { BoxTheme } from "../../shared/box.js";
 import { formatElapsedMs } from "../../shared/elapsed.js";
+import {
+	observeThoughtMessage,
+	parseThinkingRuns,
+	resetAgentThoughtRuns,
+	toggleThoughtGroup,
+} from "./thought-summary.js";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
@@ -451,7 +457,15 @@ function storeRenderCache(
  *  `>`/`v`) state glyph, so the assistant-role prefix skips them: the glyph
  *  marks the row, `│ ` keeps marking the message's first real content line. */
 function isThoughtSummaryRenderLine(line: string, glyph: string): boolean {
-	return contentText(line).trim().startsWith(`${glyph} Thought`);
+	const text = contentText(line).trim();
+	if (text.startsWith(`${glyph} Thought`)) return true;
+	if (!text.startsWith(`${glyph} `)) return false;
+	const suffix = text.slice(glyph.length + 1);
+	const separator = suffix.indexOf(" ");
+	if (separator <= 0) return false;
+	const count = suffix.slice(0, separator);
+	const noun = suffix.slice(separator + 1);
+	return /^\d+$/.test(count) && (noun === "thought" || noun.startsWith("thought ·") || noun.startsWith("thoughts"));
 }
 
 /** Leading thought-region children (top spacer, label/header rows, expanded
@@ -511,12 +525,21 @@ function prefixNative(
 	let firstContentIndex = -1;
 	let scanForFirstContent = true;
 	if (forcedFirstContentIndex !== undefined) {
-		if (forcedFirstContentIndex >= nativeLines.length) return nativeLines;
-		const forcedAnalysis =
-			analyses[forcedFirstContentIndex] ?? getLineAnalysis(nativeLines[forcedFirstContentIndex] ?? "");
-		if (forcedAnalysis.hasContent) {
+		if (forcedFirstContentIndex > nativeLines.length) return nativeLines;
+		// A leading expanded thinking region may consume the entire assistant
+		// component (thinking + tool call, with the tool rendered separately). Keep
+		// its structural end index so the thought rail can still be decorated even
+		// though there is no answer line on which to land the role prefix.
+		if (forcedFirstContentIndex === nativeLines.length) {
 			firstContentIndex = forcedFirstContentIndex;
 			scanForFirstContent = false;
+		} else {
+			const forcedAnalysis =
+				analyses[forcedFirstContentIndex] ?? getLineAnalysis(nativeLines[forcedFirstContentIndex] ?? "");
+			if (forcedAnalysis.hasContent) {
+				firstContentIndex = forcedFirstContentIndex;
+				scanForFirstContent = false;
+			}
 		}
 	}
 	if (scanForFirstContent)
@@ -579,9 +602,19 @@ function prefixNative(
 			}
 			lastContent = regionIndex;
 		}
-		if (headerIndex >= 0 && lastContent > headerIndex) {
-			railStart = headerIndex + 1;
-			railEnd = lastContent;
+		if (lastContent >= 0) {
+			// Aggregate headers exist only on the segment leader. Later assistant
+			// messages in the same expanded segment still render as one continuous
+			// thought quote, beginning at their first substantive region line.
+			railStart =
+				headerIndex >= 0
+					? headerIndex + 1
+					: nativeLines.findIndex((line, index) => {
+							if (index >= forcedFirstContentIndex) return false;
+							return (analyses[index] ?? getLineAnalysis(line)).hasContent;
+						});
+			if (railStart >= 0) railEnd = lastContent;
+			else railStart = undefined;
 		}
 	}
 	const decorated = nativeLines.map((line, index) =>
@@ -614,9 +647,9 @@ export type MessageDecorationSnapshot = Readonly<{
 	assistantEnabled: boolean;
 	/** Drop the hidden-thinking label row and its trailing spacer (zero-trace collapse). */
 	collapseHiddenThinking: boolean;
-	/** Replace the blanked label of a COMPLETED thinking run with a clickable
-	 *  `<glyph> Thought for <n>s` summary (runs still streaming keep the zero-trace
-	 *  collapse). Requires collapseHiddenThinking; no session theme → zero-trace. */
+	/** Replace per-run labels with one clickable `<glyph> N thoughts · <time>`
+	 *  aggregate per contiguous segment after the agent run completes. Visible
+	 *  assistant text splits segments; active runs keep zero-trace. */
 	thoughtSummary?: boolean;
 	/** Glyph for the thought summary row — one glyph for both states (the
 	 *  content below an expanded header is what distinguishes them). Unicode
@@ -639,7 +672,8 @@ export function __resetMessageDecorationTestState(): void {
 	lineAnalysisCache = new Map<string, LineAnalysis>();
 	lineCacheEvictionCursor = undefined;
 	thoughtTimingByInstance = new WeakMap<object, ThoughtTimingState>();
-	thoughtDurationsBySignature = new Map<string, number>();
+	thoughtDurationsBySignature.clear();
+	resetAgentThoughtRuns();
 	thoughtLeadingSkipByInstance = new WeakMap<object, ThoughtLeadingSkip>();
 	sessionThoughtTheme = undefined;
 	childrenScanByInstance = new WeakMap<object, ChildrenScanState>();
@@ -741,8 +775,8 @@ function markChildrenScanned(instance: object, children: readonly unknown[]): vo
  * pass that observed it complete, and `streamed` whether a pass ever saw the
  * run mid-stream. Durations are only shown for runs the extension watched
  * stream live: messages restored from history (resume/scroll-back rebuilds)
- * are first observed already complete, so they fall back to a duration-less
- * `Thought` label instead of a fabricated number.
+ * are first observed already complete, so their group falls back to a
+ * duration-less `N thoughts` aggregate instead of a fabricated number.
  */
 interface ThoughtRunTiming {
 	startedAt: number;
@@ -763,12 +797,21 @@ let thoughtTimingByInstance = new WeakMap<object, ThoughtTimingState>();
  * already complete looks the duration up instead of falling back to the
  * duration-less label. Insertion-order LRU, bounded: real reasoning text never
  * repeats across messages, so a collision would require identical content
- * (harmless — identical content earns the same duration). Truly new processes
- * (resume/restart) start with an empty registry and keep the duration-less
- * fallback by design.
+ * (harmless — identical content earns the same duration). The bounded map is
+ * process-scoped through `Symbol.for`: extension/session module reloads recover
+ * live measurements, while a genuinely new Pi process still starts empty and
+ * keeps the duration-less fallback by design.
  */
 const THOUGHT_DURATION_REGISTRY_LIMIT = 256;
-let thoughtDurationsBySignature = new Map<string, number>();
+const THOUGHT_DURATION_PROCESS_KEY = Symbol.for("@quandev104/pi-style/thought-durations/v1");
+const processState = globalThis as unknown as Record<PropertyKey, unknown>;
+const existingThoughtDurations = processState[THOUGHT_DURATION_PROCESS_KEY];
+const thoughtDurationsBySignature =
+	existingThoughtDurations instanceof Map
+		? (existingThoughtDurations as Map<string, number>)
+		: new Map<string, number>();
+if (!(existingThoughtDurations instanceof Map))
+	processState[THOUGHT_DURATION_PROCESS_KEY] = thoughtDurationsBySignature;
 
 function thoughtDurationKey(runIndex: number, text: string): string {
 	const head = text.slice(0, 64);
@@ -791,64 +834,6 @@ let sessionThoughtTheme: BoxTheme | undefined;
 
 export function setThoughtLabelTheme(theme: BoxTheme | undefined): void {
 	sessionThoughtTheme = theme;
-}
-
-/** Thinking-run layout of an assistant message, mirroring the native
- *  `updateContent` grouping: maximal runs of consecutive thinking blocks with
- *  at least one non-empty string (all-empty groups render no child and do not
- *  consume a run index). `complete[k]` marks runs that can no longer grow;
- *  `texts[k]` is the run's joined thinking text (content-signature key). */
-function parseThinkingRuns(
-	message: unknown,
-	streaming: boolean,
-): { count: number; complete: boolean[]; texts: string[] } {
-	const complete: boolean[] = [];
-	const texts: string[] = [];
-	const content = (message as { content?: unknown } | undefined)?.content;
-	if (!Array.isArray(content)) return { count: 0, complete, texts };
-	// One pass, tracking whether any substantive non-thinking block follows the
-	// current (still-open) run — that, another run starting, or a finalized
-	// message (isStreaming false / stopReason set) closes it.
-	let openRun = -1;
-	let openText = "";
-	const stopReason = (message as { stopReason?: unknown } | undefined)?.stopReason;
-	const closeRun = () => {
-		if (openRun < 0) return;
-		texts[openRun] = openText;
-		openRun = -1;
-		openText = "";
-	};
-	for (let index = 0; index < content.length; index++) {
-		const block = content[index] as { type?: unknown; thinking?: unknown; text?: unknown } | undefined;
-		if (!block || typeof block !== "object") continue;
-		if (block.type === "thinking") {
-			if (typeof block.thinking === "string" && block.thinking.trim() !== "") {
-				if (openRun < 0) {
-					openRun = complete.length;
-					complete.push(false);
-					texts.push("");
-				}
-				openText = openText === "" ? block.thinking : `${openText}\n\n${block.thinking}`;
-			}
-			continue;
-		}
-		// Non-thinking block: a substantive text block or any tool call closes the
-		// open run (whitespace-only text renders nothing and is not a boundary).
-		const closes =
-			block.type === "toolCall" ||
-			(block.type === "text" && typeof block.text === "string" && block.text.trim() !== "");
-		if (openRun >= 0 && closes) {
-			complete[openRun] = true;
-			closeRun();
-		}
-	}
-	if (openRun >= 0 && (!streaming || stopReason)) {
-		complete[openRun] = true;
-		closeRun();
-	} else if (openRun >= 0) {
-		texts[openRun] = openText;
-	}
-	return { count: complete.length, complete, texts };
 }
 
 /** Fold one observed pass into the timing state. Returns per-run durations:
@@ -895,8 +880,10 @@ function updateThoughtTiming(
 	return durations;
 }
 
-function thoughtLabelText(glyph: string, durationMs: number | undefined): string {
-	return durationMs === undefined ? `${glyph} Thought` : `${glyph} Thought for ${formatElapsedMs(durationMs)}`;
+function thoughtLabelText(glyph: string, count: number, durationMs: number | undefined): string {
+	const noun = count === 1 ? "thought" : "thoughts";
+	const label = `${glyph} ${count} ${noun}`;
+	return durationMs === undefined ? label : `${label} · ${formatElapsedMs(durationMs)}`;
 }
 
 function styleThoughtText(text: string): string {
@@ -905,15 +892,23 @@ function styleThoughtText(text: string): string {
 	return sessionThoughtTheme.italic ? sessionThoughtTheme.italic(colored) : colored;
 }
 
+function thoughtToggleRegion(child: Component, instance: object, runIndex: number): MouseRegion {
+	return new MouseRegion(child, (event) => {
+		if (event.type !== "click" || event.button !== "left") return undefined;
+		return toggleThoughtGroup(instance, runIndex) ? { handled: true } : undefined;
+	});
+}
+
 /** Whether an (unwrapped) child is a Text-like component (the hidden label / error rows). */
 function isTextComponent(child: unknown): boolean {
 	return typeof (child as { setCustomBgFn?: unknown } | undefined)?.setCustomBgFn === "function";
 }
 
 /**
- * Collapse Pi's hidden-thinking placeholder row to zero trace, and — once a
- * thinking run completes — surface it as a clickable `▸ Thought for <n>s`
- * summary instead (`messages.thoughtSummary`).
+ * Collapse Pi's hidden-thinking placeholder row to zero trace, and — once an
+ * agent run completes — surface one clickable aggregate (`◈ N thoughts · <time>`)
+ * per contiguous thought segment (`messages.thoughtSummary`). Visible assistant
+ * text splits segments; tool-only cycles remain grouped.
  *
  * Native `AssistantMessageComponent.updateContent` renders the thinking block as
  * `Text(theme.italic(theme.fg("thinkingText", label)), outputPad, 0)` plus a
@@ -928,17 +923,16 @@ function isTextComponent(child: unknown): boolean {
  *   not finalized) keeps the zero-trace collapse: the invisible label row and
  *   the spacer after it are dropped, leaving the same single top padding as a
  *   text-only message;
- * - a completed run keeps its `MouseRegion`-wrapped label row and rewrites it
- *   to the styled summary, so Pi's native click-to-toggle keeps working (the
- *   `>`/`▸` glyph hints at it);
- * - a completed run the user expanded re-gets a `∨ Thought for <n>s` header row
- *   above the thinking content, mirroring the collapsed summary.
+ * - while the agent run is active, completed intermediate runs remain zero-trace;
+ * - once the run ends, each segment leader keeps one row; its click handler
+ *   toggles only that segment's native thinking runs;
+ * - expanded segments get the same single aggregate header, while every member's
+ *   content keeps the continuous quote rail.
  *
  * Runs first observed already complete by a NEW process (resume, restart) never
- * carried a measured duration and render the duration-less `Thought` variant;
- * within the same process, Pi's history rebuilds (which replace the streaming
- * component at `agent_end`) recover the recorded duration via the
- * content-signature registry.
+ * carried measured durations, so the aggregate omits time instead of fabricating
+ * it. Same-process history/component rebuilds and extension reloads recover the
+ * measurements from the process-scoped content-signature registry.
  */
 export function decorateMessageUpdate(
 	original: unknown,
@@ -953,7 +947,6 @@ export function decorateMessageUpdate(
 	if (typeof original !== "function") return undefined;
 	const result = Reflect.apply(original, instance, args);
 	const target = instance as {
-		hideThinkingBlock?: boolean;
 		hiddenThinkingLabel?: string;
 		isStreaming?: boolean;
 		outputPad?: number;
@@ -961,13 +954,18 @@ export function decorateMessageUpdate(
 	};
 	const children = target.contentContainer?.children;
 	if (children && !childrenUnchangedSinceScan(instance, children)) {
-		// Only meaningful when Pi renders the hidden-block label (hideThinkingBlock)
-		// and the extension has blanked that label out ("" — the zero-trace mode).
-		if (snapshot.collapseHiddenThinking && target.hideThinkingBlock === true && target.hiddenThinkingLabel === "") {
+		// Only mutate runs while this certified patch owns Pi's blank hidden label.
+		// `hideThinkingBlock` is merely the default visibility: Pi 0.85+ can expose
+		// runs through per-run click overrides, and the global toggle can make every
+		// run visible. Both expanded paths still need structural line accounting;
+		// finalized groups additionally receive their aggregate header. Neither path
+		// may be gated on the default visibility being `true`.
+		if (snapshot.collapseHiddenThinking && target.hiddenThinkingLabel === "") {
 			// `updateContent` stores the effective streaming flag on the instance
 			// (explicit arg or its own default), so it is current after the native call.
 			const runs = parseThinkingRuns(args[0], target.isStreaming !== false);
 			const durations = updateThoughtTiming(instance, runs);
+			const groups = observeThoughtMessage(instance, args[0], runs, durations);
 			const summary = Boolean(snapshot.thoughtSummary) && sessionThoughtTheme !== undefined;
 			const glyph = snapshot.thoughtGlyph ?? "◈";
 			// Children are laid out in content order, thinking runs (hidden label or
@@ -981,14 +979,18 @@ export function decorateMessageUpdate(
 				const region = unwrapMouseRegion(child) !== child ? (child as { child: unknown }) : undefined;
 				const inner = region?.child;
 				if (isBlankTextChild(child)) {
-					// Hidden thinking-run label (MouseRegion-wrapped blank Text).
+					// Hidden thinking-run label (MouseRegion-wrapped blank Text). Only
+					// the current segment's leader becomes its aggregate; every other
+					// per-message/per-run label stays zero-trace.
 					const run = runCursor--;
 					if (run < 0) continue;
-					if (summary && runs.complete[run]) {
-						// Rewrite the label in place: the row (and its MouseRegion click
-						// toggle) stays, now carrying the completed-run summary.
-						const text = thoughtLabelText(glyph, durations[run]);
-						(inner as { setText?: (text: string) => void } | undefined)?.setText?.(styleThoughtText(text));
+					const group = groups[run];
+					const aggregateVisible = summary && group?.ended === true;
+					if (aggregateVisible && group.leader) {
+						const aggregateText = thoughtLabelText(glyph, group.count, group.durationMs);
+						const textComponent = (inner ?? child) as Component & { setText?: (text: string) => void };
+						textComponent.setText?.(styleThoughtText(aggregateText));
+						if (region) children[index] = thoughtToggleRegion(textComponent, instance, run);
 						continue;
 					}
 					children.splice(index, 1);
@@ -1001,26 +1003,29 @@ export function decorateMessageUpdate(
 					typeof (inner as { render?: unknown }).render === "function" &&
 					!isTextComponent(inner)
 				) {
-					// Expanded thinking run: MouseRegion(Markdown). Give a completed run a
-					// summary header above its content, mirroring the collapsed label.
+					// Finalized segments use their aggregate click handler. Only each
+					// segment leader receives a header.
 					const run = runCursor--;
 					expandedRunSeen = true;
-					if (run >= 0 && summary && runs.complete[run]) {
+					const group = groups[run];
+					const aggregateVisible = summary && group?.ended === true;
+					if (aggregateVisible) children[index] = thoughtToggleRegion(inner as Component, instance, run);
+					if (aggregateVisible && group.leader) {
+						const aggregateText = thoughtLabelText(glyph, group.count, group.durationMs);
 						const marker = new Text(
-							styleThoughtText(thoughtLabelText(glyph, durations[run])),
+							styleThoughtText(aggregateText),
 							typeof target.outputPad === "number" ? target.outputPad : 1,
 							0,
 						);
-						children.splice(index, 0, marker);
+						children.splice(index, 0, thoughtToggleRegion(marker, instance, run));
 					}
 				}
 			}
-			// When an expanded thinking block leads the message, the role prefix must
-			// land on the answer's first line (not the thinking content): record the
-			// leading thought-region children for render-time line accounting. The
-			// collapsed-only layout needs no accounting — the summary row itself is
-			// skipped as a thought-summary line by the render decoration.
-			if (summary && expandedRunSeen) {
+			// When expanded thinking leads the message, the role prefix must land on
+			// the answer's first line (not the thinking content). Record the region
+			// even for nonleaders, which intentionally have no aggregate header but
+			// still need a continuous quote rail.
+			if (expandedRunSeen) {
 				const leading: object[] = [];
 				for (const rawChild of children) {
 					const child = rawChild as object;
@@ -1046,7 +1051,7 @@ export function decorateMessageUpdate(
 						continue;
 					}
 					if (!region && isTextComponent(child)) {
-						// Our inserted header row (bare Text).
+						// Pre-MouseRegion header/label compatibility.
 						leading.push(child);
 						continue;
 					}

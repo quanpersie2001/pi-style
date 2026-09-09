@@ -27,6 +27,7 @@ import {
 	fingerprint,
 	KNOWN_NATIVE_IDENTITIES,
 	probePiCompatibility,
+	retainPiCompatibilityProbe,
 	SUPPORTED_PI_VERSIONS,
 	TRUSTED_NATIVE_FINGERPRINTS,
 	targetSpecs,
@@ -760,6 +761,20 @@ describe("identity-certified compatibility probe", () => {
 		disposePiCompatibilityProbe(replacement);
 		disposePiCompatibilityProbe(report);
 		expect(nativeTargets.every((target) => getCompatibilityRecords(target).length === 0)).toBe(true);
+	});
+
+	it("reclaims only wrappers explicitly retained for a session rebind", () => {
+		const beforeDescriptors = descriptors();
+		const active = probePiCompatibility("0.83.0");
+		const competing = probePiCompatibility("0.83.0");
+		expect(competing.recordSnapshots.some((record) => record.shape === "installed")).toBe(false);
+		disposePiCompatibilityProbe(competing);
+
+		retainPiCompatibilityProbe(active);
+		const replacement = probePiCompatibility("0.83.0");
+		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(9);
+		disposePiCompatibilityProbe(replacement);
+		expect(descriptors()).toEqual(beforeDescriptors);
 	});
 
 	it("keeps an active record when exact restoration is rejected, then restores later", () => {

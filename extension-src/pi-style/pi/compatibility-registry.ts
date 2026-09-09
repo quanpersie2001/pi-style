@@ -24,6 +24,10 @@ export interface CompatibilityRecord {
 	shape: CompatibilityShape;
 	diagnostic?: string | undefined;
 	generation: number;
+	/** Explicit handoff marker: the owning session shut down while retaining the
+	 * patch for Pi's render-before-bind window. A later pi-style coordinator may
+	 * reclaim only records carrying this marker. */
+	retainedForSessionRebind: boolean;
 	disposed: boolean;
 	disposer: () => void;
 }
@@ -93,6 +97,7 @@ function skippedRecord(options: {
 		originalIdentity: Object.hasOwn(options, "originalIdentity")
 			? options.originalIdentity
 			: safeRead(options.target, options.method),
+		retainedForSessionRebind: false,
 		disposed: true,
 		disposer: () => {},
 	};
@@ -267,6 +272,7 @@ export function installDelegatingPatch(options: {
 		shape: "installed",
 		diagnostic: options.diagnostic,
 		generation: options.generation,
+		retainedForSessionRebind: false,
 		disposed: false,
 		disposer: () => {},
 	};
@@ -314,6 +320,7 @@ export function installDelegatingPatch(options: {
 				return;
 			}
 			active = false;
+			record.retainedForSessionRebind = false;
 			record.disposed = true;
 			records.delete(method);
 		};
@@ -334,6 +341,7 @@ export function installDelegatingPatch(options: {
 					return;
 				}
 				active = false;
+				record.retainedForSessionRebind = false;
 				record.disposed = true;
 				records.delete(method);
 			};

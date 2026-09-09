@@ -158,6 +158,28 @@ describe("pi-style extension lifecycle foundation", () => {
 		coordinator.shutdown();
 	});
 
+	it("reclaims retained message patches and re-hides Thinking... after a runner rebind", async () => {
+		const previous = new FakePiHost();
+		piStyleExtension(previous.extensionApi);
+		await previous.sessionStart();
+		expect(previous.hiddenThinkingLabel).toBe("");
+		await previous.sessionShutdown();
+
+		// Pi resets extension UI before binding a fresh runner. The next extension
+		// factory gets a new coordinator while the previous prototype wrappers stay
+		// installed for render-before-bind; it must reclaim rather than conflict.
+		const rebound = new FakePiHost();
+		piStyleExtension(rebound.extensionApi);
+		await rebound.sessionStart();
+		expect(rebound.hiddenThinkingLabel).toBe("");
+		expect(
+			getCompatibilityRecords(AssistantMessageComponent.prototype).some(
+				(record) => record.method === "updateContent" && !record.disposed,
+			),
+		).toBe(true);
+		await rebound.sessionShutdown();
+	});
+
 	it("keeps the native Thinking... label when the certified updateContent surface cannot install", async () => {
 		// Fail-safe: blanking the label without the certified patch would leave
 		// Pi's native invisible-row gap (worse than the label it replaces), so an

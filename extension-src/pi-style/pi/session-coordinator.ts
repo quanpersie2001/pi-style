@@ -7,6 +7,7 @@ import { resetPendingImageRegistry } from "../features/messages/image-input.js";
 import { setThoughtLabelTheme } from "../features/messages/index.js";
 import { setMessagesRenderConfig } from "../features/messages/render-config.js";
 import { setSpecialBlockTheme } from "../features/messages/special-blocks.js";
+import { rebuildAgentThoughtRunsFromEntries } from "../features/messages/thought-summary.js";
 import { setBashExecutionTheme } from "../features/tools/bash-execution.js";
 import { resetBashTreeRegistry } from "../features/tools/boxed/bash.js";
 import { resetBatchRegistry } from "../features/tools/boxed/batch.js";
@@ -22,6 +23,7 @@ import {
 	type CompatibilityCleanupResult,
 	type CompatibilityProbeReport,
 	disposePiCompatibilityProbe,
+	retainPiCompatibilityProbe,
 } from "./compatibility-probe.js";
 import { createPiConfigFilePort, defaultStoragePaths } from "./config-host.js";
 import { createConfigSourceAdapter, readSessionAuthorization } from "./config-session.js";
@@ -210,7 +212,9 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			// restored/forked history renders collapsed before the first render pass
 			// (deterministic; no in-process turn_end events needed).
 			resetTurnRegistry();
-			rebuildTurnRegistryFromEntries(ctx.sessionManager.getEntries());
+			const sessionEntries = ctx.sessionManager.getEntries();
+			rebuildAgentThoughtRunsFromEntries(sessionEntries);
+			rebuildTurnRegistryFromEntries(sessionEntries);
 			// Stop any 1s elapsed re-render ticker left by a tool that was still
 			// running when the session ended.
 			stopAllElapsedTickers();
@@ -222,14 +226,15 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			// Auto-apply the configured theme before surfaces capture the active one.
 			applyAutoTheme(app.config, ctx);
 			// Session-scoped render configuration for the boxed tool/message surfaces.
-			// Populated once per session (never inside render).
+			// Populate the thought theme BEFORE blanking/rebuilding hidden labels: the
+			// UI setter immediately calls updateContent on historical components.
 			sessionTheme = ctx.ui?.theme as never;
 			sessionUi = ctx.ui as import("@earendil-works/pi-coding-agent").ExtensionUIContext | undefined;
+			if (ctx.ui?.theme) setThoughtLabelTheme(ctx.ui.theme as never);
 			applyToolsRenderConfig(app.config);
 			applyMessagesConfig(app.config);
 			if (ctx.ui?.theme) setSpecialBlockTheme(ctx.ui.theme as never);
 			if (ctx.ui?.theme) setBashExecutionTheme(ctx.ui.theme as never);
-			if (ctx.ui?.theme) setThoughtLabelTheme(ctx.ui.theme as never);
 			const toolDetails = collectToolDetails(pi.getActiveTools?.(), pi.getAllTools?.());
 			app.sessionStart(
 				{
@@ -288,6 +293,10 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			resetTurnRegistry();
 			stopAllElapsedTickers();
 			app.sessionShutdown();
+			// Mark the retained wrappers as an explicit handoff. A fresh extension
+			// coordinator can then restore and reinstall them at its session_start;
+			// without this marker, a live owner remains a conflict and is never stolen.
+			if (compatibility.report) retainPiCompatibilityProbe(compatibility.report);
 			// Tier C prototype patches stay installed across session switches. Pi renders
 			// the restored chat (renderBeforeBind) AFTER session_shutdown but BEFORE the
 			// next session_start, so disposing here would rebuild the resumed tool and

@@ -7,6 +7,12 @@ import {
 	registerImagePreviewSurface,
 	stageImagePreviewData,
 } from "../features/messages/image-preview.js";
+import {
+	beginAgentThoughtRun,
+	finishAgentThoughtRun,
+	rebuildAgentThoughtRunsFromEntries,
+	refreshObservedThoughtComponents,
+} from "../features/messages/thought-summary.js";
 import { closeActiveBatch } from "../features/tools/boxed/batch.js";
 import {
 	beginAgentRun,
@@ -104,8 +110,9 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	});
 	pi.on("agent_start", () => {
 		coordinator.app.runtime.current?.dismissStartup();
-		// Turn summary (ADR 0007): a summary group spans the whole agent run
-		// (user request → agent_end), not pi's per-message turn_end.
+		// Thought segments are collected until agent_end (visible assistant text
+		// splits them); tool summaries still use the whole agent-run boundary.
+		beginAgentThoughtRun();
 		beginAgentRun();
 	});
 	pi.on("input", async (event, _ctx) => {
@@ -201,6 +208,9 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		coordinator.app.update({ ...usagePatch(ctx) }, "deferred", { refreshContextUsage: true });
 	});
 	pi.on("agent_end", () => {
+		// Finalize each contiguous thought segment before tool collapse. Rebuilding
+		// bound assistant components leaves one clickable row per segment leader.
+		finishAgentThoughtRun();
 		// The run is complete: collapse its tool blocks into one summary line.
 		// Pi only re-invokes the tool renderer selectors from updateDisplay(), so
 		// the captured per-block invalidate callbacks force the collapse and the
@@ -218,9 +228,11 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	);
 	pi.on("session_tree", (_event, ctx) => {
 		resetUsageFromSessionCache(ctx.sessionManager);
-		// Rebuild the turn registry from session content so restored/branched
-		// history renders collapsed consistently (no in-process turn_end events).
-		rebuildTurnRegistryFromEntries(ctx.sessionManager.getEntries());
+		// Rebuild both agent-run presentation registries from the selected branch.
+		const entries = ctx.sessionManager.getEntries();
+		rebuildAgentThoughtRunsFromEntries(entries);
+		rebuildTurnRegistryFromEntries(entries);
+		refreshObservedThoughtComponents();
 		coordinator.app.update({ ...usagePatch(ctx) }, "deferred", { refreshContextUsage: true });
 	});
 	pi.on("session_compact", (_event, ctx) => {

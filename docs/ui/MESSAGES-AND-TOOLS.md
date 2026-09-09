@@ -1,6 +1,6 @@
 # Messages and tool presentation
 
-> Status: **Implemented/certified subset — Pi 0.83.0 through 0.84.3; capability-conditioned fallbacks remain native**
+> Status: **Implemented/certified subset — Pi 0.83.0 through 0.85.1; capability-conditioned fallbacks remain native**
 
 ## Scope
 
@@ -58,29 +58,38 @@ Pasting an image with Pi's built-in `Ctrl+V` natively inserts a `<tmpdir>/pi-cli
 
 Assistant presentation uses a restrained prefix only when it improves role separation. It must handle normal text streaming, thinking-only updates, tool-only messages, mixed text and tool calls, aborted/error states, and final render cache reuse without stale partial content. Assistant text always remains visible when the same message carries tool calls: tool presence is not a reliable signal that adjacent prose is disposable narration. Thinking text uses Pi's thinking token and does not visually compete with final assistant text. By default the `Thinking...` placeholder label for hidden thinking blocks is suppressed entirely (`messages.hideThinkingLabel: true`): Pi wraps even an empty label in ANSI codes so its `Text` still occupies one invisible row, and the native layout appends a trailing spacer — together the visible gap where the label used to sit. A certified `AssistantMessageComponent.updateContent` patch (fingerprint-verified 0.83.0, fail-closed elsewhere) drops the invisible row and that trailing spacer, so a hidden thinking block leaves the same single top padding as a text-only message.
 
-Once a thinking run **completes**, the same patch surfaces it as a clickable summary row instead of the zero-trace collapse (`messages.thoughtSummary: true`, default; requires `hideThinkingLabel`):
+Once the **agent run completes**, the same patch surfaces one clickable aggregate per contiguous thought segment (`messages.thoughtSummary: true`, default; requires `hideThinkingLabel`):
 
 ```text
-▸ Thought for 4.2s
+◈ 2 thoughts · 8.4s
 ```
 
-- A run is complete when content follows it (text/tool call), another thinking run starts, or the message finalizes (`isStreaming` false / a `stopReason` — including aborted mid-thought). Runs still streaming keep the zero-trace collapse until they complete.
-- The row reuses Pi's own `MouseRegion` click toggle (Ctrl+T semantics per click): the rewritten label row stays exactly where Pi rendered it, so clicking expands the thinking content; a single `◈` glyph marks the row in both states (`>` in ASCII mode) — the content below an expanded header is what distinguishes the states, and a completed expanded run gets a mirrored `◈ Thought for <n>s` header row above the thinking content. The assistant-role prefix (`│ `) never lands on thought rows: summary rows are skipped as content-start candidates, and when an expanded thinking block leads the message, render-time child accounting places the `│ ` on the answer's first line. Expanded thinking content renders as a quote block under the header — every content line (and blank lines between paragraphs, for a continuous bar; not the trailing gap) carries the `│ ` rail:
+- Substantive assistant text is a hard visual boundary: `thinking → visible text → thinking` produces two independent summary rows in their original transcript positions. Tool calls/results do not split a segment, so repeated `thinking → tool-only → thinking` cycles may still collapse into one row instead of recreating a stack of adjacent generic labels.
+- While the agent is active, hidden intermediate thinking labels remain zero-trace. At `agent_end`, each segment's first thinking run becomes its leader and renders that segment's only aggregate row.
+- Count follows Pi's native maximal consecutive thinking-run grouping within the segment. Duration is summed only when every grouped run has a real live measurement; partial/unknown totals are omitted. The bounded content-signature cache is process-scoped, so component rebuilds and extension/session reloads recover durations in the same Pi process. A process restart or disk-only resume renders `◈ N thoughts` without fabricated time.
+- Clicking a collapsed row or expanded header writes only that segment's native `thinkingVisibilityOverrides`, then rebuilds its bound assistant components. Other segments remain unchanged. Pi's global thinking visibility remains authoritative.
+- The assistant-role prefix (`│ `) never lands on an aggregate row. Expanded thinking content renders as a quote block across that segment's members — every content line and internal blank line carries the `│ ` rail, including thinking-only tool-calling messages:
 
 ```text
-◈ Thought for 4.2s
-│  The user sent "test thinking" — likely just testing whether I'm working
-│  or whether the reasoning capability is active…
+◈ 1 thought · 4.2s
+│  Verifying package metadata
+
+│  Bước 1: Đọc package.json
+
+◈ 2 thoughts · 8.4s
+│  Planning the next tool-only checks
+│
+│  Verifying the grep result
 
 │  Final answer…
 ```
-- Durations are wall-clock between the first `updateContent` pass that observed the run and the first pass that observed it complete — measured only for runs the extension watched stream live. Pi's `agent_end` removes the streaming component and the history re-render rebuilds the message as a fresh component, so measured durations are also recorded under a content signature (bounded LRU) and recovered by the replacement component; scroll-back re-renders keep their durations the same way. Messages from another process (session resume, restart) render the duration-less `▸ Thought` variant; no duration is ever fabricated.
-- No session theme cached → fail-safe to the plain zero-trace collapse for completed runs too.
-- The summary is presentation-only: message/session content, thinking visibility overrides, and Pi's expansion state are untouched.
+- Restore/tree rebuilds derive the same boundaries from session content, and a user message always closes the current segment.
+- No session theme cached → fail-safe to the plain zero-trace collapse.
+- Aggregates are presentation-only: message/session content is untouched; only Pi's existing per-run visibility override maps are changed when clicked.
 
 ## Compatibility status
 
-The certified Tier C subset targets recorded runtime identities (observed on Pi `0.83.0`–`0.85.0`; policy range `>=0.83.0 <0.86.0`). Installation is session-only; the core/message/tool surface flags are default-on (fingerprint-certified, fail-closed elsewhere, conflict-preserving), and the OFF switch is `compatibility.allowCorePatches: false` in config. No execution, tool registration, prompt, filesystem, or process behavior is changed.
+The certified Tier C subset targets recorded runtime identities (observed on Pi `0.83.0`–`0.85.1`; policy range `>=0.83.0 <0.86.0`). Installation is session-only; the core/message/tool surface flags are default-on (fingerprint-certified, fail-closed elsewhere, conflict-preserving), and the OFF switch is `compatibility.allowCorePatches: false` in config. No execution, tool registration, prompt, filesystem, or process behavior is changed.
 
 Certified presentation: assistant prefix; tool call/result selectors with exact markers `[tool]`, `[tool:result]`, `[tool:pending]`, `[tool:running]`, `[tool:error]` (marker style); and boxed special blocks when `tools.style: "compact-box"` and `messages.specialBlocks` are active. Boxed special blocks are certified adapters over the native `updateDisplay`/`rebuild` identities (fingerprint-verified) and fall back to native layout whenever no session theme is cached or the component shape is unsupported. ASCII mode uses configured ASCII markers on already-authorized surfaces.
 
@@ -335,7 +344,7 @@ If another extension already owns a message/tool renderer: compose only through 
 - **MSG-005:** message patches are idempotent and reversible.
 - **MSG-006:** images and native rich content remain usable.
 - **MSG-007:** assistant text remains visible when a message also carries tool calls; presentation must never infer that mixed-message text is disposable narration.
-- **MSG-008:** a completed hidden thinking run renders a clickable `◈ Thought for <n>s` summary row (single glyph both states; `>` in ASCII mode) instead of the zero-trace collapse when `messages.thoughtSummary` is on; runs still streaming keep the zero-trace collapse, durations are shown only for runs streamed live in this process (the content-signature registry recovers them across Pi's history component rebuilds; duration-less `◈ Thought` otherwise), neither the summary row nor expanded thinking content shifts the `│ ` landing spot (child accounting lands it on the answer's first line; expanded thinking content instead renders as a `│ `-railed quote block under the header), the row preserves Pi's native click-to-expand (mirrored `◈` header when expanded), and a missing session theme fails safe to zero-trace.
+- **MSG-008:** after an agent run completes, each maximal thought segment renders one clickable `◈ N thoughts · <time>` aggregate on its leader (`>` in ASCII mode): substantive assistant text splits segments, while tool calls/results do not; active runs keep zero-trace, duration is shown only when every member was measured live (the process-scoped bounded registry recovers it across component and extension/session rebinds; duration-less after process restart), clicking expands/collapses only that segment through Pi's visibility override map, neither aggregate nor expanded thinking shifts the answer's `│ ` landing spot, expanded segment content is continuously `│ `-railed, and a missing session theme fails safe to zero-trace.
 - **IMG-001:** images attached to a user prompt render as an inline preview entry directly below the user message; the entry is a CustomEntry (display-only, never sent to the LLM).
 - **IMG-002:** previews persist in the session and render identically live, in scroll-back, and after resume — no in-process event state.
 - **IMG-003:** terminals without image support render one ANSI-safe fallback line per image (mime + dimensions, themed); base64 data never leaks into any rendered line, and malformed entry data renders zero lines.
@@ -373,7 +382,7 @@ If another extension already owns a message/tool renderer: compose only through 
 ## Certified and fallback tests
 
 - assistant multiline prefixes at wide/narrow widths; partial/final transitions;
-- thought summary: streaming zero-trace, completed-run label rewrite (duration and duration-less variants), duration recovery across component replacement (agent_end history rebuild) and scroll-back, stopReason completion, multi-run mapping, ASCII glyph, role-prefix never on thought rows, expanded thinking content `│ ` quote rail via child accounting, click-toggle `◈` header via the probe path, theme-missing fallback, `thoughtSummary: off` zero-trace;
+- thought segments: active zero-trace, visible-text boundaries within/across assistant messages, tool-only cycles aggregated, one leader per segment, count/pluralization, all-or-nothing summed duration, duration recovery across component replacement and session/extension rebind in the same process, duration-less disk history, restored boundary reconstruction, segment-scoped click collapse/expand, ASCII glyph, role-prefix never on thought rows, expanded `│ ` quote rails, global visibility, theme-missing fallback, `thoughtSummary: off` zero-trace;
 - thinking-only/tool-only/mixed messages; each special block collapsed/expanded;
 - built-in tools with incomplete args, partial updates, success, error, cancellation, truncation;
 - diff and syntax-highlight preservation; no-color/ASCII/theme invalidation;

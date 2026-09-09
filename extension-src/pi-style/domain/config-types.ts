@@ -37,9 +37,9 @@ export interface PiStyleConfig {
 		assistantPrefix?: boolean;
 		specialBlocks?: boolean;
 		hideThinkingLabel?: boolean;
-		/** Surface completed thinking runs as a clickable `▸ Thought for <n>s`
-		 * summary row instead of the zero-trace collapse (requires
-		 * hideThinkingLabel; duration only for runs streamed live). */
+		/** Surface one clickable `◈ N thoughts · <time>` aggregate per contiguous
+		 * thought segment, split by visible assistant text (requires hideThinkingLabel;
+		 * duration only when every grouped run was measured live). */
 		thoughtSummary?: boolean;
 		/** Inline previews for user-prompt images (ADR 0008); gates append and render. */
 		showImagePreviews?: boolean;
@@ -105,9 +105,9 @@ export interface NormalizedPiStyleConfig {
 		assistantPrefix: boolean;
 		specialBlocks: boolean;
 		hideThinkingLabel: boolean;
-		/** Surface completed thinking runs as a clickable `▸ Thought for <n>s`
-		 * summary row instead of the zero-trace collapse (requires
-		 * hideThinkingLabel; duration only for runs streamed live). */
+		/** Surface one clickable `◈ N thoughts · <time>` aggregate per contiguous
+		 * thought segment, split by visible assistant text (requires hideThinkingLabel;
+		 * duration only when every grouped run was measured live). */
 		thoughtSummary: boolean;
 		/** Inline previews for user-prompt images (ADR 0008); gates append and render. */
 		showImagePreviews: boolean;

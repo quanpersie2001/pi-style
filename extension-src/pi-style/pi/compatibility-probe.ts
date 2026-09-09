@@ -561,6 +561,7 @@ function createFallbackRecord(
 		shape: "unsupported",
 		diagnostic: reason,
 		generation,
+		retainedForSessionRebind: false,
 		disposed: true,
 		disposer: () => {},
 	};
@@ -791,10 +792,36 @@ const reportStates = new WeakMap<
 	{ records: CompatibilityRecord[]; toolOwner: ReturnType<typeof createToolDecorationOwner> | undefined }
 >();
 
+/** Release pi-style wrappers explicitly retained by a previous session runtime.
+ * Pi rebuilds restored chat before binding the next extension instance, so the
+ * previous instance keeps its patches through shutdown. The next coordinator
+ * reclaims only wrappers whose embedded record opted into that handoff; active
+ * owners and unrelated wrappers remain conflicts. */
+function releaseRetainedPiStylePatches(): void {
+	for (const spec of targetSpecs) {
+		const current = Object.getOwnPropertyDescriptor(spec.target, spec.method)?.value;
+		if (typeof current !== "function") continue;
+		const record = (current as { __piStyleCompatibilityRecord?: unknown }).__piStyleCompatibilityRecord as
+			| CompatibilityRecord
+			| undefined;
+		if (
+			record?.retainedForSessionRebind !== true ||
+			record.disposed ||
+			record.target !== spec.target ||
+			record.method !== spec.method ||
+			record.installedIdentity !== current ||
+			typeof record.disposer !== "function"
+		)
+			continue;
+		record.disposer();
+	}
+}
+
 export function probePiCompatibility(
 	piVersion: string | undefined,
 	options: Set<string> | CompatibilityProbeOptions = new Set(),
 ): CompatibilityProbeReport {
+	releaseRetainedPiStylePatches();
 	const markers = options instanceof Set ? options : (options.markers ?? new Set<string>());
 	const generation = nextGeneration();
 	const toolSpecs = targetSpecs.filter((spec) => spec.feature === "tools");
@@ -889,6 +916,14 @@ export type CompatibilityCleanupResult = Readonly<{
 	retryableToolRecords: number;
 	finalDiagnostics?: Readonly<import("../features/tools/index.js").ToolDiagnosticArchive>;
 }>;
+
+export function retainPiCompatibilityProbe(report: CompatibilityProbeReport): void {
+	const state = reportStates.get(report);
+	if (!state) return;
+	for (const record of state.records) {
+		if (!record.disposed && record.installedIdentity !== undefined) record.retainedForSessionRebind = true;
+	}
+}
 
 export function disposePiCompatibilityProbe(report: CompatibilityProbeReport): CompatibilityCleanupResult {
 	const state = reportStates.get(report);
