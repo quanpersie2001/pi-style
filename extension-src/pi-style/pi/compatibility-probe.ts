@@ -8,9 +8,11 @@ import {
 	BranchSummaryMessageComponent,
 	CompactionSummaryMessageComponent,
 	CustomMessageComponent,
+	InteractiveMode,
 	SkillInvocationMessageComponent,
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
+import { decorateCompactionTranscript } from "../features/messages/compaction-transcript.js";
 import {
 	decorateMessageRender,
 	decorateMessageUpdate,
@@ -35,7 +37,7 @@ import {
  * changes the identity degrades that single surface to its native fallback while
  * every other surface continues.
  */
-export const SUPPORTED_VERSION_RANGE = ">=0.83.0 <0.86.0";
+export const SUPPORTED_VERSION_RANGE = ">=0.83.0 <0.86.0 || >=0.99.0 <0.100.0";
 export const SUPPORTED_PI_VERSIONS: readonly string[] = Object.freeze([
 	"0.83.0",
 	"0.84.0",
@@ -45,6 +47,7 @@ export const SUPPORTED_PI_VERSIONS: readonly string[] = Object.freeze([
 	"0.84.4",
 	"0.85.0",
 	"0.85.1",
+	"0.99.1",
 ]);
 
 /** A recorded native identity for one certified surface. */
@@ -85,6 +88,16 @@ export interface KnownNativeIdentity {
  * - `ToolExecutionComponent.getCallRenderer`/`getResultRenderer` drop the
  *   `builtInToolDefinition` fallback branches and simply return
  *   `this.toolDefinition?.renderCall`/`renderResult` (still renderer-or-undefined).
+ *
+ * 0.85.1 rebundles only (modular dist unchanged), and 0.99.1 repeats both
+ * drift patterns at once: every modular identity that 0.99.1 still carries is
+ * byte-identical to its 0.85.0 recording, while the rebundled runtime renames
+ * minified parameters/locals again. Three special-block surfaces also change
+ * for real in 0.99.1 — compaction/branch/skill `updateDisplay` now wrap their
+ * built children in a `Container` + `MouseRegion` click-to-expand — but the
+ * pi-style delegates rebuild their own boxed blocks from instance fields
+ * (`message`, `expanded`, `markdownTheme`, `skillBlock`) after `clear()`, so
+ * those native child-layout changes do not touch the adapter contracts.
  */
 export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNativeIdentity[]>> = Object.freeze({
 	"native-assistant-message:render": Object.freeze([
@@ -92,13 +105,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "render",
 			arity: 1,
 			fingerprint: "2a39243f",
-			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0", "0.99.1"]),
 		}),
 		Object.freeze({
 			name: "render",
 			arity: 1,
 			fingerprint: "a9be09a3",
-			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1", "0.99.1"]),
 		}),
 	]),
 	"native-assistant-message:updateContent": Object.freeze([
@@ -133,7 +146,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateContent",
 			arity: 1,
 			fingerprint: "80e338d2",
-			versions: Object.freeze(["0.85.0", "0.85.1"]),
+			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1"]),
 		}),
 		// 0.85.0 bundled: same drift, minified.
 		Object.freeze({
@@ -152,6 +165,16 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			fingerprint: "31632e19",
 			versions: Object.freeze(["0.85.1"]),
 		}),
+		// 0.99.1 bundled: another rebundle-only drift — the modular dist is still
+		// byte-identical to 0.85.0 (`80e338d2` above), so the thinking-run layout
+		// contract (MouseRegion-wrapped runs, per-run overrides, trailing Spacer)
+		// is unchanged; only the minified parameter/local names moved.
+		Object.freeze({
+			name: "updateContent",
+			arity: 1,
+			fingerprint: "48eaa40b",
+			versions: Object.freeze(["0.99.1"]),
+		}),
 	]),
 	"native-compaction-message:updateDisplay": Object.freeze([
 		Object.freeze({
@@ -165,6 +188,23 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			arity: 0,
 			fingerprint: "5118a51d",
 			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1"]),
+		}),
+		// 0.99.1 modular: wraps the built children in a Container + MouseRegion
+		// click-to-expand. pi-style's delegate reads instance fields (message,
+		// expanded, markdownTheme) and rebuilds its own boxed block after clear(),
+		// so the native child-layout change does not affect the contract.
+		Object.freeze({
+			name: "updateDisplay",
+			arity: 0,
+			fingerprint: "032b78e2",
+			versions: Object.freeze(["0.99.1"]),
+		}),
+		// 0.99.1 bundled: same drift, minified.
+		Object.freeze({
+			name: "updateDisplay",
+			arity: 0,
+			fingerprint: "d4944b9b",
+			versions: Object.freeze(["0.99.1"]),
 		}),
 	]),
 	"native-branch-message:updateDisplay": Object.freeze([
@@ -180,6 +220,19 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			fingerprint: "2185274e",
 			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1"]),
 		}),
+		// 0.99.1: MouseRegion click-to-expand wrapper (see compaction note).
+		Object.freeze({
+			name: "updateDisplay",
+			arity: 0,
+			fingerprint: "ca1c3479",
+			versions: Object.freeze(["0.99.1"]),
+		}),
+		Object.freeze({
+			name: "updateDisplay",
+			arity: 0,
+			fingerprint: "e2a2f648",
+			versions: Object.freeze(["0.99.1"]),
+		}),
 	]),
 	"native-skill-message:updateDisplay": Object.freeze([
 		Object.freeze({
@@ -194,19 +247,40 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			fingerprint: "4051fd65",
 			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1"]),
 		}),
+		// 0.99.1: MouseRegion click-to-expand wrapper (see compaction note).
+		Object.freeze({
+			name: "updateDisplay",
+			arity: 0,
+			fingerprint: "4fc828e7",
+			versions: Object.freeze(["0.99.1"]),
+		}),
+		Object.freeze({
+			name: "updateDisplay",
+			arity: 0,
+			fingerprint: "ff63e9ec",
+			versions: Object.freeze(["0.99.1"]),
+		}),
 	]),
 	"native-custom-message:rebuild": Object.freeze([
 		Object.freeze({
 			name: "rebuild",
 			arity: 0,
 			fingerprint: "76ae2e3a",
-			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0", "0.99.1"]),
 		}),
 		Object.freeze({
 			name: "rebuild",
 			arity: 0,
 			fingerprint: "b89987cc",
 			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1"]),
+		}),
+		// 0.99.1 bundled: rebundle-only drift — the modular dist is still
+		// byte-identical to 0.85.0 (`76ae2e3a` above).
+		Object.freeze({
+			name: "rebuild",
+			arity: 0,
+			fingerprint: "ee761c8c",
+			versions: Object.freeze(["0.99.1"]),
 		}),
 	]),
 	"tool-call-renderer:getCallRenderer": Object.freeze([
@@ -228,14 +302,14 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "getCallRenderer",
 			arity: 0,
 			fingerprint: "e0a9ed86",
-			versions: Object.freeze(["0.85.0"]),
+			versions: Object.freeze(["0.85.0", "0.99.1"]),
 		}),
 		// 0.85.0 bundled: same drift, minified.
 		Object.freeze({
 			name: "getCallRenderer",
 			arity: 0,
 			fingerprint: "73116365",
-			versions: Object.freeze(["0.85.0", "0.85.1"]),
+			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1"]),
 		}),
 	]),
 	"tool-result-renderer:getResultRenderer": Object.freeze([
@@ -257,14 +331,14 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "getResultRenderer",
 			arity: 0,
 			fingerprint: "1567dcf4",
-			versions: Object.freeze(["0.85.0"]),
+			versions: Object.freeze(["0.85.0", "0.99.1"]),
 		}),
 		// 0.85.0 bundled: same drift, minified.
 		Object.freeze({
 			name: "getResultRenderer",
 			arity: 0,
 			fingerprint: "d613a2a3",
-			versions: Object.freeze(["0.85.0", "0.85.1"]),
+			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1"]),
 		}),
 	]),
 	"native-bash-execution:render": Object.freeze([
@@ -276,13 +350,88 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "BashExecutionComponent",
 			arity: 2,
 			fingerprint: "a5b5abca",
-			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0", "0.99.1"]),
 		}),
 		Object.freeze({
 			name: "BashExecutionComponent",
 			arity: 2,
 			fingerprint: "98d22d96",
-			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1", "0.99.1"]),
+		}),
+	]),
+	// InteractiveMode.handleEvent — the highest-drift surface in the registry:
+	// it hosts the entire event switch, so (unlike component methods) its
+	// fingerprint moves on nearly every Pi release, patch releases included
+	// (0.84.3 vs 0.84.4 drift below). The compaction-transcript delegate is
+	// event-type-gated and passes everything else through, which keeps the
+	// behavior risk low between re-records; the identity-artifacts integration
+	// test fails loudly on any unrecorded drift.
+	"native-compaction-transcript:handleEvent": Object.freeze([
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "c63651ae",
+			versions: Object.freeze(["0.83.0"]),
+		}),
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "7947d07b",
+			versions: Object.freeze(["0.84.0", "0.84.1", "0.84.2"]),
+		}),
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "7f6e18ed",
+			versions: Object.freeze(["0.84.3"]),
+		}),
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "105c1c10",
+			versions: Object.freeze(["0.84.3"]),
+		}),
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "bebed042",
+			versions: Object.freeze(["0.84.4"]),
+		}),
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "1b982b00",
+			versions: Object.freeze(["0.84.4"]),
+		}),
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "23f6b078",
+			versions: Object.freeze(["0.85.0", "0.85.1"]),
+		}),
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "c9153b21",
+			versions: Object.freeze(["0.85.0"]),
+		}),
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "b0cb9763",
+			versions: Object.freeze(["0.85.1"]),
+		}),
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "790314c2",
+			versions: Object.freeze(["0.99.1"]),
+		}),
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "c5aa9e43",
+			versions: Object.freeze(["0.99.1"]),
 		}),
 	]),
 });
@@ -531,6 +680,7 @@ export interface CompatibilityProbeOptions {
 			assistantPrefix: boolean;
 			specialBlocks: boolean;
 			hideThinkingLabel: boolean;
+			preserveCompactionTranscript: boolean;
 		};
 		tools: { enabled: boolean; style: string; maxCollapsedLines: number; maxExpandedLines: number; dimOutput: boolean };
 		preset: string;
@@ -581,6 +731,7 @@ function surfaceDisabled(spec: TargetSpec, config: CompatibilityProbeOptions["co
 	if (spec.subtype === "native-assistant-message" && spec.method === "render") return !config.messages.assistantPrefix;
 	if (spec.subtype === "native-assistant-message" && spec.method === "updateContent")
 		return !config.messages.hideThinkingLabel;
+	if (spec.subtype === "native-compaction-transcript") return !config.messages.preserveCompactionTranscript;
 	if (isSpecialBlock(spec)) return !config.messages.specialBlocks;
 	return true;
 }
@@ -635,6 +786,7 @@ function probeSpec(options: {
 				if (spec.method === "updateContent") return decorateMessageUpdate(original, target, args, messageSnapshot);
 				return decorateMessageRender(original, target, args, messageSnapshot);
 			}
+			if (spec.subtype === "native-compaction-transcript") return decorateCompactionTranscript(original, target, args);
 			return renderSpecialMessageBlock(spec.subtype as SpecialBlockSubtype, original, target, args);
 		},
 	});
@@ -692,6 +844,15 @@ export const targetSpecs: readonly TargetSpec[] = [
 		target: CustomMessageComponent.prototype,
 		method: "rebuild",
 		adapterId: "message-block-boxed-v1",
+		status: "certified",
+	},
+	{
+		feature: "messages",
+		subtype: "native-compaction-transcript",
+		target: InteractiveMode.prototype,
+		method: "handleEvent",
+		arity: 1,
+		adapterId: "compaction-transcript-preserve-v1",
 		status: "certified",
 	},
 	{

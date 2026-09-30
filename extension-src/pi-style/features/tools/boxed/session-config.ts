@@ -16,6 +16,13 @@ export interface ToolsRenderConfig {
 	collapseAfterTurn: boolean;
 	/** Also collapse mutating tools (edit/write/…) into the summary; off keeps them visible. */
 	collapseMutatingTools: boolean;
+	/** Merge sequential same-file read chunks (large-file continuation reads) into
+	 *  one expanding inline line instead of one line per chunk (ADR 0010). */
+	mergeChunkedReads: boolean;
+	/** Mirror of `messages.mergedTurnSummary`: the ended run's `➔` leader line
+	 *  defers to the thought-segment labels (`◈ Thought N times · Called M
+	 *  tools · …`). Set by the coordinator; read by the dispatcher. */
+	mergedTurnSummary: boolean;
 }
 
 let sessionToolsConfig: ToolsRenderConfig = {
@@ -27,6 +34,8 @@ let sessionToolsConfig: ToolsRenderConfig = {
 	nerdFonts: false,
 	collapseAfterTurn: true,
 	collapseMutatingTools: false,
+	mergeChunkedReads: true,
+	mergedTurnSummary: true,
 };
 
 export function setToolsRenderConfig(config: Partial<ToolsRenderConfig>): void {
@@ -47,6 +56,8 @@ export function getToolsRenderCacheSignature(): string {
 		sessionToolsConfig.nerdFonts ? 1 : 0,
 		sessionToolsConfig.collapseAfterTurn ? 1 : 0,
 		sessionToolsConfig.collapseMutatingTools ? 1 : 0,
+		sessionToolsConfig.mergeChunkedReads ? 1 : 0,
+		sessionToolsConfig.mergedTurnSummary ? 1 : 0,
 	].join("|");
 }
 

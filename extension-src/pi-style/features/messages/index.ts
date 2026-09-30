@@ -2,6 +2,7 @@ import { type Component, MouseRegion, Text } from "@earendil-works/pi-tui";
 import { visibleWidth } from "../../shared/ansi.js";
 import type { BoxTheme } from "../../shared/box.js";
 import { formatElapsedMs } from "../../shared/elapsed.js";
+import type { MergedSegmentStats } from "../../shared/turn-summary-bridge.js";
 import {
 	observeThoughtMessage,
 	parseThinkingRuns,
@@ -651,6 +652,11 @@ export type MessageDecorationSnapshot = Readonly<{
 	 *  aggregate per contiguous segment after the agent run completes. Visible
 	 *  assistant text splits segments; active runs keep zero-trace. */
 	thoughtSummary?: boolean;
+	/** Merge the segment's tool stats into the leader label
+	 *  (`◈ Thought N times · Called M tools · …`) and hide the run's `➔`
+	 *  leader line when every message of the run belongs to an ended segment
+	 *  (Claude-Code-style single line; `messages.mergedTurnSummary`). */
+	mergedTurnSummary?: boolean;
 	/** Glyph for the thought summary row — one glyph for both states (the
 	 *  content below an expanded header is what distinguishes them). Unicode
 	 *  `◈` by default (`>` in ASCII mode; U+23F5 ⏵ was rejected for spotty
@@ -687,6 +693,7 @@ export function decorateMessageRender(
 		assistantPrefix: "│ ",
 		assistantEnabled: true,
 		collapseHiddenThinking: false,
+		mergedTurnSummary: false,
 	},
 ): unknown {
 	if (typeof original !== "function") return undefined;
@@ -880,7 +887,24 @@ function updateThoughtTiming(
 	return durations;
 }
 
-function thoughtLabelText(glyph: string, count: number, durationMs: number | undefined): string {
+function thoughtLabelText(
+	glyph: string,
+	count: number,
+	durationMs: number | undefined,
+	stats: MergedSegmentStats | undefined = undefined,
+	merged = false,
+): string {
+	if (merged && stats !== undefined && stats.calls > 0) {
+		const parts: string[] = [
+			`${glyph} Thought ${count} ${count === 1 ? "time" : "times"}`,
+			`Called ${stats.calls} ${stats.calls === 1 ? "tool" : "tools"}`,
+		];
+		if (stats.diff !== undefined && (stats.diff.additions > 0 || stats.diff.removals > 0))
+			parts.push(`Edit +${stats.diff.additions} -${stats.diff.removals}`);
+		if (stats.failed > 0) parts.push(`${stats.failed} ${stats.failed === 1 ? "failure" : "failures"}`);
+		if (durationMs !== undefined) parts.push(formatElapsedMs(durationMs));
+		return parts.join(" · ");
+	}
 	const noun = count === 1 ? "thought" : "thoughts";
 	const label = `${glyph} ${count} ${noun}`;
 	return durationMs === undefined ? label : `${label} · ${formatElapsedMs(durationMs)}`;
@@ -942,6 +966,7 @@ export function decorateMessageUpdate(
 		assistantPrefix: "│ ",
 		assistantEnabled: true,
 		collapseHiddenThinking: false,
+		mergedTurnSummary: false,
 	},
 ): unknown {
 	if (typeof original !== "function") return undefined;
@@ -987,7 +1012,13 @@ export function decorateMessageUpdate(
 					const group = groups[run];
 					const aggregateVisible = summary && group?.ended === true;
 					if (aggregateVisible && group.leader) {
-						const aggregateText = thoughtLabelText(glyph, group.count, group.durationMs);
+						const aggregateText = thoughtLabelText(
+							glyph,
+							group.count,
+							group.durationMs,
+							group.stats,
+							snapshot.mergedTurnSummary === true,
+						);
 						const textComponent = (inner ?? child) as Component & { setText?: (text: string) => void };
 						textComponent.setText?.(styleThoughtText(aggregateText));
 						if (region) children[index] = thoughtToggleRegion(textComponent, instance, run);
@@ -1011,7 +1042,13 @@ export function decorateMessageUpdate(
 					const aggregateVisible = summary && group?.ended === true;
 					if (aggregateVisible) children[index] = thoughtToggleRegion(inner as Component, instance, run);
 					if (aggregateVisible && group.leader) {
-						const aggregateText = thoughtLabelText(glyph, group.count, group.durationMs);
+						const aggregateText = thoughtLabelText(
+							glyph,
+							group.count,
+							group.durationMs,
+							group.stats,
+							snapshot.mergedTurnSummary === true,
+						);
 						const marker = new Text(
 							styleThoughtText(aggregateText),
 							typeof target.outputPad === "number" ? target.outputPad : 1,

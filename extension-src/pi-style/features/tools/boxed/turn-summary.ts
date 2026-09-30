@@ -42,6 +42,7 @@ import type { Component } from "@earendil-works/pi-tui";
 import type { BoxTheme } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import { countDiffStats, firstText } from "../../../shared/split-diff.js";
+import { publishMessageStats } from "../../../shared/turn-summary-bridge.js";
 import { pluralForm } from "./output-tree.js";
 import { extractQuickEditDiff, getQuickEditToolConfig } from "./quick-edit.js";
 import { getToolsRenderConfig } from "./session-config.js";
@@ -57,6 +58,9 @@ export interface TurnMemberInfo {
 	elapsedMs?: number;
 	/** Frozen diff line stats recorded from the tool result (edit family). */
 	diffStats?: { additions: number; removals: number } | undefined;
+	/** Normalized read path (ADR 0010): chunked reads of one file summarize as
+	 *  one file, not one per chunk. */
+	pathKey?: string;
 }
 
 export interface TurnState {
@@ -70,6 +74,16 @@ export interface TurnState {
 	leaderId: string;
 	ended: boolean;
 	members: readonly TurnMemberInfo[];
+	/** Assistant messages that contributed members, in run order. Set when the
+	 * run finalizes; consumed by the merged summary bridge to attribute each
+	 * message's tool stats to its thought segment. */
+	messages?: readonly object[];
+}
+
+/** One assistant message's slice of a run: its message identity + members. */
+interface RunSegment {
+	readonly message: object;
+	readonly members: readonly TurnMemberInfo[];
 }
 
 /**
@@ -111,6 +125,7 @@ interface ToolCallLike {
 	readonly type?: unknown;
 	readonly id?: unknown;
 	readonly name?: unknown;
+	readonly arguments?: unknown;
 }
 
 function toolCallsOf(message: unknown): ToolCallLike[] {
@@ -166,6 +181,18 @@ function diffStatsFromResult(
 	return undefined;
 }
 
+/** Normalized path key of a read call: chunked reads of one file (different
+ *  raw forms of the same path) map to one key, so the summary counts files,
+ *  not chunks (ADR 0010). */
+function readPathKeyOf(call: ToolCallLike): string | undefined {
+	if (call.name !== "read" || !call.arguments || typeof call.arguments !== "object") return undefined;
+	const args = call.arguments as Record<string, unknown>;
+	const raw =
+		typeof args.path === "string" ? args.path : typeof args.file_path === "string" ? args.file_path : undefined;
+	if (raw === undefined || raw.length === 0) return undefined;
+	return raw.replace(/^\.\//, "");
+}
+
 function buildMembers(
 	calls: readonly ToolCallLike[],
 	resultsById: ReadonlyMap<string, RawMemberResult>,
@@ -174,18 +201,21 @@ function buildMembers(
 		const toolCallId = String(call.id ?? "");
 		const toolName = typeof call.name === "string" ? call.name : "tool";
 		const result = resultsById.get(toolCallId);
+		const pathKey = readPathKeyOf(call);
 		return {
 			toolCallId,
 			toolName,
 			hasResult: result !== undefined,
 			isError: result?.isError === true,
 			diffStats: diffStatsFromResult(toolName, result),
+			...(pathKey !== undefined ? { pathKey } : {}),
 		};
 	});
 }
 
 function registerTurn(
 	calls: readonly ToolCallLike[],
+	segments: readonly { message: object; calls: readonly ToolCallLike[] }[],
 	resultsById: ReadonlyMap<string, RawMemberResult>,
 	ended: boolean,
 ): TurnState | undefined {
@@ -198,6 +228,14 @@ function registerTurn(
 		ended: ended && complete,
 		members: Object.freeze(members),
 	};
+	if (turn.ended) {
+		// Publish the merged-summary bridge records for the restore path: the
+		// live path publishes at finishAgentRun instead.
+		const messageSegments = segments.filter((segment) => segment.calls.length > 0);
+		turn.messages = messageSegments.map((segment) => segment.message);
+		for (const segment of messageSegments)
+			publishSegmentStats({ message: segment.message, members: buildMembers(segment.calls, resultsById) });
+	}
 	for (const member of members) memberByCallId.set(member.toolCallId, { turn, member });
 	return turn;
 }
@@ -208,10 +246,13 @@ function registerTurn(
  * appended to the same run and collapse into ONE summary line at `agent_end`.
  */
 let currentRun: TurnState | undefined;
+/** Per-message segments of the run in progress (parallel to `currentRun`). */
+let currentRunSegments: RunSegment[] = [];
 
 /** Live path: start a fresh run group (`agent_start`). */
 export function beginAgentRun(): void {
 	currentRun = undefined;
+	currentRunSegments = [];
 }
 
 /**
@@ -245,6 +286,8 @@ export function registerTurnFromMessage(message: unknown, toolResults: readonly 
 		if (currentRun.leaderId === "" && leader) currentRun.leaderId = leader.toolCallId;
 		currentRun.members = Object.freeze([...currentRun.members, ...newMembers]);
 	}
+	if (message !== null && typeof message === "object")
+		currentRunSegments.push({ message, members: Object.freeze(newMembers) });
 	for (const member of newMembers) memberByCallId.set(member.toolCallId, { turn: currentRun, member });
 }
 
@@ -255,12 +298,41 @@ export function registerTurnFromMessage(message: unknown, toolResults: readonly 
  */
 export function finishAgentRun(): TurnState | undefined {
 	const run = currentRun;
+	const segments = currentRunSegments;
 	currentRun = undefined;
+	currentRunSegments = [];
 	if (!run) return undefined;
 	// A member without a result means the run was interrupted before every call
 	// settled; such a run never collapses.
-	if (run.members.every((member) => member.hasResult)) run.ended = true;
+	if (run.members.every((member) => member.hasResult)) {
+		run.ended = true;
+		run.messages = segments.map((segment) => segment.message);
+		for (const segment of segments) publishSegmentStats(segment);
+	}
 	return run.ended ? run : undefined;
+}
+
+/** Publish one message's tool stats to the merged-summary bridge. The stats
+ * deliberately exclude elapsed (frozen later, at collapsed render time) — the
+ * merged line carries the thought duration instead. */
+function publishSegmentStats(segment: RunSegment): void {
+	let additions = 0;
+	let removals = 0;
+	let diffMembers = 0;
+	let failed = 0;
+	for (const member of segment.members) {
+		if (member.isError) failed++;
+		if (member.diffStats !== undefined) {
+			additions += member.diffStats.additions;
+			removals += member.diffStats.removals;
+			diffMembers++;
+		}
+	}
+	publishMessageStats(segment.message, {
+		calls: segment.members.length,
+		failed,
+		...(diffMembers > 0 ? { diff: { additions, removals } } : {}),
+	});
 }
 
 interface TurnEntryLike {
@@ -290,6 +362,7 @@ export function rebuildTurnRegistryFromEntries(entries: readonly TurnEntryLike[]
 		calls: ToolCallLike[];
 		lastStopReason: string | undefined;
 		followedByUser: boolean;
+		segments: Array<{ message: object; calls: ToolCallLike[] }>;
 	}> = [];
 	let current: (typeof runs)[number] | undefined;
 	const closeRun = () => {
@@ -306,9 +379,10 @@ export function rebuildTurnRegistryFromEntries(entries: readonly TurnEntryLike[]
 				details: message.details,
 			});
 		} else if (message?.role === "assistant") {
-			if (!current) current = { calls: [], lastStopReason: undefined, followedByUser: false };
+			if (!current) current = { calls: [], lastStopReason: undefined, followedByUser: false, segments: [] };
 			const calls = toolCallsOf(message);
 			current.calls.push(...calls);
+			current.segments.push({ message, calls });
 			if (typeof message.stopReason === "string" && message.stopReason !== "")
 				current.lastStopReason = message.stopReason;
 		} else if (message?.role === "user") {
@@ -325,7 +399,7 @@ export function rebuildTurnRegistryFromEntries(entries: readonly TurnEntryLike[]
 	for (const run of runs) {
 		const complete = run.calls.every((call) => typeof call.id === "string" && resultsById.has(String(call.id ?? "")));
 		const ended = complete && (run.followedByUser || run.lastStopReason !== undefined);
-		registerTurn(run.calls, resultsById, ended);
+		registerTurn(run.calls, run.segments, resultsById, ended);
 	}
 }
 
@@ -426,6 +500,7 @@ export function turnSummaryParts(turn: TurnState): TurnSummaryParts {
 	let diffRemovals = 0;
 	let diffMembers = 0;
 	const collapseMutating = mutatingCollapses();
+	const readSeenPaths = new Set<string>();
 	for (const member of turn.members) {
 		if (member.isError) {
 			failedCount++;
@@ -438,6 +513,12 @@ export function turnSummaryParts(turn: TurnState): TurnSummaryParts {
 		}
 		if (!collapseMutating && isMutatingTool(member.toolName)) continue;
 		if (member.elapsedMs !== undefined) elapsedMs = (elapsedMs ?? 0) + member.elapsedMs;
+		// Chunked reads of one file count once (after elapsed aggregation — every
+		// chunk's time still contributes).
+		if (member.toolName === "read" && member.pathKey !== undefined) {
+			if (readSeenPaths.has(member.pathKey)) continue;
+			readSeenPaths.add(member.pathKey);
+		}
 		const existing = counts.get(member.toolName);
 		if (existing === undefined) {
 			counts.set(member.toolName, 1);

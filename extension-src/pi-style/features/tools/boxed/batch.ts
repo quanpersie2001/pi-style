@@ -7,6 +7,18 @@
 // state on every render pass. Subsequent members render zero lines, so they
 // consume no vertical space.
 //
+// Chunk-merge (ADR 0010, `tools.mergeChunkedReads`): a large file read through
+// sequential continuation chunks (pi's read truncates at 2000 lines / 50KB, so
+// the model re-reads with `offset` — one call per assistant message) merges
+// into ONE expanding inline line (`➔ Read chat.ts:525-2629 · 10 chunks`).
+// Continuation chunks join their file's pure chunk batch across batch closes
+// and message boundaries within the agent run; each later chunk's entry
+// renders zero lines like any batch member. Contiguity is verified from
+// requested offset/limit and refined by the actual truncation line count from
+// the tool result. Non-contiguous same-file reads (deliberate re-reads) and
+// mixed-path batches keep the standard panel. Live and restore replay through
+// the same registry, so both render identically for pure chunk sequences.
+//
 // Design notes:
 // - Live batches render directly from the registry so member completions (which
 //   trigger ui.requestRender via Pi's tool_execution_end handler) are picked up
@@ -76,6 +88,22 @@ export interface BatchMember {
 	 *  the result is registered; an empty array means a successful zero-entry
 	 *  result (e.g. an empty directory). */
 	outputEntries?: string[];
+	/** Read chunk coordinates (same-file continuation reads, ADR 0010). The
+	 *  display path doubles as the merge key; `end` is the requested end
+	 *  (offset + limit - 1) when known, refined by the result's actual output
+	 *  line count once it settles. */
+	chunk?: ReadChunkInfo;
+}
+
+/** Coordinates of one read call within a chunk-merge sequence (ADR 0010). */
+export interface ReadChunkInfo {
+	/** Normalized display path — the merge key. */
+	readonly path: string;
+	/** 1-indexed first line (offset, default 1). */
+	readonly start: number;
+	/** 1-indexed last line when known (requested or refined); `undefined` for
+	 *  offset-only reads whose result has not settled yet. */
+	readonly end?: number;
 }
 
 type BatchRenderCache = {
@@ -112,6 +140,11 @@ export const EMPTY_BATCH_COMPONENT: Component = Object.freeze({
 
 let activeBatch: BatchState | undefined;
 const batchByCallId = new Map<string, BatchState>();
+/** Chunk-merge candidates (ADR 0010): the most recent pure, contiguous read
+ *  chunk batch per display path. Survives batch closes and assistant message
+ *  boundaries (a continuation chunk in a later message still merges); cleared
+ *  at agent-run and session boundaries. */
+const chunkCandidateByPath = new Map<string, BatchState>();
 
 /** Close the current batch: no new members join; existing panels keep rendering. */
 export function closeActiveBatch(): void {
@@ -124,13 +157,69 @@ export function closeActiveBatch(): void {
 export function resetBatchRegistry(): void {
 	activeBatch = undefined;
 	batchByCallId.clear();
+	chunkCandidateByPath.clear();
+}
+
+/** Reset chunk-merge candidates (agent-run boundary): a new request's reads
+ *  never merge into the previous run's sequences. Also closes the active
+ *  batch — a run boundary always ends the previous run's grouping. */
+export function resetReadChunkCandidates(): void {
+	closeActiveBatch();
+	chunkCandidateByPath.clear();
+}
+
+/** Whether `next` continues `prev` as a same-file chunk sequence: exact line
+ *  contiguity when the previous end is known, forward progression otherwise
+ *  (offset-only read whose result has not settled). */
+function chunkContinues(prev: ReadChunkInfo, next: ReadChunkInfo): boolean {
+	if (prev.end !== undefined) return next.start === prev.end + 1;
+	return next.start > prev.start;
+}
+
+/** Structural chunk-batch test used for rendering AND candidacy: every member
+ *  is a read chunk of one path and the chunks are pairwise contiguous. */
+function isContiguousChunkBatch(batch: BatchState): boolean {
+	const first = batch.members[0]?.chunk;
+	if (!first) return false;
+	let prev = first;
+	for (let i = 1; i < batch.members.length; i++) {
+		const cur = batch.members[i]?.chunk;
+		if (!cur || cur.path !== first.path || !chunkContinues(prev, cur)) return false;
+		prev = cur;
+	}
+	return true;
+}
+
+/** A pure, contiguous same-file read chunk sequence (2+ members) rendered as
+ *  one expanding inline line (`tools.mergeChunkedReads`, ADR 0010). */
+function isChunkReadBatch(batch: BatchState): boolean {
+	return (
+		getToolsRenderConfig().mergeChunkedReads &&
+		batch.meta.toolName === "read" &&
+		batch.members.length >= 2 &&
+		isContiguousChunkBatch(batch)
+	);
+}
+
+/** Keep the per-path candidate registry in sync after any read-batch mutation:
+ *  a pure contiguous chunk batch is the merge target for its path; any other
+ *  shape (mixed paths, non-contiguous joins, non-chunk reads) drops the
+ *  batch's candidacy. */
+function syncChunkCandidacy(batch: BatchState): void {
+	if (batch.meta.toolName !== "read") return;
+	const first = batch.members[0]?.chunk;
+	if (first && batch.members.length >= 1 && isContiguousChunkBatch(batch)) {
+		chunkCandidateByPath.set(first.path, batch);
+		return;
+	}
+	for (const [path, candidate] of chunkCandidateByPath) if (candidate === batch) chunkCandidateByPath.delete(path);
 }
 
 function createBatch(
 	meta: BatchToolMeta,
 	leaderId: string,
 	detail: string,
-	opts: { pattern?: string; pathLabel?: string } = {},
+	opts: { pattern?: string; pathLabel?: string; chunk?: ReadChunkInfo } = {},
 ): BatchState {
 	const batch: BatchState = {
 		meta,
@@ -146,11 +235,13 @@ function createBatch(
 				isError: false,
 				...(opts.pattern ? { pattern: opts.pattern } : {}),
 				...(opts.pathLabel ? { pathLabel: opts.pathLabel } : {}),
+				...(opts.chunk ? { chunk: opts.chunk } : {}),
 			},
 		],
 	};
 	activeBatch = batch;
 	batchByCallId.set(leaderId, batch);
+	syncChunkCandidacy(batch);
 	return batch;
 }
 
@@ -168,7 +259,7 @@ export function registerBatchCall(
 	meta: BatchToolMeta,
 	detail: string,
 	context: BoxedToolContext,
-	opts: { pattern?: string; pathLabel?: string } = {},
+	opts: { pattern?: string; pathLabel?: string; chunk?: ReadChunkInfo } = {},
 ): { batch: BatchState; isLeader: boolean } {
 	const existing = batchByCallId.get(context.toolCallId);
 	if (existing) {
@@ -183,6 +274,31 @@ export function registerBatchCall(
 		}
 		return { batch: existing, isLeader: existing.leaderId === context.toolCallId };
 	}
+	// Chunk-merge (ADR 0010): a continuation chunk joins its file's candidate
+	// batch even when that batch was closed (message boundary, non-read tool in
+	// between) — the merged inline line at the leader's position expands to
+	// cover the chunk, and this call renders zero lines like any batch member.
+	if (opts.chunk && getToolsRenderConfig().mergeChunkedReads) {
+		const candidate = chunkCandidateByPath.get(opts.chunk.path);
+		const lastChunk = candidate?.members.at(-1)?.chunk;
+		if (candidate && lastChunk && lastChunk.path === opts.chunk.path && chunkContinues(lastChunk, opts.chunk)) {
+			const member: BatchMember = {
+				toolCallId: context.toolCallId,
+				detail,
+				status: "pending",
+				isError: false,
+				chunk: opts.chunk,
+			};
+			candidate.members.push(member);
+			batchByCallId.set(context.toolCallId, candidate);
+			// Re-opening: the batch was possibly fully settled; a pending member
+			// must restart completion tracking (elapsed recomputes at final settle).
+			delete candidate.completedAt;
+			bumpBatchRevision(candidate);
+			syncChunkCandidacy(candidate);
+			return { batch: candidate, isLeader: candidate.leaderId === context.toolCallId };
+		}
+	}
 	const current = activeBatch;
 	if (!current || current.closed || current.meta.toolName !== meta.toolName) {
 		closeActiveBatch();
@@ -195,10 +311,12 @@ export function registerBatchCall(
 		isError: false,
 		...(opts.pattern ? { pattern: opts.pattern } : {}),
 		...(opts.pathLabel ? { pathLabel: opts.pathLabel } : {}),
+		...(opts.chunk ? { chunk: opts.chunk } : {}),
 	};
 	current.members.push(member);
 	batchByCallId.set(context.toolCallId, current);
 	bumpBatchRevision(current);
+	syncChunkCandidacy(current);
 	return { batch: current, isLeader: false };
 }
 
@@ -208,6 +326,11 @@ export interface BatchResultData {
 	readonly errorText: string | undefined;
 	/** Parsed output entries (ls/find) stored on the member for tree rendering. */
 	readonly entries?: string[];
+	/** Actual output line count of a settled read result (truncation details or
+	 *  counted text lines): refines the member chunk's `end` so the next
+	 *  continuation chunk's contiguity check and the merged range display stay
+	 *  exact even for byte-capped / offset-only reads. */
+	readonly readOutputLines?: number;
 }
 
 /**
@@ -233,16 +356,23 @@ export function registerBatchResult(
 	if (member) {
 		const nextStatus = data.isPartial ? "running" : "done";
 		const nextIsError = !data.isPartial && data.isError;
+		// Chunk end refinement (ADR 0010): the actual output line count pins the
+		// member chunk's end (byte-capped / offset-only reads), keeping later
+		// contiguity checks and the merged range display exact.
+		const refinedEnd =
+			member.chunk && data.readOutputLines !== undefined ? member.chunk.start + data.readOutputLines - 1 : undefined;
 		const changed =
 			member.status !== nextStatus ||
 			member.isError !== nextIsError ||
 			member.errorText !== (nextIsError ? data.errorText : undefined) ||
-			(data.entries !== undefined && member.outputEntries !== data.entries);
+			(data.entries !== undefined && member.outputEntries !== data.entries) ||
+			(refinedEnd !== undefined && member.chunk?.end !== refinedEnd);
 		member.status = nextStatus;
 		member.isError = nextIsError;
 		if (member.isError && data.errorText !== undefined) member.errorText = data.errorText;
 		else delete member.errorText;
 		if (data.entries !== undefined) member.outputEntries = data.entries;
+		if (refinedEnd !== undefined && member.chunk) member.chunk = { ...member.chunk, end: refinedEnd };
 		if (changed) bumpBatchRevision(batch);
 	}
 	if (batch.completedAt === undefined && batch.members.every((entry) => entry.status === "done")) {
@@ -464,6 +594,47 @@ function isLoneRead(batch: BatchState): boolean {
 	return batch.meta.toolName === "read" && batch.members.length === 1;
 }
 
+/** Merged range detail for a chunk batch: `<path>:<firstStart>-<lastEnd>`
+ *  (end omitted while the final chunk's extent is still unknown). */
+function mergedChunkDetail(batch: BatchState): string {
+	const first = batch.members[0]?.chunk;
+	if (!first) return "";
+	let end: number | undefined;
+	for (const member of batch.members) {
+		const memberEnd = member.chunk?.end;
+		if (memberEnd !== undefined && (end === undefined || memberEnd > end)) end = memberEnd;
+	}
+	return `${first.path}:${first.start}${end !== undefined ? `-${end}` : ""}`;
+}
+
+/** Chunk-merged read sequence (ADR 0010): ONE inline line per file,
+ *  `➔ Read <path>:525-2629 · 10 chunks · 1.20s`, expanding as chunks arrive.
+ *  Running shows live `done/total` progress; a failed chunk keeps its glyph,
+ *  error color, failure count, and error text lines visible. */
+function renderMergedChunkPanel(theme: BoxTheme, batch: BatchState, status: BatchStatus, width: number): string[] {
+	const prefix = bold(theme, formatToolTitlePrefix(theme, batch.meta.label));
+	const glyph = status.failed > 0 ? theme.fg("error", "✗") : status.allDone ? "" : theme.fg("text", "◌");
+	const detailColor = status.failed > 0 ? "error" : status.allDone ? "accent" : "text";
+	const suffix = !status.allDone
+		? theme.fg("dim", ` · ${status.done}/${status.total}`)
+		: `${theme.fg("dim", ` · ${status.total} ${pluralForm("chunk", status.total)}`)}${
+				status.failed > 0
+					? theme.fg("error", ` · ${status.failed} ${pluralForm("failure", status.failed)}`)
+					: status.elapsedMs === undefined
+						? ""
+						: formatElapsed(theme, status.elapsedMs)
+			}`;
+	const line = safeTruncateToWidth(
+		`${prefix}${glyph ? ` ${glyph}` : ""} ${theme.fg(detailColor, mergedChunkDetail(batch))}${suffix}`,
+		Math.max(1, width),
+		"…",
+	);
+	const out = [line];
+	const failedMember = batch.members.find((member) => member.isError);
+	if (failedMember?.errorText) out.push(...renderErrorLines(theme, failedMember.errorText, width));
+	return out;
+}
+
 /** Lone read renders `➔ Read <path>` on one line; errors keep their error text. */
 function renderLoneReadPanel(theme: BoxTheme, batch: BatchState, status: BatchStatus, width: number): string[] {
 	const member = batch.members[0];
@@ -483,9 +654,11 @@ function renderLoneReadPanel(theme: BoxTheme, batch: BatchState, status: BatchSt
 }
 
 function renderBatchPanelLines(theme: BoxTheme, batch: BatchState, status: BatchStatus, width: number): string[] {
-	// Lone read collapses to a single inline line; batched reads and lone
-	// ls/find calls keep their tree panels.
+	// Lone read collapses to a single inline line; a chunk-merged read sequence
+	// collapses to one expanding inline line per file (ADR 0010); batched reads
+	// and lone ls/find calls keep their tree panels.
 	if (isLoneRead(batch)) return renderLoneReadPanel(theme, batch, status, width);
+	if (isChunkReadBatch(batch)) return renderMergedChunkPanel(theme, batch, status, width);
 	if (isOutputTool(batch.meta) && batch.members.some((member) => member.outputEntries !== undefined)) {
 		return renderOutputBatchPanel(theme, batch, status, width);
 	}
@@ -512,6 +685,22 @@ export function renderBatchAwareCall(theme: BoxTheme, batch: BatchState): Compon
 			const lines = renderBatchPanelLines(theme, batch, status, width);
 			batch.renderCache = { key: cacheKey, lines };
 			return lines;
+		},
+	};
+}
+
+/** Standalone inline call row for one quiet-tool member while Pi's global
+ * tool-output expansion (Ctrl+O) is active: every member renders its own
+ * `➔ Label <detail>` line instead of hiding inside the batch panel, so the
+ * expanded transcript shows each tool call individually. The batch registry
+ * stays authoritative — members still register, so collapsing again restores
+ * the panel without state loss. */
+export function renderStandaloneMemberCall(theme: BoxTheme, label: string, detail: string): Component {
+	return {
+		invalidate() {},
+		render(width: number): string[] {
+			const prefix = bold(theme, formatToolTitlePrefix(theme, label));
+			return [safeTruncateToWidth(`${prefix} ${theme.fg("text", detail)}`, Math.max(1, width), "…")];
 		},
 	};
 }

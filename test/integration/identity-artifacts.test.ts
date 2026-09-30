@@ -41,6 +41,7 @@ function certifyAgainst(module: Record<string, unknown>, version: string): strin
 function protoNameFor(key: string): string {
 	const map: Record<string, string> = {
 		"native-assistant-message": "AssistantMessageComponent",
+		"native-compaction-transcript": "InteractiveMode",
 		"native-compaction-message": "CompactionSummaryMessageComponent",
 		"native-branch-message": "BranchSummaryMessageComponent",
 		"native-skill-message": "SkillInvocationMessageComponent",
@@ -49,6 +50,55 @@ function protoNameFor(key: string): string {
 		"tool-result-renderer": "ToolExecutionComponent",
 	};
 	return map[key.split(":")[0]] ?? "";
+}
+
+interface PiInstallCandidate {
+	readonly label: string;
+	readonly packageRoot: string;
+}
+
+/**
+ * Discover every pi install whose bundle extensions can actually receive:
+ * the repo-local dev dependency, the globally npm-installed CLI, and any `pi`
+ * binary on PATH whose real location is not one of those. `command -v pi`
+ * alone is NOT enough: vitest prepends `node_modules/.bin` to PATH, so the
+ * dev-local install would shadow the globally installed CLI the user runs —
+ * exactly how an unrecorded global bundle once slipped past this test.
+ */
+async function discoverPiInstalls(): Promise<PiInstallCandidate[]> {
+	const { execSync } = await import("node:child_process");
+	const { existsSync, realpathSync } = await import("node:fs");
+	const { fileURLToPath } = await import("node:url");
+	const candidates: PiInstallCandidate[] = [];
+	const seen = new Set<string>();
+	const consider = (packageRoot: string | undefined, label: string) => {
+		if (!packageRoot || !existsSync(`${packageRoot}/dist/bundle/index.js`)) return;
+		let real: string;
+		try {
+			real = realpathSync(`${packageRoot}/dist/bundle/index.js`);
+		} catch {
+			return;
+		}
+		if (seen.has(real)) return;
+		seen.add(real);
+		candidates.push({ label, packageRoot: real.slice(0, -"/dist/bundle/index.js".length) });
+	};
+	consider(fileURLToPath(new URL("../../node_modules/@earendil-works/pi-coding-agent", import.meta.url)), "local");
+	try {
+		const globalRoot = execSync("npm root -g", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+		consider(`${globalRoot}/@earendil-works/pi-coding-agent`, "global npm");
+	} catch {
+		// npm unavailable (unusual CI): PATH fallback below still applies.
+	}
+	try {
+		const piBin = execSync("command -v pi", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+		const real = realpathSync(piBin);
+		const installRoot = real.match(/^(.*@earendil-works\/pi-coding-agent)\/dist\//)?.[1];
+		consider(installRoot, "pi on PATH");
+	} catch {
+		// pi not installed/resolvable in this environment (e.g. CI): skip.
+	}
+	return candidates;
 }
 
 describe("recorded identity registry vs real pi artifacts", () => {
@@ -63,26 +113,19 @@ describe("recorded identity registry vs real pi artifacts", () => {
 		expect(certifyAgainst(local, localVersion).join("\n")).toBe("");
 	});
 
-	it("certifies every surface against the installed pi CLI bundle (the artifact family extensions actually receive)", async () => {
-		const { execSync } = await import("node:child_process");
-		let bundleUrl: URL | undefined;
-		try {
-			const piBin = execSync("command -v pi", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-			// pi is typically a symlink into the active node_modules install.
-			const real = (await import("node:fs")).realpathSync(piBin);
-			const installRoot = real.match(/^(.*@earendil-works\/pi-coding-agent)\/dist\//)?.[1];
-			if (installRoot) {
-				const candidate = new URL(`file://${installRoot}/dist/bundle/index.js`);
-				if ((await import("node:fs")).existsSync(candidate)) bundleUrl = candidate;
-			}
-		} catch {
-			// pi not installed/resolvable in this environment (e.g. CI): skip.
+	it("certifies every surface against every discoverable pi CLI bundle (the artifact family extensions actually receive)", async () => {
+		const { readFileSync } = await import("node:fs");
+		const { pathToFileURL } = await import("node:url");
+		const installs = await discoverPiInstalls();
+		if (installs.length === 0) return;
+		const failures: string[] = [];
+		for (const install of installs) {
+			const pkg = JSON.parse(readFileSync(new URL("package.json", pathToFileURL(`${install.packageRoot}/`)), "utf8"));
+			const bundle = (await import(
+				pathToFileURL(`${install.packageRoot}/dist/bundle/index.js`).href
+			)) as unknown as Record<string, unknown>;
+			failures.push(...certifyAgainst(bundle, pkg.version as string).map((miss) => `[${install.label}] ${miss}`));
 		}
-		if (!bundleUrl) return;
-		const bundlePkg = JSON.parse(
-			(await import("node:fs")).readFileSync(new URL("../../package.json", bundleUrl), "utf8"),
-		);
-		const bundle = (await import(bundleUrl.href)) as unknown as Record<string, unknown>;
-		expect(certifyAgainst(bundle, bundlePkg.version as string).join("\n")).toBe("");
+		expect(failures.join("\n")).toBe("");
 	});
 });

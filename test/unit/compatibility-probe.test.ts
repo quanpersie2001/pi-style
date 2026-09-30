@@ -153,11 +153,11 @@ describe("identity-certified compatibility probe", () => {
 	it.each([
 		// Core/message/tool surfaces are default-on (fingerprint-certified, fail-closed,
 		// conflict-preserving); explicit flags and the ASCII override still work.
-		[{}, 9],
+		[{}, 10],
 		[{ "pi-style-core-patches": false }, 0],
-		[{ "pi-style-ascii": true }, 9],
-		[{ "pi-style-tools": false }, 6],
-		[{ "pi-style-message-special-blocks": false }, 5],
+		[{ "pi-style-ascii": true }, 10],
+		[{ "pi-style-tools": false }, 7],
+		[{ "pi-style-message-special-blocks": false }, 6],
 	] as const)("enables certified surfaces by default with explicit flag overrides %#", async (flags, expected) => {
 		const host = new FakePiHost({ flags });
 		piStyleExtension(host.extensionApi);
@@ -194,7 +194,7 @@ describe("identity-certified compatibility probe", () => {
 		initTheme("dark", false);
 		const markers = new Set<string>();
 		const report = probePiCompatibility("0.83.0", markers);
-		expect(report.recordSnapshots).toHaveLength(9);
+		expect(report.recordSnapshots).toHaveLength(10);
 		expect(report.recordSnapshots.every((record) => record.piVersion === "0.83.0")).toBe(true);
 		expect(report.recordSnapshots.every((record) => record.shape === "installed")).toBe(true);
 		expect(report.recordSnapshots.every((record) => record.disposed === false)).toBe(true);
@@ -225,6 +225,12 @@ describe("identity-certified compatibility probe", () => {
 				(message) => new UserMessageComponent(`renderer:${message.content}`),
 			),
 		];
+		// pi-style's boxed compaction block defaults to expanded on first paint
+		// (the summary is the record of the compacted conversation); settle that
+		// default first so the collapsed baseline below reflects the explicit
+		// toggle state rather than the first-paint default.
+		for (const component of nativeSpecial) component.render(80);
+		for (const component of nativeSpecial) component.setExpanded?.(false);
 		const beforeSpecial = nativeSpecial.map((component) => component.render(80));
 		for (const component of nativeSpecial) component.setExpanded?.(true);
 		const beforeExpandedSpecial = nativeSpecial.map((component) => component.render(80));
@@ -516,7 +522,7 @@ describe("identity-certified compatibility probe", () => {
 		await host.sessionStart();
 		expect(
 			targetSpecs.filter((spec) => getCompatibilityRecords(spec.target).some((record) => !record.disposed)).length,
-		).toBe(9);
+		).toBe(10);
 		await host.sessionShutdown();
 		// Tier C patches are retained across session switches (Pi renders the restored
 		// chat with renderBeforeBind before the next session_start, which restores and
@@ -525,7 +531,7 @@ describe("identity-certified compatibility probe", () => {
 		await host.sessionStart();
 		expect(
 			targetSpecs.filter((spec) => getCompatibilityRecords(spec.target).some((record) => !record.disposed)).length,
-		).toBe(9);
+		).toBe(10);
 		await host.sessionShutdown();
 
 		// OFF switch: `compatibility.allowCorePatches: false` in config denies all core patches.
@@ -600,7 +606,7 @@ describe("identity-certified compatibility probe", () => {
 		// every surface whose runtime identity matches a recorded fingerprint.
 		for (const version of [undefined, "9.9.9"]) {
 			const report = probePiCompatibility(version);
-			expect(report.recordSnapshots).toHaveLength(9);
+			expect(report.recordSnapshots).toHaveLength(10);
 			expect(report.recordSnapshots.every((record) => record.shape === "installed")).toBe(true);
 			expect(report.unsupported).toHaveLength(0);
 			// Certified surfaces carry the matched pre-install identity in the certificate.
@@ -629,8 +635,8 @@ describe("identity-certified compatibility probe", () => {
 		});
 		try {
 			const report = probePiCompatibility("0.85.0");
-			expect(report.recordSnapshots).toHaveLength(9);
-			expect(report.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(8);
+			expect(report.recordSnapshots).toHaveLength(10);
+			expect(report.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(9);
 			expect(report.recordSnapshots.find((record) => `${record.subtype}:${record.method}` === key)?.shape).toBe(
 				"unsupported",
 			);
@@ -752,7 +758,7 @@ describe("identity-certified compatibility probe", () => {
 		disposePiCompatibilityProbe(report);
 		expect(descriptors()).toEqual(beforeDescriptors);
 		const replacement = probePiCompatibility("0.83.0");
-		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(9);
+		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(10);
 		expect(markers).not.toContain("native-assistant-message:delegated");
 		const snapshots: readonly CompatibilityRecordSnapshot[] = report.recordSnapshots;
 		expect(snapshots.every((record) => record.generation > 0)).toBe(true);
@@ -772,7 +778,7 @@ describe("identity-certified compatibility probe", () => {
 
 		retainPiCompatibilityProbe(active);
 		const replacement = probePiCompatibility("0.83.0");
-		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(9);
+		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(10);
 		disposePiCompatibilityProbe(replacement);
 		expect(descriptors()).toEqual(beforeDescriptors);
 	});

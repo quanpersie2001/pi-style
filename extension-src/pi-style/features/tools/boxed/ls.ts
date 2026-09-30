@@ -15,7 +15,9 @@ import {
 	registerBatchCall,
 	registerBatchResult,
 	renderBatchAwareCall,
+	renderStandaloneMemberCall,
 } from "./batch.js";
+import { renderFallbackResult } from "./fallback.js";
 import { parseLsOutput } from "./output-tree.js";
 import { type BoxedToolDefinition, noteExecutionStart } from "./shared.js";
 
@@ -37,10 +39,12 @@ export const lsTool: BoxedToolDefinition = {
 		const rawPath = String(args?.path ?? ".");
 		const detail = displayPath(rawPath);
 		const { isLeader, batch } = registerBatchCall(LIST_META, detail, context, { pathLabel: detail });
+		// Ctrl+O expansion bypasses the batch panel (see read.ts).
+		if (context.expanded) return renderStandaloneMemberCall(theme, LIST_META.label, detail);
 		if (!isLeader) return EMPTY_BATCH_COMPONENT;
 		return renderBatchAwareCall(theme, batch);
 	},
-	result(result, options, _theme, context) {
+	result(result, options, theme, context) {
 		const isError = Boolean(context.isError);
 		// Result renderers re-fire on every repaint/scroll; once the final output
 		// is parsed and registered, skip stripping/parsing the same text again.
@@ -57,6 +61,9 @@ export const lsTool: BoxedToolDefinition = {
 			},
 			context,
 		);
+		// Ctrl+O expansion renders the full listing per member (see read.ts).
+		if (options.expanded && !options.isPartial)
+			return renderFallbackResult(LIST_META.label, result, options, theme, context);
 		return emptyBatchResult();
 	},
 };

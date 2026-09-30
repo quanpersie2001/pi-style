@@ -41,6 +41,14 @@ export interface PiStyleConfig {
 		 * thought segment, split by visible assistant text (requires hideThinkingLabel;
 		 * duration only when every grouped run was measured live). */
 		thoughtSummary?: boolean;
+		/** Merge tool stats into the thought-segment label and hide the ended
+		 *  run's `➔` leader line (`◈ Thought N times · Called M tools · …`). */
+		mergedTurnSummary?: boolean;
+		/** Preserve the live transcript across compaction: instead of the native
+		 * clear-and-rerender (transcript mirrors the compacted context), keep every
+		 * rendered message and append the compaction summary block (Tier C patch on
+		 * InteractiveMode.handleEvent; replay/resume still renders compacted). */
+		preserveCompactionTranscript?: boolean;
 		/** Inline previews for user-prompt images (ADR 0008); gates append and render. */
 		showImagePreviews?: boolean;
 		/** Clipboard image input (ADR 0009): upgrade built-in paste temp paths to attachments. */
@@ -59,6 +67,8 @@ export interface PiStyleConfig {
 		collapseAfterTurn?: boolean;
 		/** Also collapse mutating tools (edit/write/…) into the summary; off keeps them visible. */
 		collapseMutatingTools?: boolean;
+		/** Merge sequential same-file read chunks (truncated large-file reads) into one inline line (ADR 0010). */
+		mergeChunkedReads?: boolean;
 	};
 	theme?: {
 		nerdFonts?: string;
@@ -109,6 +119,10 @@ export interface NormalizedPiStyleConfig {
 		 * thought segment, split by visible assistant text (requires hideThinkingLabel;
 		 * duration only when every grouped run was measured live). */
 		thoughtSummary: boolean;
+		/** Merged thought+tool summary line (see optional twin). */
+		mergedTurnSummary: boolean;
+		/** Preserve the live transcript across compaction (see optional twin). */
+		preserveCompactionTranscript: boolean;
 		/** Inline previews for user-prompt images (ADR 0008); gates append and render. */
 		showImagePreviews: boolean;
 		/** Clipboard image input (ADR 0009): upgrade built-in paste temp paths to attachments. */
@@ -127,6 +141,8 @@ export interface NormalizedPiStyleConfig {
 		collapseAfterTurn: boolean;
 		/** Also collapse mutating tools (edit/write/…) into the summary; off keeps them visible. */
 		collapseMutatingTools: boolean;
+		/** Merge sequential same-file read chunks (truncated large-file reads) into one inline line (ADR 0010). */
+		mergeChunkedReads: boolean;
 	};
 	readonly theme: {
 		nerdFonts: NerdFontsMode;

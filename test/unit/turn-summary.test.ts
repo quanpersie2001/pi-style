@@ -25,6 +25,10 @@ function toolCall(id: string, name = "read"): { type: "toolCall"; id: string; na
 	return { type: "toolCall", id, name, arguments: {} };
 }
 
+function readCall(id: string, path: string): { type: "toolCall"; id: string; name: string; arguments: object } {
+	return { type: "toolCall", id, name: "read", arguments: { path } };
+}
+
 function result(id: string, isError = false): { toolCallId: string; isError: boolean } {
 	return { toolCallId: id, isError };
 }
@@ -247,6 +251,17 @@ describe("rebuildTurnRegistryFromEntries (restore path)", () => {
 });
 
 describe("turnSummaryParts", () => {
+	it("counts chunked reads of one file as a single file (ADR 0010)", () => {
+		const run = completedRun([
+			{
+				calls: [readCall("c1", "a.ts"), readCall("c2", "a.ts"), readCall("c3", "./a.ts"), readCall("c4", "b.ts")],
+				results: [result("c1"), result("c2"), result("c3"), result("c4")],
+			},
+		]);
+		const parts = turnSummaryParts(run);
+		expect(parts.parts).toEqual(["Read 2 files"]);
+	});
+
 	it("aggregates per-tool counts across batches in first-use order with plural units", () => {
 		const run = completedRun([
 			{ calls: [toolCall("a", "read"), toolCall("b", "bash")], results: [result("a"), result("b")] },

@@ -1058,6 +1058,27 @@ describe("special message blocks", () => {
 		}
 	});
 
+	it("compaction block defaults to expanded and collapses through setExpanded", () => {
+		installSpecialBlockAdapters();
+		setSpecialBlockTheme(theme);
+		const component = new CompactionSummaryMessageComponent({
+			role: "compactionSummary",
+			summary: "the record of the conversation",
+			tokensBefore: 4321,
+			timestamp: 1,
+		});
+		// The boxed compaction block starts expanded: the summary is the only
+		// in-transcript record of the compacted conversation.
+		const expanded = stripAnsi(component.render(80).join("\n"));
+		expect(expanded).toContain("Compaction");
+		expect(expanded).toContain("the record of the conversation");
+		// An explicit collapse (Ctrl+O / click) hides the body and shows the hint.
+		component.setExpanded(false);
+		const collapsed = stripAnsi(component.render(80).join("\n"));
+		expect(collapsed).toContain("Compaction");
+		expect(collapsed).not.toContain("the record of the conversation");
+	});
+
 	it("falls back to native layout without a session theme", () => {
 		installSpecialBlockAdapters();
 		const skillBlock = parseSkillBlock('<skill name="fixture" location="/fake">\ncontent\n</skill>');

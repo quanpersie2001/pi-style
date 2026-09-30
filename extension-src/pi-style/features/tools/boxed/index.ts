@@ -6,6 +6,7 @@
 
 import type { Component } from "@earendil-works/pi-tui";
 import type { BoxTheme } from "../../../shared/box.js";
+import { everyMessageInEndedGroup } from "../../../shared/turn-summary-bridge.js";
 import { bashTool } from "./bash.js";
 import { closeActiveBatch, EMPTY_BATCH_COMPONENT, isBatchableTool } from "./batch.js";
 import { editTool } from "./edit.js";
@@ -78,7 +79,16 @@ export function renderBoxedToolCall(
 	if (!isBatchableTool(toolName)) closeActiveBatch();
 	const turn = collapsedTurnFor(context.toolCallId, context.expanded);
 	if (turn) {
-		if (turn.leaderId === context.toolCallId) return renderTurnSummaryCall(theme, turn);
+		if (turn.leaderId === context.toolCallId) {
+			// Merged summary (`messages.mergedTurnSummary`): when every message of
+			// the run belongs to an ended thought segment, the segment labels carry
+			// the counts (`◈ Thought N times · Called M tools · …`) and this run's
+			// `➔` leader defers to them. A run with any unattributed message (tools
+			// before the first thinking run, no thinking at all) keeps its line.
+			if (getToolsRenderConfig().mergedTurnSummary && everyMessageInEndedGroup(turn.messages))
+				return EMPTY_BATCH_COMPONENT;
+			return renderTurnSummaryCall(theme, turn);
+		}
 		// Same singleton the batch machinery uses: the decoration's hideBatchMember
 		// (identity-compared) removes the instance so members consume zero lines.
 		return EMPTY_BATCH_COMPONENT;

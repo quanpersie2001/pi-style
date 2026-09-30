@@ -1,9 +1,15 @@
+import type { Component } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it } from "vitest";
-import { closeActiveBatch, resetBatchRegistry } from "../../extension-src/pi-style/features/tools/boxed/batch.js";
+import {
+	closeActiveBatch,
+	resetBatchRegistry,
+	resetReadChunkCandidates,
+} from "../../extension-src/pi-style/features/tools/boxed/batch.js";
 import {
 	renderBoxedToolCall as dispatchCall,
 	renderBoxedToolResult as dispatchResult,
 } from "../../extension-src/pi-style/features/tools/boxed/index.js";
+import { setToolsRenderConfig } from "../../extension-src/pi-style/features/tools/boxed/session-config.js";
 import type { BoxedToolContext } from "../../extension-src/pi-style/features/tools/boxed/shared.js";
 import { stripAnsi } from "../../extension-src/pi-style/shared/ansi.js";
 import { createFakeTheme } from "../helpers/fake-theme.js";
@@ -36,6 +42,32 @@ function textResult(text: string) {
 function readCall(path: string, id: string, extra: Partial<BoxedToolContext> = {}) {
 	const ctx = context({ toolCallId: id, args: { path }, cwd: "/fake", ...extra });
 	return { ctx, component: dispatchCall("read", { path }, theme, ctx) };
+}
+
+/** Sequential same-file chunk read (offset+limit) — the large-file pattern. */
+function chunkCall(path: string, id: string, offset?: number, limit?: number, extra: Partial<BoxedToolContext> = {}) {
+	const args: Record<string, unknown> = {
+		path,
+		...(offset !== undefined ? { offset } : {}),
+		...(limit !== undefined ? { limit } : {}),
+	};
+	const ctx = context({ toolCallId: id, args, cwd: "/fake", ...extra });
+	return { ctx, component: dispatchCall("read", args, theme, ctx) };
+}
+
+/** Settled read result with truncation details (actual output line count). */
+function chunkResult(id: string, path: string, outputLines: number, extra: Partial<BoxedToolContext> = {}) {
+	const ctx = context({ toolCallId: id, args: { path }, cwd: "/fake", ...extra });
+	return {
+		ctx,
+		component: dispatchResult(
+			"read",
+			{ content: [{ type: "text", text: "line\n".repeat(outputLines) }], details: { truncation: { outputLines } } },
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		),
+	};
 }
 
 function readResult(id: string, path: string, text: string, extra: Partial<BoxedToolContext> = {}) {
@@ -215,12 +247,12 @@ describe("batch grouping for quiet tools", () => {
 	});
 
 	it("groups consecutive ls calls under the List label", () => {
-		const l1 = context({ toolCallId: "l1", args: { path: "src" }, cwd: "/fake", expanded: true });
-		const l2 = context({ toolCallId: "l2", args: { path: "test" }, cwd: "/fake", expanded: true });
+		const l1 = context({ toolCallId: "l1", args: { path: "src" }, cwd: "/fake", expanded: false });
+		const l2 = context({ toolCallId: "l2", args: { path: "test" }, cwd: "/fake", expanded: false });
 		const leaderCall = dispatchCall("ls", { path: "src" }, theme, l1);
 		dispatchCall("ls", { path: "test" }, theme, l2);
-		dispatchResult("ls", textResult("index.ts\nmain.ts"), { expanded: true, isPartial: false }, theme, l1);
-		dispatchResult("ls", textResult("spec.ts"), { expanded: true, isPartial: false }, theme, l2);
+		dispatchResult("ls", textResult("index.ts\nmain.ts"), { expanded: false, isPartial: false }, theme, l1);
+		dispatchResult("ls", textResult("spec.ts"), { expanded: false, isPartial: false }, theme, l2);
 		const joined = plain(leaderCall.render(80)).join("\n");
 		expect(joined).toContain("● List (2)");
 		expect(joined).toContain("src");
@@ -238,5 +270,200 @@ describe("batch grouping for quiet tools", () => {
 		const joinedR1 = plain(r1.component.render(80)).join("\n");
 		expect(joinedR1).not.toContain("List");
 		expect(plain(r2.component.render(80)).join("\n")).toContain("b.ts");
+	});
+});
+
+describe("chunk-merge for sequential same-file reads (ADR 0010)", () => {
+	it("merges continuation chunks across message boundaries into one expanding line", () => {
+		const r1 = chunkCall("chat.ts", "r1", 525, 180);
+		chunkResult("r1", "chat.ts", 180);
+		// New assistant message: the active batch closes, but the next chunk of
+		// the same file still merges into the leader's expanding line.
+		closeActiveBatch();
+		const r2 = chunkCall("chat.ts", "r2", 705, 180);
+		expect(r2.component.render(80)).toEqual([]); // member renders zero lines
+
+		let joined = plain(r1.component.render(80)).join("\n");
+		expect(joined).toContain("➔ Read ◌ chat.ts:525-884 · 1/2");
+		expect(joined).not.toContain("└─");
+
+		chunkResult("r2", "chat.ts", 180);
+		joined = plain(r1.component.render(80)).join("\n");
+		expect(joined).toMatch(/➔ Read chat\.ts:525-884 · 2 chunks( · \d+\.\d{2}s)?/);
+		expect(joined).not.toContain("├─");
+		expectLinesFit(r1.component.render(80), 80);
+	});
+
+	it("refines chunk ends from truncation output lines (byte-capped reads)", () => {
+		// Requested 500 lines, but the byte cap truncated the output to 180.
+		const r1 = chunkCall("a.ts", "r1", 525, 500);
+		chunkResult("r1", "a.ts", 180);
+		closeActiveBatch();
+		// The model continues from the ACTUAL end (704), not the requested one.
+		chunkCall("a.ts", "r2", 705, 100);
+		chunkResult("r2", "a.ts", 100);
+		const joined = plain(r1.component.render(80)).join("\n");
+		expect(joined).toContain("a.ts:525-804");
+	});
+
+	it("merges offset-only continuation reads and counts complete-read lines", () => {
+		// First chunk: no offset/limit (read from the top), truncated at 2000.
+		const r1 = chunkCall("a.ts", "r1");
+		chunkResult("r1", "a.ts", 2000);
+		closeActiveBatch();
+		// Continuation without limit; result is complete (no truncation details)
+		// with 300 text lines and no continuation notice.
+		chunkCall("a.ts", "r2", 2001);
+		const ctx = context({ toolCallId: "r2", args: { path: "a.ts", offset: 2001 }, cwd: "/fake" });
+		dispatchResult(
+			"read",
+			{ content: [{ type: "text", text: "line\n".repeat(300).trimEnd() }], details: {} },
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		);
+		const joined = plain(r1.component.render(80)).join("\n");
+		expect(joined).toContain("a.ts:1-2300");
+		expect(joined).toContain("2 chunks");
+	});
+
+	it("a non-contiguous re-read of the same file stays its own line", () => {
+		const r1 = chunkCall("a.ts", "r1", 1, 50);
+		chunkResult("r1", "a.ts", 50);
+		closeActiveBatch();
+		const r2 = chunkCall("a.ts", "r2", 200, 50);
+		const r2Lines = plain(r2.component.render(80)).join("\n");
+		expect(r2Lines).toContain("➔ Read ◌ a.ts:200-249");
+		const joined = plain(r1.component.render(80)).join("\n");
+		expect(joined).toContain("➔ Read a.ts:1-50");
+		expect(joined).not.toContain("chunk");
+	});
+
+	it("a non-read tool between chunks does not break the merge", () => {
+		const r1 = chunkCall("a.ts", "r1", 1, 100);
+		chunkResult("r1", "a.ts", 100);
+		dispatchCall("bash", { command: "wc -l a.ts" }, theme, context({ toolCallId: "bash1" }));
+		const r2 = chunkCall("a.ts", "r2", 101, 100);
+		chunkResult("r2", "a.ts", 100);
+		expect(r2.component.render(80)).toEqual([]);
+		const joined = plain(r1.component.render(80)).join("\n");
+		expect(joined).toContain("a.ts:1-200 · 2 chunks");
+	});
+
+	it("a mixed-path batch loses chunk candidacy for its files", () => {
+		// Same-message reads of two files form a standard panel (not chunked).
+		const r1 = readCall("a.ts", "r1");
+		readCall("b.ts", "r2");
+		closeActiveBatch();
+		// A later continuation of a.ts cannot merge into the mixed batch.
+		const r3 = chunkCall("a.ts", "r3", 1, 100);
+		const r3Lines = plain(r3.component.render(80)).join("\n");
+		expect(r3Lines).toContain("➔ Read ◌ a.ts:1-100");
+		const joined = plain(r1.component.render(80)).join("\n");
+		expect(joined).toContain("Read (2)");
+		expect(joined).not.toContain("chunk");
+	});
+
+	it("keeps a failed chunk visible with its error text in the merged line", () => {
+		const r1 = chunkCall("a.ts", "r1", 1, 100);
+		chunkResult("r1", "a.ts", 100);
+		closeActiveBatch();
+		chunkCall("a.ts", "r2", 101, 100);
+		const ctx = context({ toolCallId: "r2", args: { path: "a.ts" }, cwd: "/fake", isError: true });
+		dispatchResult(
+			"read",
+			{ content: [{ type: "text", text: "Permission denied" }], details: {} },
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		);
+		const joined = plain(r1.component.render(120)).join("\n");
+		expect(joined).toContain("➔ Read ✗ a.ts:1-200 · 2 chunks · 1 failure");
+		expect(joined).toContain("Permission denied");
+	});
+
+	it("resetReadChunkCandidates breaks sequences across agent runs", () => {
+		chunkCall("a.ts", "r1", 1, 100);
+		chunkResult("r1", "a.ts", 100);
+		resetReadChunkCandidates(); // new agent run
+		const r2 = chunkCall("a.ts", "r2", 101, 100);
+		const r2Lines = plain(r2.component.render(80)).join("\n");
+		expect(r2Lines).toContain("➔ Read ◌ a.ts:101-200");
+	});
+
+	it("tools.mergeChunkedReads: off disables merging", () => {
+		setToolsRenderConfig({ mergeChunkedReads: false });
+		try {
+			const r1 = chunkCall("a.ts", "r1", 1, 100);
+			chunkResult("r1", "a.ts", 100);
+			closeActiveBatch();
+			const r2 = chunkCall("a.ts", "r2", 101, 100);
+			const r2Lines = plain(r2.component.render(80)).join("\n");
+			expect(r2Lines).toContain("➔ Read ◌ a.ts:101-200");
+			expect(plain(r1.component.render(80)).join("\n")).not.toContain("chunk");
+		} finally {
+			setToolsRenderConfig({ mergeChunkedReads: true });
+		}
+	});
+});
+
+describe("Ctrl+O expansion bypasses the batch panel", () => {
+	it("every member renders its own standalone line with full output when expanded", () => {
+		const r1 = readCall("a.ts", "r1", { expanded: true });
+		const r2 = readCall("b.ts", "r2", { expanded: true });
+
+		// Both members render one visible row each — no zero-height members.
+		const l1 = plain(r1.component.render(80)).join("\n");
+		const l2 = plain(r2.component.render(80)).join("\n");
+		expect(l1).toContain("Read");
+		expect(l1).toContain("a.ts");
+		expect(l2).toContain("Read");
+		expect(l2).toContain("b.ts");
+
+		// Result pass while expanded renders the full output per member.
+		const out1 = dispatchResult("read", textResult("alpha\nbeta"), { expanded: true, isPartial: false }, theme, r1.ctx);
+		const out2 = dispatchResult("read", textResult("gamma"), { expanded: true, isPartial: false }, theme, r2.ctx);
+		const o1 = plain(out1.render(80)).join("\n");
+		const o2 = plain(out2.render(80)).join("\n");
+		expect(o1).toContain("alpha");
+		expect(o1).toContain("beta");
+		expect(o2).toContain("gamma");
+	});
+
+	it("collapsing again restores the shared batch panel", () => {
+		const r1 = readCall("a.ts", "r1", { expanded: true });
+		const r2 = readCall("b.ts", "r2", { expanded: true });
+		dispatchResult("read", textResult("alpha"), { expanded: true, isPartial: false }, theme, r1.ctx);
+		dispatchResult("read", textResult("beta"), { expanded: true, isPartial: false }, theme, r2.ctx);
+
+		// Re-render with expansion off: members hide, the leader shows the panel.
+		const collapsed1 = dispatchCall(
+			"read",
+			{ path: "a.ts" },
+			theme,
+			context({ toolCallId: "r1", args: { path: "a.ts" } }),
+		);
+		const collapsed2 = dispatchCall(
+			"read",
+			{ path: "b.ts" },
+			theme,
+			context({ toolCallId: "r2", args: { path: "b.ts" } }),
+		);
+		expect((collapsed2 as Component).render(80)).toEqual([]);
+		const panel = plain((collapsed1 as Component).render(80)).join("\n");
+		expect(panel).toContain("Read (2)");
+		expect(panel).toContain("a.ts");
+		expect(panel).toContain("b.ts");
+	});
+
+	it("expanded ls members render their listings instead of hiding", () => {
+		const l1 = context({ toolCallId: "x1", args: { path: "src" }, cwd: "/fake", expanded: true });
+		const l2 = context({ toolCallId: "x2", args: { path: "test" }, cwd: "/fake", expanded: true });
+		const c1 = dispatchCall("ls", { path: "src" }, theme, l1);
+		const c2 = dispatchCall("ls", { path: "test" }, theme, l2);
+		expect(plain((c2 as Component).render(80)).join("\n")).toContain("test");
+		const out = dispatchResult("ls", textResult("index.ts\nmain.ts"), { expanded: true, isPartial: false }, theme, l2);
+		expect(plain((out as Component).render(80)).join("\n")).toContain("main.ts");
+		void c1;
 	});
 });

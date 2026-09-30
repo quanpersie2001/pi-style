@@ -7,7 +7,8 @@
 // to it whenever the theme or component shape is unavailable.
 
 import { keyText } from "@earendil-works/pi-coding-agent";
-import { Markdown, type MarkdownTheme } from "@earendil-works/pi-tui";
+import type { Component } from "@earendil-works/pi-tui";
+import { Markdown, type MarkdownTheme, MouseRegion } from "@earendil-works/pi-tui";
 import type { BoxTheme } from "../../shared/box.js";
 import { setFullTheme } from "../../shared/theme-extras.js";
 import { renderBoxedMessageBlock } from "./boxed-block.js";
@@ -45,6 +46,7 @@ interface MessageBlockInstance {
 	skillBlock?: { name?: unknown; content?: unknown };
 	expanded?: unknown;
 	_expanded?: unknown;
+	setExpanded?(expanded: boolean): unknown;
 	markdownTheme?: unknown;
 	box?: { clear(): void; addChild(child: unknown): void };
 	customComponent?: unknown;
@@ -76,9 +78,33 @@ function createMarkdownBody(
 	return (contentWidth: number) => md.render(contentWidth);
 }
 
+/** Compaction instances already default-expanded once. The compaction summary
+ * is the only in-transcript record of the compacted conversation, so the boxed
+ * block starts expanded instead of hint-only (native starts collapsed; Ctrl+O
+ * or a click can still collapse it afterwards, and a chat rebuild re-applies
+ * the default because the fresh component starts from native state again). */
+const compactionDefaultExpanded = new WeakSet<object>();
+
+/** Restore the native click-to-toggle affordance around a boxed block: the
+ * native layout wraps its content in a MouseRegion, but the boxed replacement
+ * clears those children, so without this wrapper clicks would be dead. */
+function clickToggleRegion(instance: MessageBlockInstance, block: Component): Component {
+	if (typeof instance.setExpanded !== "function") return block;
+	return new MouseRegion(block, (event) => {
+		if (event.type !== "click" || event.button !== "left") return undefined;
+		instance.setExpanded?.(!instance.expanded);
+		return { handled: true };
+	});
+}
+
 function patchCompaction(instance: MessageBlockInstance, _original: () => void, theme: BoxTheme): boolean {
 	const tokensBefore = instance.message?.tokensBefore;
 	if (tokensBefore == null) return false;
+
+	if (!compactionDefaultExpanded.has(instance)) {
+		compactionDefaultExpanded.add(instance);
+		if (instance.expanded !== true) instance.expanded = true;
+	}
 
 	if (typeof instance.clear === "function") instance.clear();
 
@@ -97,7 +123,7 @@ function patchCompaction(instance: MessageBlockInstance, _original: () => void, 
 		icon: "⊟",
 		hasDivider: expanded,
 	});
-	instance.addChild(block);
+	instance.addChild(clickToggleRegion(instance, block));
 	return true;
 }
 
@@ -121,7 +147,7 @@ function patchSkill(instance: MessageBlockInstance, _original: () => void, theme
 		icon: "⊟",
 		hasDivider: expanded,
 	});
-	instance.addChild(block);
+	instance.addChild(clickToggleRegion(instance, block));
 	return true;
 }
 
@@ -143,7 +169,7 @@ function patchBranch(instance: MessageBlockInstance, _original: () => void, them
 		icon: "⊟",
 		hasDivider: expanded,
 	});
-	instance.addChild(block);
+	instance.addChild(clickToggleRegion(instance, block));
 	return true;
 }
 

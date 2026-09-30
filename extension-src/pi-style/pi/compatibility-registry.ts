@@ -1,5 +1,6 @@
 export type CompatibilitySubtype =
 	| "native-assistant-message"
+	| "native-compaction-transcript"
 	| "native-compaction-message"
 	| "native-branch-message"
 	| "native-skill-message"

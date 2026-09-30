@@ -91,6 +91,11 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			...config.tools,
 			batchOpenGlyph: resolveTheme(sessionTheme as never, config, process.env).glyph("batchOpen"),
 			nerdFonts: resolveTheme(sessionTheme as never, config, process.env).mode === "nerd",
+			// Mirror of `messages.mergedTurnSummary` (+ its `thoughtSummary`
+			// precondition): the dispatcher reads it to hide the ended run's `➔`
+			// leader in favor of the merged segment labels. Without a certified
+			// updateContent surface no segment ever ends, so the flag is inert.
+			mergedTurnSummary: config.messages.mergedTurnSummary && config.messages.thoughtSummary,
 		} satisfies ToolsRenderConfig);
 	};
 	/**
@@ -213,8 +218,10 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			// (deterministic; no in-process turn_end events needed).
 			resetTurnRegistry();
 			const sessionEntries = ctx.sessionManager.getEntries();
-			rebuildAgentThoughtRunsFromEntries(sessionEntries);
+			// Turn registry FIRST: it publishes per-message tool stats to the merged
+			// bridge; the thought rebuild then reads them while building labels.
 			rebuildTurnRegistryFromEntries(sessionEntries);
+			rebuildAgentThoughtRunsFromEntries(sessionEntries);
 			// Stop any 1s elapsed re-render ticker left by a tool that was still
 			// running when the session ended.
 			stopAllElapsedTickers();

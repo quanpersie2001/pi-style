@@ -1,3 +1,5 @@
+import { type MergedSegmentStats, mergedStatsFor, publishEndedGroupMessage } from "../../shared/turn-summary-bridge.js";
+
 export interface ThinkingRuns {
 	readonly count: number;
 	readonly complete: boolean[];
@@ -98,6 +100,10 @@ interface ThoughtGroup {
 	live: boolean;
 	ended: boolean;
 	members: ThoughtMember[];
+	/** Assistant messages whose thinking runs joined this group (identity).
+	 *  Feeds the merged-summary bridge: the leader label aggregates the tool
+	 *  stats published for exactly these messages. */
+	readonly messages: Set<object>;
 }
 
 type ThoughtBinding = { group: ThoughtGroup; member: ThoughtMember };
@@ -108,6 +114,9 @@ export interface ThoughtGroupPresentation {
 	readonly leader: boolean;
 	readonly count: number;
 	readonly durationMs: number | undefined;
+	/** Merged tool stats for the messages this segment covers (undefined when
+	 *  the segment produced no tool calls — the label stays thought-only). */
+	readonly stats: MergedSegmentStats | undefined;
 }
 
 let memberByKey = new Map<string, ThoughtBinding>();
@@ -158,7 +167,7 @@ function runKey(baseKey: string, runIndex: number): string {
 }
 
 function createGroup(live: boolean, prefix: string): ThoughtGroup {
-	return { id: `${prefix}:${++groupSequence}`, live, ended: false, members: [] };
+	return { id: `${prefix}:${++groupSequence}`, live, ended: false, members: [], messages: new Set() };
 }
 
 function appendMember(group: ThoughtGroup, baseKey: string, runIndex: number, complete: boolean): ThoughtBinding {
@@ -188,6 +197,7 @@ function presentation(binding: ThoughtBinding): ThoughtGroupPresentation {
 		leader: group.members[0] === member,
 		count: group.members.length,
 		durationMs: completeDuration ? durationMs : undefined,
+		stats: mergedStatsFor([...group.messages]),
 	};
 }
 
@@ -268,6 +278,11 @@ export function observeThoughtMessage(
 		}
 	}
 
+	// Attribute the message to every group it feeds (idempotent; Set). This is
+	// what lets the merged label aggregate exactly this message's tool stats.
+	if (message !== null && typeof message === "object")
+		for (const binding of messageBinding.members) binding.group.messages.add(message);
+
 	for (let runIndex = 0; runIndex < runs.count; runIndex++) {
 		const binding = messageBinding.members[runIndex];
 		if (!binding) continue;
@@ -306,6 +321,9 @@ export function finishAgentThoughtRun(): void {
 	for (const group of groups) {
 		group.live = false;
 		group.ended = true;
+		// The merged-summary bridge: these messages belong to an ended segment,
+		// so the run's `➔` leader may defer to the merged segment labels.
+		for (const message of group.messages) publishEndedGroupMessage(message);
 	}
 	refreshInstances(groups.flatMap((group) => group.members.flatMap((member) => [...member.instances])));
 }
@@ -368,7 +386,11 @@ export function rebuildAgentThoughtRunsFromEntries(entries: readonly EntryLike[]
 	if (!Array.isArray(entries)) return;
 	let group: ThoughtGroup | undefined;
 	const closeGroup = () => {
-		if (group) group.ended = true;
+		if (group) {
+			group.ended = true;
+			// Restore-path twin of finishAgentThoughtRun's publication.
+			for (const message of group.messages) publishEndedGroupMessage(message);
+		}
 		group = undefined;
 	};
 	for (const entry of entries) {
@@ -393,6 +415,7 @@ export function rebuildAgentThoughtRunsFromEntries(entries: readonly EntryLike[]
 			if (runs.breakBefore[runIndex]) closeGroup();
 			group ??= createGroup(false, "history");
 			const binding = appendMember(group, baseKey, runIndex, true);
+			if (message !== null && typeof message === "object") group.messages.add(message);
 			if (fallbackKey !== baseKey) memberByKey.set(runKey(fallbackKey, runIndex), binding);
 			if (runs.breakAfter[runIndex]) closeGroup();
 		}

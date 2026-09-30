@@ -59,7 +59,9 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 			) => {
 				const records =
 					report?.unsupported.filter((item) =>
-						feature === "messages" ? item.subtype.includes("message") : item.subtype.includes("tool"),
+						feature === "messages"
+							? item.subtype.includes("message") || item.subtype === "native-compaction-transcript"
+							: item.subtype.includes("tool"),
 					) ?? [];
 				// Identity drift degrades only the affected surface to native (graceful);
 				// a feature is only "failed" when an install/shape error occurred.
@@ -103,6 +105,11 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 					config.enabled && config.messages.enabled && config.messages.specialBlocks,
 					Boolean(authorization?.core),
 				),
+				compactionTranscript: surface(
+					"messages",
+					config.enabled && config.messages.enabled && config.messages.preserveCompactionTranscript,
+					Boolean(authorization?.core),
+				),
 			};
 		},
 		install(config, tui, productGate = "omitted") {
@@ -129,7 +136,22 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 					surface: "specialBlocks",
 					config,
 				});
-			const messagesEnabled = (assistantEnabled || specialBlocksEnabled) && config.messages.enabled;
+			// The compaction-transcript preservation patches InteractiveMode.handleEvent
+			// (a different class from the message components) under the same core-patch
+			// authorization family; its config leaf defaults ON.
+			const compactionTranscriptEnabled = Boolean(
+				authorization.core &&
+					config.messages.enabled &&
+					config.messages.preserveCompactionTranscript &&
+					isTierCAuthorized({
+						coreFlag: authorization.core,
+						surfaceFlag: true,
+						surface: "messages",
+						config,
+					}),
+			);
+			const messagesEnabled =
+				(assistantEnabled || specialBlocksEnabled || compactionTranscriptEnabled) && config.messages.enabled;
 			// The hidden-thinking collapse is an assistant-message surface patch: it needs
 			// the assistant flag and `messages.hideThinkingLabel`, independent of the
 			// assistant prefix feature.
@@ -158,6 +180,7 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 						assistantPrefix: assistantEnabled,
 						hideThinkingLabel: thinkingCollapseEnabled,
 						specialBlocks: messagesEnabled && config.messages.specialBlocks && specialBlocksEnabled,
+						preserveCompactionTranscript: compactionTranscriptEnabled,
 					},
 					tools: {
 						...config.tools,
@@ -169,6 +192,8 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 					assistantEnabled,
 					collapseHiddenThinking: thinkingCollapseEnabled,
 					thoughtSummary: thinkingCollapseEnabled && config.messages.thoughtSummary,
+					mergedTurnSummary:
+						thinkingCollapseEnabled && config.messages.thoughtSummary && config.messages.mergedTurnSummary,
 					thoughtGlyph: authorization.ascii ? ">" : "◈",
 				},
 				toolSnapshot: {

@@ -15,7 +15,9 @@ import {
 	registerBatchCall,
 	registerBatchResult,
 	renderBatchAwareCall,
+	renderStandaloneMemberCall,
 } from "./batch.js";
+import { renderFallbackResult } from "./fallback.js";
 import { parseFindOutput } from "./output-tree.js";
 import { type BoxedToolDefinition, noteExecutionStart } from "./shared.js";
 
@@ -45,10 +47,12 @@ export const findTool: BoxedToolDefinition = {
 			pattern,
 			pathLabel: pathLabel(rawPath),
 		});
+		// Ctrl+O expansion bypasses the batch panel (see read.ts).
+		if (context.expanded) return renderStandaloneMemberCall(theme, FIND_META.label, detail);
 		if (!isLeader) return EMPTY_BATCH_COMPONENT;
 		return renderBatchAwareCall(theme, batch);
 	},
-	result(result, options, _theme, context) {
+	result(result, options, theme, context) {
 		const isError = Boolean(context.isError);
 		// Result renderers re-fire on every repaint/scroll; once the final output
 		// is parsed and registered, skip stripping/parsing the same text again.
@@ -65,6 +69,9 @@ export const findTool: BoxedToolDefinition = {
 			},
 			context,
 		);
+		// Ctrl+O expansion renders the full output per member (see read.ts).
+		if (options.expanded && !options.isPartial)
+			return renderFallbackResult(FIND_META.label, result, options, theme, context);
 		return emptyBatchResult();
 	},
 };

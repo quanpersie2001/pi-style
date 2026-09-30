@@ -13,7 +13,7 @@ import {
 	rebuildAgentThoughtRunsFromEntries,
 	refreshObservedThoughtComponents,
 } from "../features/messages/thought-summary.js";
-import { closeActiveBatch } from "../features/tools/boxed/batch.js";
+import { closeActiveBatch, resetReadChunkCandidates } from "../features/tools/boxed/batch.js";
 import {
 	beginAgentRun,
 	finishAgentRun,
@@ -114,6 +114,9 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		// splits them); tool summaries still use the whole agent-run boundary.
 		beginAgentThoughtRun();
 		beginAgentRun();
+		// A new request never continues the previous run's read-chunk sequences
+		// (ADR 0010): a fresh full-file read must start its own merged line.
+		resetReadChunkCandidates();
 	});
 	pi.on("input", async (event, _ctx) => {
 		coordinator.app.runtime.current?.dismissStartup();
@@ -229,9 +232,10 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	pi.on("session_tree", (_event, ctx) => {
 		resetUsageFromSessionCache(ctx.sessionManager);
 		// Rebuild both agent-run presentation registries from the selected branch.
+		// Turn registry first: it publishes the tool stats the thought labels read.
 		const entries = ctx.sessionManager.getEntries();
-		rebuildAgentThoughtRunsFromEntries(entries);
 		rebuildTurnRegistryFromEntries(entries);
+		rebuildAgentThoughtRunsFromEntries(entries);
 		refreshObservedThoughtComponents();
 		coordinator.app.update({ ...usagePatch(ctx) }, "deferred", { refreshContextUsage: true });
 	});
