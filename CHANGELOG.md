@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.0] - 2026-09-30
+
+### Features
+
+- Pi 0.99.1 support, merged turn summary, compaction transcript preservation
+
 ## [0.2.11] - 2026-09-09
 
 ### Bug Fixes
