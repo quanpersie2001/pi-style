@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.1] - 2026-10-01
+
+### Bug Fixes
+
+- *(messages)* Publish merged-summary stats at turn_end; certify pi 0.99.2
+
 ## [0.3.0] - 2026-09-30
 
 ### Features
