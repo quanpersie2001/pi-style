@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.3] - 2026-10-01
+
+### Features
+
+- *(messages)* One merged summary line per agent run; fix agent_end ordering
+
 ## [0.3.2] - 2026-10-01
 
 ### Bug Fixes
