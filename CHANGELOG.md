@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.2] - 2026-10-01
+
+### Bug Fixes
+
+- *(messages)* Attribute thinking-less tool messages to the latest thought group
+
 ## [0.3.1] - 2026-10-01
 
 ### Bug Fixes
