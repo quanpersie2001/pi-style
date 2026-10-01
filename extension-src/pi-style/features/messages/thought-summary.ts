@@ -441,6 +441,24 @@ export function refreshThoughtComponentsForMessage(message: unknown): void {
 	if (instances.size > 0) refreshInstances([...instances]);
 }
 
+/** Attribute a thinking-less assistant message to the latest thought group
+ *  (its tool calls ran under that segment's reasoning context), so the merged
+ *  label counts them and the run's `➔` leader can defer. No-op when the
+ *  message already belongs to a group; false when no group exists yet (tools
+ *  before the first thinking run keep their `➔` line). Insertion order of
+ *  `memberByKey` is run order, so its last binding marks the latest group. */
+export function attributeMessageToLatestGroup(message: unknown): boolean {
+	if (message === null || typeof message !== "object") return false;
+	let latest: ThoughtGroup | undefined;
+	for (const binding of memberByKey.values()) {
+		if (binding.group.messages.has(message)) return true;
+		latest = binding.group;
+	}
+	if (!latest) return false;
+	latest.messages.add(message);
+	return true;
+}
+
 /** Session/test reset. Process duration storage is owned separately. */
 export function resetAgentThoughtRuns(): void {
 	memberByKey.clear();

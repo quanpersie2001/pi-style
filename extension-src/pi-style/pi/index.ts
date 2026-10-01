@@ -8,6 +8,7 @@ import {
 	stageImagePreviewData,
 } from "../features/messages/image-preview.js";
 import {
+	attributeMessageToLatestGroup,
 	beginAgentThoughtRun,
 	finishAgentThoughtRun,
 	rebuildAgentThoughtRunsFromEntries,
@@ -210,9 +211,12 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		// Append the finalized assistant message's tool batch to the current run —
 		// publishing its stats to the merged-summary bridge immediately — then
 		// refresh the observed assistant components so text-split segment labels
-		// pick the stats up mid-run (not only at agent_end).
+		// pick the stats up mid-run (not only at agent_end). A thinking-less
+		// message (tool continuation, e.g. subagent result pickup) attributes to
+		// the latest thought group so its tools count on the merged line and the
+		// run's `➔` leader defers instead of duplicating the summary.
 		registerTurnFromMessage(event.message, event.toolResults);
-		refreshThoughtComponentsForMessage(event.message);
+		if (attributeMessageToLatestGroup(event.message)) refreshThoughtComponentsForMessage(event.message);
 		coordinator.app.update({ ...usagePatch(ctx) }, "deferred", { refreshContextUsage: true });
 	});
 	pi.on("agent_end", () => {

@@ -19,12 +19,15 @@ import { AssistantMessageComponent, initTheme } from "@earendil-works/pi-coding-
 import { afterEach, describe, expect, it } from "vitest";
 import { setThoughtLabelTheme } from "../../extension-src/pi-style/features/messages/index.js";
 import {
+	attributeMessageToLatestGroup,
 	beginAgentThoughtRun,
 	finishAgentThoughtRun,
 	refreshThoughtComponentsForMessage,
 } from "../../extension-src/pi-style/features/messages/thought-summary.js";
+import { renderBoxedToolCall as dispatchCall } from "../../extension-src/pi-style/features/tools/boxed/index.js";
 import {
 	beginAgentRun,
+	finishAgentRun,
 	registerTurnFromMessage,
 	resetTurnRegistry,
 } from "../../extension-src/pi-style/features/tools/boxed/turn-summary.js";
@@ -34,8 +37,28 @@ import {
 } from "../../extension-src/pi-style/pi/compatibility-probe.js";
 import { stripAnsi } from "../../extension-src/pi-style/shared/ansi.js";
 import type { BoxTheme } from "../../extension-src/pi-style/shared/box.js";
+import { createFakeTheme } from "../helpers/fake-theme.js";
 
 const plainTheme: BoxTheme = { fg: (_color, text) => text };
+const theme = createFakeTheme();
+
+function toolContext(id: string, overrides: Record<string, unknown> = {}) {
+	return {
+		args: {},
+		toolCallId: id,
+		invalidate: () => {},
+		state: {},
+		cwd: "/fake",
+		executionStarted: true,
+		argsComplete: true,
+		isPartial: false,
+		expanded: false,
+		showImages: true,
+		isError: false,
+		lastComponent: undefined,
+		...overrides,
+	} as never;
+}
 
 function msg(
 	content: AssistantMessage["content"],
@@ -161,6 +184,77 @@ describe("merged label freshness (probe installed, production wiring)", () => {
 		finishAgentThoughtRun();
 		const label = labelOf(comp1);
 		expect(label).toContain("Thought 1 time · Called 1 tool");
+
+		disposePiCompatibilityProbe(report);
+	});
+});
+
+describe("thinking-less tool messages attribute to the latest thought group", () => {
+	it("counts continuation tools on the merged line and hides the run's ➔ leader (subagent flow)", () => {
+		initTheme("dark", false);
+		setThoughtLabelTheme(plainTheme);
+		const report = installProbe();
+
+		beginAgentThoughtRun();
+		beginAgentRun();
+
+		// Message 1: thinking + commentary + one tool.
+		const m1 = msg(
+			[
+				{ type: "thinking", thinking: "round one" },
+				{ type: "text", text: "Nhận kết quả subagent:" },
+				{ type: "toolCall", id: "t1", name: "read", arguments: {} },
+			],
+			3,
+		);
+		const comp1 = new AssistantMessageComponent(m1, true, undefined, "", 1);
+		comp1.setHideThinkingBlock(true);
+		comp1.setHiddenThinkingLabel("");
+		comp1.updateContent(m1, false);
+		registerTurnFromMessage(m1, [{ toolCallId: "t1", isError: false, content: [] }]);
+		expect(attributeMessageToLatestGroup(m1)).toBe(true);
+		refreshThoughtComponentsForMessage(m1);
+
+		// Message 2: thinking-less continuation (extension tool + bash).
+		const m2 = msg(
+			[
+				{ type: "toolCall", id: "t2", name: "get_subagent_result", arguments: {} },
+				{ type: "toolCall", id: "t3", name: "bash", arguments: {} },
+			],
+			4,
+		);
+		registerTurnFromMessage(m2, [
+			{ toolCallId: "t2", isError: false, content: [] },
+			{ toolCallId: "t3", isError: false, content: [] },
+		]);
+		expect(attributeMessageToLatestGroup(m2)).toBe(true);
+		refreshThoughtComponentsForMessage(m2);
+
+		finishAgentRun();
+		finishAgentThoughtRun();
+
+		// The merged label counts ALL THREE tools (attributed continuation included).
+		const label = labelOf(comp1);
+		expect(label).toContain("Thought 1 time · Called 3 tools");
+
+		// The run's ➔ leader defers entirely (every message attributed), and
+		// Ctrl+O expansion still renders every member standalone (unknown/
+		// extension tools through the boxed fallback).
+		// Collapsed: leader defers, members hide.
+		const leader = dispatchCall("read", { path: "a.ts" }, theme, toolContext("t1"));
+		expect(leader.render(80)).toEqual([]);
+		expect(dispatchCall("get_subagent_result", {}, theme, toolContext("t2")).render(80)).toEqual([]);
+		expect(dispatchCall("bash", { command: "ls" }, theme, toolContext("t3")).render(80)).toEqual([]);
+		// Expanded (Ctrl+O): every member renders standalone — the extension
+		// tool through the boxed fallback, bash through its own renderer.
+		for (const [name, args, id] of [
+			["read", { path: "a.ts" }, "t1"],
+			["get_subagent_result", {}, "t2"],
+			["bash", { command: "ls" }, "t3"],
+		] as const) {
+			const expanded = dispatchCall(name, args as never, theme, toolContext(id, { expanded: true }));
+			expect(expanded.render(80).length, `${name} expanded renders`).toBeGreaterThan(0);
+		}
 
 		disposePiCompatibilityProbe(report);
 	});
