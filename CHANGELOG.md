@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.0] - 2026-10-01
+
+### Features
+
+- *(expand)* Consistent click + Ctrl+O expansion; fix hidden-message gaps
+
 ## [0.3.3] - 2026-10-01
 
 ### Features
