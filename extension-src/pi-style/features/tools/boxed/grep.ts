@@ -38,6 +38,9 @@ interface GrepPanelState {
 	isError: boolean;
 	errorText: string | undefined;
 	isPartial: boolean;
+	/** User click-open: the header row was clicked, so the match tree renders
+	 *  uncut (same view Ctrl+O expansion gives every other tool). */
+	open: boolean;
 }
 
 const grepPanels = new Map<string, GrepPanelState>();
@@ -66,6 +69,7 @@ function registerGrepCall(toolCallId: string, pattern: string, label: string): v
 		isError: false,
 		errorText: undefined,
 		isPartial: true,
+		open: false,
 	});
 }
 
@@ -120,15 +124,19 @@ function renderErrorLines(theme: BoxTheme, errorText: string, width: number): st
 	return out;
 }
 
-function renderGrepPanelLines(theme: BoxTheme, state: GrepPanelState, width: number): string[] {
+function renderGrepPanelLines(theme: BoxTheme, state: GrepPanelState, width: number, expanded: boolean): string[] {
 	const safeWidth = Math.max(1, width);
 	const header = safeTruncateToWidth(formatGrepHeader(theme, state), safeWidth, "…");
 	if (state.isError) {
 		return [header, ...(state.errorText ? renderErrorLines(theme, state.errorText, width) : [])];
 	}
 	if (state.matches === undefined) return [header];
+	// The full tree when the user asked for it — header click (state.open) or
+	// Pi's global Ctrl+O expansion (the same contract read/ls/find/bash honor);
+	// the head limit otherwise.
+	const limit = state.open || expanded ? Number.POSITIVE_INFINITY : GREP_HEAD_LIMIT;
 	return renderGrepTree(theme, header, state.matches, safeWidth, {
-		headLimit: GREP_HEAD_LIMIT,
+		headLimit: limit,
 		withIcons: getToolsRenderConfig().nerdFonts,
 	});
 }
@@ -136,14 +144,23 @@ function renderGrepPanelLines(theme: BoxTheme, state: GrepPanelState, width: num
 /** Live panel component reading the registry on every render pass. The state
  *  reference is captured at creation (like the batch panel): a registry clear
  *  on session reset/resume must not blank already-rendered panels — the result
- *  renderer mutates this same object, so live updates still flow. */
-function renderGrepPanel(theme: BoxTheme, toolCallId: string): Component {
+ *  renderer mutates this same object, so live updates still flow. Clicking the
+ *  header row toggles the uncut tree; the handler consumes the click before
+ *  Pi's native per-box toggle (which would re-render this panel with the
+ *  global expanded flag — the same view, so both paths agree anyway). */
+function renderGrepPanel(theme: BoxTheme, toolCallId: string, expanded: boolean): Component {
 	const state = grepPanels.get(toolCallId);
 	return {
 		invalidate() {},
 		render(width: number): string[] {
 			if (!state) return [safeTruncateToWidth(bold(theme, "Grep:"), Math.max(1, width), "…")];
-			return renderGrepPanelLines(theme, state, width);
+			return renderGrepPanelLines(theme, state, width, expanded);
+		},
+		handleMouse(event) {
+			if (event.type !== "click" || event.button !== "left" || event.y !== 0) return undefined;
+			if (!state || state.matches === undefined || state.isError) return undefined;
+			state.open = !state.open;
+			return { handled: true };
 		},
 	};
 }
@@ -163,7 +180,7 @@ export const grepTool: BoxedToolDefinition = {
 		noteExecutionStart(context);
 		const pattern = String(args?.pattern ?? "");
 		registerGrepCall(context.toolCallId, pattern, pathLabel(String(args?.path ?? ".")));
-		return renderGrepPanel(theme, context.toolCallId);
+		return renderGrepPanel(theme, context.toolCallId, Boolean(context.expanded));
 	},
 	result(result, options, _theme, context) {
 		const isError = Boolean(context.isError);

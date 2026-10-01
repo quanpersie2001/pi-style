@@ -127,6 +127,10 @@ export interface ThoughtGroupPresentation {
 	readonly runFirst: boolean;
 	readonly runStats: MergedSegmentStats | undefined;
 	readonly runTotalThoughts: number | undefined;
+	/** The group's member messages, in attribution order. Consumed by the
+	 *  merged run-leader click to open the run's tool blocks together with
+	 *  the thinking (one coherent segment view). */
+	readonly messages: readonly object[];
 }
 
 let memberByKey = new Map<string, ThoughtBinding>();
@@ -211,6 +215,7 @@ function presentation(binding: ThoughtBinding): ThoughtGroupPresentation {
 		runFirst: group.runFirst === true,
 		runStats: group.runStats,
 		runTotalThoughts: group.runTotalThoughts,
+		messages: [...group.messages],
 	};
 }
 

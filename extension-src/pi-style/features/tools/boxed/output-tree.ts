@@ -271,10 +271,24 @@ export interface GrepTreeOptions {
 	withIcons?: boolean;
 }
 
-function formatMatchRow(theme: BoxTheme, match: GrepMatch): string {
+/** Gutter width for match-row line numbers: the widest line number across
+ *  ALL matches (not just the visible budget), so the content column stays put
+ *  when the tree expands (header click / Ctrl+O) instead of re-shifting. */
+function matchLineGutterWidth(matches: readonly GrepMatch[]): number {
+	let width = 1;
+	for (const match of matches) {
+		const length = String(match.line).length;
+		if (length > width) width = length;
+	}
+	return width;
+}
+
+function formatMatchRow(theme: BoxTheme, match: GrepMatch, lineWidth: number): string {
 	// Match rows render in the output text color (not primary) so they read like
-	// the matched code; only the file nodes carry the primary color.
-	const label = theme.fg("toolOutput", `*${match.line}`);
+	// the matched code; only the file nodes carry the primary color. Line
+	// numbers are right-aligned on the shared gutter so the `│` separator and
+	// the content column line up across rows (`* 35│` / `*186│`).
+	const label = theme.fg("toolOutput", `*${String(match.line).padStart(lineWidth)}`);
 	const sep = dimLine("│");
 	return `${label}${sep} ${theme.fg("toolOutput", match.content)}`;
 }
@@ -310,11 +324,12 @@ export function renderGrepTree(
 	const totalVisible = budget.length;
 
 	const push = (line: string) => out.push(safeTruncateToWidth(line, safeWidth, "…"));
+	const lineWidth = matchLineGutterWidth(matches);
 
 	if (singleFile) {
 		budget.forEach((match, index) => {
 			const isLast = index === totalVisible - 1 && !truncated;
-			push(`${indent}${dimLine(isLast ? "└─" : "├─")} ${formatMatchRow(theme, match)}`);
+			push(`${indent}${dimLine(isLast ? "└─" : "├─")} ${formatMatchRow(theme, match, lineWidth)}`);
 		});
 	} else {
 		// Walk the budget, tracking position within each file group so the file
@@ -343,7 +358,7 @@ export function renderGrepTree(
 				const isLastInGroup = index === visibleHere.length - 1;
 				const isLastOverall = groupIsLastRendered && isLastInGroup;
 				push(
-					`${indent}${trunk}${TREE_CHILD_INDENT}${dimLine(isLastOverall ? "└─" : "├─")} ${formatMatchRow(theme, match)}`,
+					`${indent}${trunk}${TREE_CHILD_INDENT}${dimLine(isLastOverall ? "└─" : "├─")} ${formatMatchRow(theme, match, lineWidth)}`,
 				);
 			});
 		}

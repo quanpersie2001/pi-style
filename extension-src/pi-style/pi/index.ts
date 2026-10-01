@@ -22,7 +22,6 @@ import {
 	invalidateTurnMembers,
 	rebuildTurnRegistryFromEntries,
 	registerTurnFromMessage,
-	releaseTurnInvalidators,
 } from "../features/tools/boxed/turn-summary.js";
 import { requestToolPresentationRender } from "../features/tools/index.js";
 import { registerPiStyleCommand } from "./commands.js";
@@ -231,9 +230,9 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 			// Pi only re-invokes the tool renderer selectors from updateDisplay(), so
 			// the captured per-block invalidate callbacks force the collapse and the
 			// captured Tui repaints. Interrupted runs (a call without a result) stay
-			// expanded.
+			// expanded. The invalidators are NOT released: the summary-row click
+			// toggle re-dispatches every member of an ended turn later.
 			invalidateTurnMembers(run);
-			releaseTurnInvalidators(run);
 			requestToolPresentationRender();
 		}
 		finishAgentThoughtRun();

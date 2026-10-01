@@ -25,6 +25,7 @@ import {
 	noteTurnMemberElapsed,
 	noteTurnMemberRender,
 	renderTurnSummaryCall,
+	renderTurnToggleRow,
 	type TurnState,
 } from "./turn-summary.js";
 import { writeTool } from "./write.js";
@@ -64,6 +65,7 @@ function collapsedTurnFor(toolCallId: string, expanded: boolean): TurnState | un
 	if (expanded || !config.collapseAfterTurn) return undefined;
 	const entry = getTurnEntry(toolCallId);
 	if (!entry?.turn.ended || entry.member.isError) return undefined;
+	if (entry.turn.forcedOpen) return undefined;
 	if (isMutatingTool(entry.member.toolName) && !config.collapseMutatingTools) return undefined;
 	return entry.turn;
 }
@@ -77,6 +79,10 @@ export function renderBoxedToolCall(
 	// Any non-batchable tool call is a batch boundary: the next quiet call starts
 	// a fresh batch instead of joining the previous one.
 	if (!isBatchableTool(toolName)) closeActiveBatch();
+	// Capture the member invalidate even when the turn renders collapsed: the
+	// summary-row click toggle re-dispatches every member later (agent_end no
+	// longer releases these callbacks).
+	noteTurnMemberRender(context.toolCallId, context.invalidate);
 	const turn = collapsedTurnFor(context.toolCallId, context.expanded);
 	if (turn) {
 		if (turn.leaderId === context.toolCallId) {
@@ -93,10 +99,21 @@ export function renderBoxedToolCall(
 		// (identity-compared) removes the instance so members consume zero lines.
 		return EMPTY_BATCH_COMPONENT;
 	}
-	// Capture the component invalidate so the turn_end path can force this block
-	// to re-run the renderer selectors (pi only re-invokes them from updateDisplay).
-	noteTurnMemberRender(context.toolCallId, context.invalidate);
 	const tool = typeof toolName === "string" ? REGISTRY[toolName] : undefined;
+	// Click-opened turn: the leader keeps its summary row above its normal call
+	// so the turn can be closed again; every member renders its normal block.
+	// Hidden while Pi's global expansion (Ctrl+O) is active — there the row's
+	// close would be a no-op (expanded bypasses the gate).
+	const entry = getTurnEntry(context.toolCallId);
+	if (
+		entry?.turn.ended === true &&
+		entry.turn.forcedOpen &&
+		!context.expanded &&
+		entry.turn.leaderId === context.toolCallId
+	) {
+		const child = tool ? tool.call(args, theme, context) : renderFallbackCall(toolName, args, theme, context);
+		return renderTurnToggleRow(theme, entry.turn, child);
+	}
 	if (tool) return tool.call(args, theme, context);
 	return renderFallbackCall(toolName, args, theme, context);
 }
@@ -108,6 +125,7 @@ export function renderBoxedToolResult(
 	theme: BoxTheme,
 	context: BoxedToolContext,
 ): Component {
+	noteTurnMemberRender(context.toolCallId, context.invalidate);
 	const turn = collapsedTurnFor(context.toolCallId, options.expanded);
 	if (turn) {
 		// Freeze the member's wall-clock elapsed into the registry once the turn
@@ -116,7 +134,6 @@ export function renderBoxedToolResult(
 		if (turn.leaderId === context.toolCallId) return emptyTurnResult();
 		return EMPTY_BATCH_COMPONENT;
 	}
-	noteTurnMemberRender(context.toolCallId, context.invalidate);
 	const tool = typeof toolName === "string" ? REGISTRY[toolName] : undefined;
 	if (tool) return tool.result(result, options, theme, context);
 	return renderFallbackResult(toolName, result, options, theme, context);

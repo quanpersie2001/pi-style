@@ -3,10 +3,12 @@ import { visibleWidth } from "../../shared/ansi.js";
 import type { BoxTheme } from "../../shared/box.js";
 import { formatElapsedMs } from "../../shared/elapsed.js";
 import type { MergedSegmentStats } from "../../shared/turn-summary-bridge.js";
+import { toggleTurnsForMessages } from "../../shared/turn-summary-bridge.js";
 import {
 	observeThoughtMessage,
 	parseThinkingRuns,
 	resetAgentThoughtRuns,
+	type ThoughtGroupPresentation,
 	toggleThoughtGroup,
 } from "./thought-summary.js";
 
@@ -916,10 +918,30 @@ function styleThoughtText(text: string): string {
 	return sessionThoughtTheme.italic ? sessionThoughtTheme.italic(colored) : colored;
 }
 
-function thoughtToggleRegion(child: Component, instance: object, runIndex: number): MouseRegion {
+/** Messages whose tool blocks flip together with a merged run-leader label
+ *  (`◈ … · Called N tools`): clicking it opens the run's tool view too, not
+ *  just the thinking. Plain thought labels keep their thinking-only contract. */
+function mergedRunToolMessages(
+	mergedSummary: boolean,
+	group: ThoughtGroupPresentation | undefined,
+): readonly object[] | undefined {
+	if (!mergedSummary || !group?.runFirst || group.runTotalThoughts === undefined) return undefined;
+	// Only labels that actually carry tool stats open the tool view; a
+	// thought-only label keeps its thinking-only toggle.
+	return group.stats !== undefined || group.runStats !== undefined ? group.messages : undefined;
+}
+
+function thoughtToggleRegion(
+	child: Component,
+	instance: object,
+	runIndex: number,
+	toolMessages?: readonly object[],
+): MouseRegion {
 	return new MouseRegion(child, (event) => {
 		if (event.type !== "click" || event.button !== "left") return undefined;
-		return toggleThoughtGroup(instance, runIndex) ? { handled: true } : undefined;
+		const thought = toggleThoughtGroup(instance, runIndex);
+		const tools = thought && toolMessages !== undefined ? toggleTurnsForMessages(toolMessages) : false;
+		return thought || tools ? { handled: true } : undefined;
 	});
 }
 
@@ -946,7 +968,7 @@ function isTextComponent(child: unknown): boolean {
  * - a run still streaming (thinking is the trailing content and the message is
  *   not finalized) keeps the zero-trace collapse: the invisible label row and
  *   the spacer after it are dropped, leaving the same single top padding as a
- *   text-only message;
+ *   text-only message (the streaming block is the chat's trailing row);
  * - while the agent run is active, completed intermediate runs remain zero-trace;
  * - once the run ends, each segment leader keeps one row; its click handler
  *   toggles only that segment's native thinking runs;
@@ -1038,7 +1060,13 @@ export function decorateMessageUpdate(
 						);
 						const textComponent = (inner ?? child) as Component & { setText?: (text: string) => void };
 						textComponent.setText?.(styleThoughtText(aggregateText));
-						if (region) children[index] = thoughtToggleRegion(textComponent, instance, run);
+						if (region)
+							children[index] = thoughtToggleRegion(
+								textComponent,
+								instance,
+								run,
+								mergedRunToolMessages(mergedSummary, group),
+							);
 						continue;
 					}
 					children.splice(index, 1);
@@ -1058,7 +1086,13 @@ export function decorateMessageUpdate(
 					const group = groups[run];
 					const values = group ? labelValues(group) : undefined;
 					const aggregateVisible = summary && group?.ended === true && (values?.visible ?? true);
-					if (aggregateVisible) children[index] = thoughtToggleRegion(inner as Component, instance, run);
+					if (aggregateVisible)
+						children[index] = thoughtToggleRegion(
+							inner as Component,
+							instance,
+							run,
+							mergedRunToolMessages(mergedSummary, group),
+						);
 					if (aggregateVisible && group.leader) {
 						const aggregateText = thoughtLabelText(
 							glyph,
@@ -1072,7 +1106,11 @@ export function decorateMessageUpdate(
 							typeof target.outputPad === "number" ? target.outputPad : 1,
 							0,
 						);
-						children.splice(index, 0, thoughtToggleRegion(marker, instance, run));
+						children.splice(
+							index,
+							0,
+							thoughtToggleRegion(marker, instance, run, mergedRunToolMessages(mergedSummary, group)),
+						);
 					}
 				}
 			}
@@ -1115,6 +1153,18 @@ export function decorateMessageUpdate(
 				thoughtLeadingSkipByInstance.set(instance, { children: leading });
 			} else {
 				thoughtLeadingSkipByInstance.delete(instance);
+			}
+			// Zero-line collapse for fully hidden messages. When every content
+			// block of a FINALIZED message is hidden — thinking runs collapsed,
+			// no assistant text, no error/truncation rows, no aggregate label
+			// kept — the message's native top Spacer(1) is the only child left:
+			// one blank line per tool-cycle message that stacks into the large
+			// blank gaps between the run's summary rows (models that think before
+			// every tool batch produce dozens per turn). Tool blocks carry their
+			// own leading spacer, so removing the pad never glues neighbors; the
+			// streaming message keeps its pad (it is the chat's trailing block).
+			if (target.isStreaming !== true && !children.some((child) => !isSpacerChild(child))) {
+				children.splice(0, children.length);
 			}
 		}
 		markChildrenScanned(instance, children);

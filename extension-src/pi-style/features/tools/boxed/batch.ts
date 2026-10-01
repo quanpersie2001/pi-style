@@ -120,6 +120,11 @@ export interface BatchState {
 	readonly members: BatchMember[];
 	revision: number;
 	renderCache?: BatchRenderCache;
+	/** User click-open: the header row was clicked, so the tree renders every
+	 *  member (and per-member file subtrees their full output) instead of the
+	 *  head-limited preview. The `batchOpenGlyph` header promised a disclosure;
+	 * the click now keeps it. */
+	open: boolean;
 }
 
 /** Tree head limit: only the first few members are listed, the rest collapse. */
@@ -227,6 +232,7 @@ function createBatch(
 		startedAt: performance.now(),
 		closed: false,
 		revision: 0,
+		open: false,
 		members: [
 			{
 				toolCallId: leaderId,
@@ -469,7 +475,8 @@ function renderErrorLines(theme: BoxTheme, errorText: string, width: number): st
 
 function renderBatchTree(theme: BoxTheme, batch: BatchState, status: BatchStatus, width: number): string[] {
 	const showGlyphs = !status.allDone || status.failed > 0;
-	const visible = batch.members.slice(0, BATCH_TREE_HEAD_LIMIT);
+	const limit = batch.open ? batch.members.length : BATCH_TREE_HEAD_LIMIT;
+	const visible = batch.members.slice(0, limit);
 	const more = batch.members.length - visible.length;
 	const lastIndex = visible.length - 1;
 	const out: string[] = [];
@@ -510,7 +517,13 @@ function formatLoneOutputHeader(theme: BoxTheme, meta: BatchToolMeta, member: Ba
 }
 
 /** Nested file subtree for one member inside a batched (2+) output panel. */
-function renderMemberSubtree(theme: BoxTheme, member: BatchMember, isLastMember: boolean, width: number): string[] {
+function renderMemberSubtree(
+	theme: BoxTheme,
+	member: BatchMember,
+	isLastMember: boolean,
+	width: number,
+	open: boolean,
+): string[] {
 	const safeWidth = Math.max(1, width);
 	const trunk = isLastMember ? " " : dimLine("│");
 	const out: string[] = [];
@@ -534,7 +547,7 @@ function renderMemberSubtree(theme: BoxTheme, member: BatchMember, isLastMember:
 	const headerLine = `${BATCH_TREE_INDENT}${dimLine(isLastMember ? "└─" : "├─")} ${theme.fg("accent", member.pathLabel ?? member.detail)}${countLabel}`;
 	out.push(safeTruncateToWidth(headerLine, safeWidth, "…"));
 
-	const visible = entries.slice(0, BATCH_MEMBER_FILE_HEAD_LIMIT);
+	const visible = entries.slice(0, open ? entries.length : BATCH_MEMBER_FILE_HEAD_LIMIT);
 	const more = entries.length - visible.length;
 	const lastIndex = visible.length - 1;
 	const icons = getToolsRenderConfig().nerdFonts;
@@ -562,7 +575,7 @@ function renderOutputBatchPanel(theme: BoxTheme, batch: BatchState, status: Batc
 		if (member && member.outputEntries !== undefined && !member.isError) {
 			const header = safeTruncateToWidth(formatLoneOutputHeader(theme, batch.meta, member), safeWidth, "…");
 			return renderOutputTree(theme, header, member.outputEntries, safeWidth, {
-				headLimit: OUTPUT_TREE_HEAD_LIMIT,
+				headLimit: batch.open ? member.outputEntries.length : OUTPUT_TREE_HEAD_LIMIT,
 				moreUnit: "file",
 				entryColor: "toolOutput",
 				indent: BATCH_TREE_INDENT,
@@ -575,11 +588,12 @@ function renderOutputBatchPanel(theme: BoxTheme, batch: BatchState, status: Batc
 	// Batched (2+) or a not-yet-ready lone call: per-member rows/subtrees.
 	const header = safeTruncateToWidth(formatBatchHeader(theme, batch, status), safeWidth, "…");
 	const out: string[] = [header];
-	const visible = batch.members.slice(0, BATCH_TREE_HEAD_LIMIT);
+	const limit = batch.open ? batch.members.length : BATCH_TREE_HEAD_LIMIT;
+	const visible = batch.members.slice(0, limit);
 	const more = batch.members.length - visible.length;
 	visible.forEach((member, index) => {
 		const isLast = index === visible.length - 1 && more <= 0;
-		out.push(...renderMemberSubtree(theme, member, isLast, safeWidth));
+		out.push(...renderMemberSubtree(theme, member, isLast, safeWidth, batch.open));
 	});
 	if (more > 0) {
 		out.push(
@@ -671,6 +685,9 @@ function renderBatchPanelLines(theme: BoxTheme, batch: BatchState, status: Batch
 /**
  * Leader call component: renders the live batch panel (header + tree) reading
  * the registry on every render pass. Members render EMPTY_BATCH_COMPONENT.
+ * Clicking the header row toggles the uncut tree; clicks on other rows are
+ * consumed too — Pi's native per-box toggle would otherwise flip only this
+ * component's expanded flag and replace the panel with one solo row.
  */
 export function renderBatchAwareCall(theme: BoxTheme, batch: BatchState): Component {
 	return {
@@ -685,6 +702,18 @@ export function renderBatchAwareCall(theme: BoxTheme, batch: BatchState): Compon
 			const lines = renderBatchPanelLines(theme, batch, status, width);
 			batch.renderCache = { key: cacheKey, lines };
 			return lines;
+		},
+		handleMouse(event) {
+			if (event.type !== "click" || event.button !== "left") return undefined;
+			if (event.y === 0) {
+				batch.open = !batch.open;
+				delete batch.renderCache;
+				return { handled: true };
+			}
+			// Swallow clicks on tree rows: the only toggle is the header. Letting
+			// the native handler run would solo-render this leader (the batch's
+			// aggregated view would vanish).
+			return { handled: true };
 		},
 	};
 }

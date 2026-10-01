@@ -95,6 +95,16 @@ function isMarkdownLike(child: unknown): boolean {
 }
 
 describe("hidden-thinking label collapse", () => {
+	it("keeps the top padding for a thinking-only message while it is still streaming", () => {
+		initTheme("dark", false);
+		const message = assistantMessage([{ type: "thinking", thinking: "Streaming thought." }]);
+		const comp = new AssistantMessageComponent(message, true, undefined, "", 1);
+		decorateMessageUpdate(AssistantMessageComponent.prototype.updateContent, comp, [message, true], COLLAPSE_SNAPSHOT);
+		// The streaming message is the chat's trailing block: its pad keeps the
+		// live thinking separated from the tool block above it.
+		expect(comp.contentContainer.children).toHaveLength(1);
+		expect(isSpacerLike(comp.contentContainer.children[0])).toBe(true);
+	});
 	it("renders an empty label as one invisible row, proving the gap the collapse removes", () => {
 		initTheme("dark", false);
 		const native = new AssistantMessageComponent(thinkingThenAnswer(), true, undefined, "", 1);
@@ -162,23 +172,16 @@ describe("hidden-thinking label collapse", () => {
 		expect(comp.contentContainer.children.length).toBeGreaterThan(2);
 	});
 
-	it("collapses a thinking-only message to the shared top padding only", () => {
+	it("collapses a finalized thinking-only message to zero lines (no stacking blank gaps)", () => {
 		initTheme("dark", false);
-		const comp = new AssistantMessageComponent(
-			assistantMessage([{ type: "thinking", thinking: "Only thinking here." }]),
-			true,
-			undefined,
-			"",
-			1,
-		);
-		decorateMessageUpdate(
-			AssistantMessageComponent.prototype.updateContent,
-			comp,
-			[assistantMessage([{ type: "thinking", thinking: "Only thinking here." }])],
-			COLLAPSE_SNAPSHOT,
-		);
-		expect(comp.contentContainer.children).toHaveLength(1);
-		expect(isSpacerLike(comp.contentContainer.children[0])).toBe(true);
+		const message = assistantMessage([{ type: "thinking", thinking: "Only thinking here." }]);
+		const comp = new AssistantMessageComponent(message, true, undefined, "", 1);
+		decorateMessageUpdate(AssistantMessageComponent.prototype.updateContent, comp, [message], COLLAPSE_SNAPSHOT);
+		// Fully hidden finalized messages keep no children at all: the native top
+		// Spacer(1) would leave one blank line per tool-cycle message, stacking
+		// into the large blank gaps between the run's summary rows.
+		expect(comp.contentContainer.children).toHaveLength(0);
+		expect(comp.render(40)).toHaveLength(0);
 	});
 
 	it("installs the certified updateContent patch and collapses through the real probe", () => {

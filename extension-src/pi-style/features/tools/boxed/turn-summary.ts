@@ -42,7 +42,7 @@ import type { Component } from "@earendil-works/pi-tui";
 import type { BoxTheme } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import { countDiffStats, firstText } from "../../../shared/split-diff.js";
-import { publishMessageStats } from "../../../shared/turn-summary-bridge.js";
+import { publishMessageStats, registerTurnToggleHandler } from "../../../shared/turn-summary-bridge.js";
 import { pluralForm } from "./output-tree.js";
 import { extractQuickEditDiff, getQuickEditToolConfig } from "./quick-edit.js";
 import { getToolsRenderConfig } from "./session-config.js";
@@ -78,6 +78,12 @@ export interface TurnState {
 	 * run finalizes; consumed by the merged summary bridge to attribute each
 	 * message's tool stats to its thought segment. */
 	messages?: readonly object[];
+	/** User click-open override: the summary row was clicked, so the whole
+	 * turn renders expanded (every member box) instead of the one-line summary.
+	 * Clicking the row again (it stays rendered above the leader's box)
+	 * re-closes. Without this, Pi's native per-box click toggle would flip ONE
+	 * component's `expanded` and render that single tool solo. */
+	forcedOpen: boolean;
 }
 
 /** One assistant message's slice of a run: its message identity + members. */
@@ -111,6 +117,49 @@ interface TurnEntry {
 }
 
 const memberByCallId = new Map<string, TurnEntry>();
+
+/** message → the turns its tool calls belong to. Lets the merged thought
+ *  label (`◈ … · Called N tools`) toggle the run's tool blocks on click
+ *  without the messages feature importing the turn registry directly. */
+const turnsByMessage = new WeakMap<object, Set<TurnState>>();
+
+function attributeTurnMessage(message: object, turn: TurnState): void {
+	let turns = turnsByMessage.get(message);
+	if (!turns) {
+		turns = new Set();
+		turnsByMessage.set(message, turns);
+	}
+	turns.add(turn);
+}
+
+/** Set a turn's click-open state, invalidating every member when it flips. */
+function setTurnOpen(turn: TurnState, open: boolean): boolean {
+	if (!turn.ended || turn.forcedOpen === open) return false;
+	turn.forcedOpen = open;
+	invalidateTurnMembers(turn);
+	return true;
+}
+
+/** Toggle every ended turn whose members belong to these messages (the
+ *  merged thought-label click: `◈ … · Called N tools`). The turns flip as one
+ *  coherent unit — any open member closes the whole set, all closed opens it.
+ *  Returns whether any turn flipped. */
+export function toggleTurnsForMessages(messages: readonly object[]): boolean {
+	const turns = new Set<TurnState>();
+	for (const message of messages) {
+		for (const turn of turnsByMessage.get(message) ?? []) turns.add(turn);
+	}
+	let endedCount = 0;
+	for (const turn of turns) if (turn.ended) endedCount++;
+	if (endedCount === 0) return false;
+	const anyOpen = [...turns].some((turn) => turn.ended && turn.forcedOpen);
+	let flipped = false;
+	for (const turn of turns) {
+		if (!turn.ended) continue;
+		if (setTurnOpen(turn, !anyOpen)) flipped = true;
+	}
+	return flipped;
+}
 
 /** Per-member component invalidate callbacks captured during render passes. */
 const invalidateByCallId = new Map<string, () => void>();
@@ -227,14 +276,17 @@ function registerTurn(
 		leaderId: leader?.toolCallId ?? "",
 		ended: ended && complete,
 		members: Object.freeze(members),
+		forcedOpen: false,
 	};
 	if (turn.ended) {
 		// Publish the merged-summary bridge records for the restore path: the
 		// live path publishes at finishAgentRun instead.
 		const messageSegments = segments.filter((segment) => segment.calls.length > 0);
 		turn.messages = messageSegments.map((segment) => segment.message);
-		for (const segment of messageSegments)
+		for (const segment of messageSegments) {
+			attributeTurnMessage(segment.message, turn);
 			publishSegmentStats({ message: segment.message, members: buildMembers(segment.calls, resultsById) });
+		}
 	}
 	for (const member of members) memberByCallId.set(member.toolCallId, { turn, member });
 	return turn;
@@ -287,13 +339,16 @@ export function registerTurnFromMessage(message: unknown, toolResults: readonly 
 			leaderId: leader?.toolCallId ?? "",
 			ended: false,
 			members: Object.freeze(newMembers),
+			forcedOpen: false,
 		};
 	} else {
 		if (currentRun.leaderId === "" && leader) currentRun.leaderId = leader.toolCallId;
 		currentRun.members = Object.freeze([...currentRun.members, ...newMembers]);
 	}
-	if (message !== null && typeof message === "object")
+	if (message !== null && typeof message === "object") {
 		currentRunSegments.push({ message, members: Object.freeze(newMembers) });
+		attributeTurnMessage(message, currentRun);
+	}
 	for (const member of newMembers) memberByCallId.set(member.toolCallId, { turn: currentRun, member });
 	// Publish immediately (mid-run visibility + reset immunity).
 	if (message !== null && typeof message === "object")
@@ -316,6 +371,7 @@ export function finishAgentRun(): TurnState | undefined {
 	if (run.members.every((member) => member.hasResult)) {
 		run.ended = true;
 		run.messages = segments.map((segment) => segment.message);
+		for (const segment of segments) attributeTurnMessage(segment.message, run);
 		for (const segment of segments) publishSegmentStats(segment);
 	}
 	return run.ended ? run : undefined;
@@ -446,11 +502,10 @@ export function invalidateTurnMembers(turn: TurnState): void {
 }
 
 /**
- * Drop the turn's captured invalidate callbacks (`agent_end`, after the
- * collapse re-render). The closures pin component state for the rest of the
- * session otherwise; `memberByCallId` entries stay so scrollback keeps
- * resolving the turn. Later expand toggles re-render via Pi's updateDisplay
- * selectors and re-capture fresh callbacks; a missing callback is already
+ * Drop the turn's captured invalidate callbacks. NOT called on the live
+ * agent_end path anymore: the callbacks must survive so the summary-row
+ * click toggle (`toggleTurnOpen`) can re-dispatch every member later. Kept
+ * as an explicit teardown seam for hosts/tests; a missing callback is
  * skipped gracefully by invalidateTurnMembers.
  */
 export function releaseTurnInvalidators(turn: TurnState): void {
@@ -565,12 +620,54 @@ function formatTurnSummaryLine(theme: BoxTheme, turn: TurnState): string {
 	return line;
 }
 
-/** Leader call component: renders the live turn summary line on every pass. */
+/** Toggle a finalized turn between its one-line summary and the expanded
+ *  member boxes (click on the summary row). Invalidates every member so each
+ *  re-dispatches through the collapse gate; the leader re-renders its toggle
+ *  row, members their boxes (open) or nothing (closed). */
+export function toggleTurnOpen(turn: TurnState): void {
+	if (!turn.ended) return;
+	setTurnOpen(turn, !turn.forcedOpen);
+}
+
+/** Leader call component: renders the live turn summary line on every pass.
+ *  Clicking the row toggles the whole turn open/closed (the handler consumes
+ *  the click before Pi's native per-box toggle, which would otherwise flip
+ *  only this one component and render a single solo tool). */
 export function renderTurnSummaryCall(theme: BoxTheme, turn: TurnState): Component {
 	return {
 		invalidate() {},
 		render(width: number): string[] {
 			return [safeTruncateToWidth(formatTurnSummaryLine(theme, turn), Math.max(1, width), "…")];
+		},
+		handleMouse(event) {
+			if (event.type !== "click" || event.button !== "left" || event.y !== 0) return undefined;
+			toggleTurnOpen(turn);
+			return { handled: true };
+		},
+	};
+}
+
+/** Forced-open leader call component: the summary row stays rendered above
+ *  the leader's normal call lines so the turn can be closed again by clicking
+ *  it (the affordance the closed state always had). Row 0 is the toggle; the
+ *  remaining rows forward to the child with the row offset removed. */
+export function renderTurnToggleRow(theme: BoxTheme, turn: TurnState, child: Component): Component {
+	return {
+		invalidate() {
+			child.invalidate();
+		},
+		render(width: number): string[] {
+			return [safeTruncateToWidth(formatTurnSummaryLine(theme, turn), Math.max(1, width), "…"), ...child.render(width)];
+		},
+		handleMouse(event) {
+			if (event.y === 0) {
+				if (event.type === "click" && event.button === "left") {
+					toggleTurnOpen(turn);
+					return { handled: true };
+				}
+				return undefined;
+			}
+			return child.handleMouse?.({ ...event, y: event.y - 1 });
 		},
 	};
 }
@@ -589,3 +686,8 @@ export function emptyTurnResult(): Component {
 		},
 	};
 }
+
+// Expose the message→turn toggle through the bridge so the merged thought
+// label (`◈ … · Called N tools`) can open/close the run's tool blocks without
+// the messages feature importing this registry (depcruise: sibling features).
+registerTurnToggleHandler(toggleTurnsForMessages);

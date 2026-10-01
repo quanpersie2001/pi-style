@@ -4,7 +4,7 @@
 // depcruise forbids sibling-feature imports, so the tools-side turn registry
 // (features/tools/boxed/turn-summary.ts) and the messages-side thought groups
 // (features/messages/thought-summary.ts) meet here instead. This module is a
-// pure data registry: it imports nothing and owns no rendering.
+// pure data/registry seam: it imports nothing and owns no rendering.
 //
 // Data flow (all publishers run BEFORE the consumers rebuild):
 // - The turn registry publishes per-message tool stats (one assistant message
@@ -15,6 +15,9 @@
 // - The thought-segment leader label reads `mergedStatsFor(group.messages)`;
 //   the tool dispatcher hides the run's `➔` leader when every message of the
 //   run belongs to an ended segment (so the merged lines carry the counts).
+// - The turn registry registers `toggleTurnsForMessages` so the merged
+//   thought-label click can open/close the run's tool blocks without the
+//   messages feature importing the registry.
 //
 // All maps are weak: records live exactly as long as the session's message
 // objects, so session resets need no explicit clearing.
@@ -77,4 +80,20 @@ export function mergedStatsFor(messages: readonly object[]): MergedSegmentStats 
 export function everyMessageInEndedGroup(messages: readonly object[] | undefined): boolean {
 	if (!messages || messages.length === 0) return false;
 	return messages.every((message) => endedGroupMessages.has(message));
+}
+
+/** Registered by the turn registry at module load: opens/closes every ended
+ *  turn whose members belong to the given messages (the merged thought-label
+ *  click). The indirection keeps this module import-free. */
+let turnToggleHandler: ((messages: readonly object[]) => boolean) | undefined;
+
+/** Register (or clear) the tools-side turn toggle implementation. */
+export function registerTurnToggleHandler(handler: ((messages: readonly object[]) => boolean) | undefined): void {
+	turnToggleHandler = handler;
+}
+
+/** Open/close the tool blocks covering these messages. False when no handler
+ *  is registered or nothing flipped. */
+export function toggleTurnsForMessages(messages: readonly object[]): boolean {
+	return turnToggleHandler?.(messages) ?? false;
 }

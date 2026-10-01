@@ -178,6 +178,22 @@ describe("renderOutputTree / renderGrepTree", () => {
 		]);
 	});
 
+	it("aligns match rows on the widest line number so the content column stays put", () => {
+		const matches = parseGrepOutput(
+			"domain/config-normalization.ts:35: hideThinkingLabel: true\n" +
+				"domain/config-normalization.ts:36: thoughtSummary: true\n" +
+				"domain/config-normalization.ts:37: mergedTurnSummary: true\n" +
+				"domain/config-normalization.ts:185: hideThinkingLabel: bool(...)",
+		);
+		const lines = plain(renderGrepTree(theme, "Grep: x 4 matches · 1 file · in domain", matches, 80));
+		expect(lines[1]).toBe("  ├─ * 35│ hideThinkingLabel: true");
+		expect(lines[2]).toBe("  ├─ * 36│ thoughtSummary: true");
+		expect(lines[4]).toBe("  └─ *185│ hideThinkingLabel: bool(...)");
+		// Every row's separator sits at the same column.
+		const columns = lines.slice(1).map((line) => line.indexOf("│"));
+		expect(new Set(columns).size).toBe(1);
+	});
+
 	it("colors grep file nodes with the primary (accent) color", () => {
 		const rich = createFakeTheme({ colors: { accent: "#8abeb7" } });
 		const matches = parseGrepOutput("a.ts:3: alpha\nb.ts:5: beta");
@@ -274,7 +290,7 @@ describe("grep output-tree panel", () => {
 		);
 		const lines = plain(call.render(80));
 		expect(lines[0]).toBe("Grep: foo 2 matches · 2 files · in src");
-		expect(lines.join("\n")).toContain("├─ *3│ match one");
+		expect(lines.join("\n")).toContain("├─ * 3│ match one");
 	});
 
 	it("renders a pending grep as a header-only line", () => {
