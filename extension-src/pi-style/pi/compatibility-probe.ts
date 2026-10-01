@@ -48,6 +48,7 @@ export const SUPPORTED_PI_VERSIONS: readonly string[] = Object.freeze([
 	"0.85.0",
 	"0.85.1",
 	"0.99.1",
+	"0.99.2",
 ]);
 
 /** A recorded native identity for one certified surface. */
@@ -105,13 +106,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "render",
 			arity: 1,
 			fingerprint: "2a39243f",
-			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0", "0.99.1"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0", "0.99.1", "0.99.2"]),
 		}),
 		Object.freeze({
 			name: "render",
 			arity: 1,
 			fingerprint: "a9be09a3",
-			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1", "0.99.1"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1", "0.99.1", "0.99.2"]),
 		}),
 	]),
 	"native-assistant-message:updateContent": Object.freeze([
@@ -146,7 +147,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateContent",
 			arity: 1,
 			fingerprint: "80e338d2",
-			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1"]),
+			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1", "0.99.2"]),
 		}),
 		// 0.85.0 bundled: same drift, minified.
 		Object.freeze({
@@ -173,7 +174,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateContent",
 			arity: 1,
 			fingerprint: "48eaa40b",
-			versions: Object.freeze(["0.99.1"]),
+			versions: Object.freeze(["0.99.1", "0.99.2"]),
 		}),
 	]),
 	"native-compaction-message:updateDisplay": Object.freeze([
@@ -197,14 +198,14 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "032b78e2",
-			versions: Object.freeze(["0.99.1"]),
+			versions: Object.freeze(["0.99.1", "0.99.2"]),
 		}),
 		// 0.99.1 bundled: same drift, minified.
 		Object.freeze({
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "d4944b9b",
-			versions: Object.freeze(["0.99.1"]),
+			versions: Object.freeze(["0.99.1", "0.99.2"]),
 		}),
 	]),
 	"native-branch-message:updateDisplay": Object.freeze([
@@ -225,13 +226,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "ca1c3479",
-			versions: Object.freeze(["0.99.1"]),
+			versions: Object.freeze(["0.99.1", "0.99.2"]),
 		}),
 		Object.freeze({
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "e2a2f648",
-			versions: Object.freeze(["0.99.1"]),
+			versions: Object.freeze(["0.99.1", "0.99.2"]),
 		}),
 	]),
 	"native-skill-message:updateDisplay": Object.freeze([
@@ -252,13 +253,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "4fc828e7",
-			versions: Object.freeze(["0.99.1"]),
+			versions: Object.freeze(["0.99.1", "0.99.2"]),
 		}),
 		Object.freeze({
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "ff63e9ec",
-			versions: Object.freeze(["0.99.1"]),
+			versions: Object.freeze(["0.99.1", "0.99.2"]),
 		}),
 	]),
 	"native-custom-message:rebuild": Object.freeze([
@@ -266,7 +267,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "rebuild",
 			arity: 0,
 			fingerprint: "76ae2e3a",
-			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0", "0.99.1"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0", "0.99.1", "0.99.2"]),
 		}),
 		Object.freeze({
 			name: "rebuild",
@@ -280,7 +281,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "rebuild",
 			arity: 0,
 			fingerprint: "ee761c8c",
-			versions: Object.freeze(["0.99.1"]),
+			versions: Object.freeze(["0.99.1", "0.99.2"]),
 		}),
 	]),
 	"tool-call-renderer:getCallRenderer": Object.freeze([
@@ -302,14 +303,14 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "getCallRenderer",
 			arity: 0,
 			fingerprint: "e0a9ed86",
-			versions: Object.freeze(["0.85.0", "0.99.1"]),
+			versions: Object.freeze(["0.85.0", "0.99.1", "0.99.2"]),
 		}),
 		// 0.85.0 bundled: same drift, minified.
 		Object.freeze({
 			name: "getCallRenderer",
 			arity: 0,
 			fingerprint: "73116365",
-			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1"]),
+			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1", "0.99.2"]),
 		}),
 	]),
 	"tool-result-renderer:getResultRenderer": Object.freeze([
@@ -331,14 +332,14 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "getResultRenderer",
 			arity: 0,
 			fingerprint: "1567dcf4",
-			versions: Object.freeze(["0.85.0", "0.99.1"]),
+			versions: Object.freeze(["0.85.0", "0.99.1", "0.99.2"]),
 		}),
 		// 0.85.0 bundled: same drift, minified.
 		Object.freeze({
 			name: "getResultRenderer",
 			arity: 0,
 			fingerprint: "d613a2a3",
-			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1"]),
+			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1", "0.99.2"]),
 		}),
 	]),
 	"native-bash-execution:render": Object.freeze([
@@ -350,13 +351,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "BashExecutionComponent",
 			arity: 2,
 			fingerprint: "a5b5abca",
-			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0", "0.99.1"]),
+			versions: Object.freeze(["0.83.0", "0.84.0", "0.84.1", "0.84.2", "0.84.4", "0.85.0", "0.99.1", "0.99.2"]),
 		}),
 		Object.freeze({
 			name: "BashExecutionComponent",
 			arity: 2,
 			fingerprint: "98d22d96",
-			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1", "0.99.1"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1", "0.99.1", "0.99.2"]),
 		}),
 	]),
 	// InteractiveMode.handleEvent — the highest-drift surface in the registry:
@@ -425,13 +426,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "handleEvent",
 			arity: 1,
 			fingerprint: "790314c2",
-			versions: Object.freeze(["0.99.1"]),
+			versions: Object.freeze(["0.99.1", "0.99.2"]),
 		}),
 		Object.freeze({
 			name: "handleEvent",
 			arity: 1,
 			fingerprint: "c5aa9e43",
-			versions: Object.freeze(["0.99.1"]),
+			versions: Object.freeze(["0.99.1", "0.99.2"]),
 		}),
 	]),
 });

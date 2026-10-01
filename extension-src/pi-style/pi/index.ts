@@ -12,6 +12,7 @@ import {
 	finishAgentThoughtRun,
 	rebuildAgentThoughtRunsFromEntries,
 	refreshObservedThoughtComponents,
+	refreshThoughtComponentsForMessage,
 } from "../features/messages/thought-summary.js";
 import { closeActiveBatch, resetReadChunkCandidates } from "../features/tools/boxed/batch.js";
 import {
@@ -206,8 +207,12 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		coordinator.app.update({ ...usagePatch(ctx) }, "coalesced", { refreshContextUsage: true }),
 	);
 	pi.on("turn_end", (event, ctx) => {
-		// Append the finalized assistant message's tool batch to the current run.
+		// Append the finalized assistant message's tool batch to the current run —
+		// publishing its stats to the merged-summary bridge immediately — then
+		// refresh the observed assistant components so text-split segment labels
+		// pick the stats up mid-run (not only at agent_end).
 		registerTurnFromMessage(event.message, event.toolResults);
+		refreshThoughtComponentsForMessage(event.message);
 		coordinator.app.update({ ...usagePatch(ctx) }, "deferred", { refreshContextUsage: true });
 	});
 	pi.on("agent_end", () => {

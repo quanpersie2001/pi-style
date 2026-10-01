@@ -428,6 +428,19 @@ export function refreshObservedThoughtComponents(): void {
 	refreshInstances([...knownInstances]);
 }
 
+/** Refresh only the components of segments covering `message` — the turn_end
+ *  path: newly published stats must reach exactly those labels (a full
+ *  refresh would rebuild every observed component on every turn). */
+export function refreshThoughtComponentsForMessage(message: unknown): void {
+	if (message === null || typeof message !== "object") return;
+	const instances = new Set<object>();
+	for (const binding of memberByKey.values()) {
+		if (!binding.group.messages.has(message)) continue;
+		for (const member of binding.group.members) for (const instance of member.instances) instances.add(instance);
+	}
+	if (instances.size > 0) refreshInstances([...instances]);
+}
+
 /** Session/test reset. Process duration storage is owned separately. */
 export function resetAgentThoughtRuns(): void {
 	memberByKey.clear();

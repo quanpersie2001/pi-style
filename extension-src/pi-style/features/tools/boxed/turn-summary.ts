@@ -259,6 +259,12 @@ export function beginAgentRun(): void {
  * Live path: append the finalized assistant message's tool calls and results
  * to the current run (`turn_end` event). The run stays expanded until
  * `finishAgentRun`; a batch interrupted mid-tool never collapses.
+ *
+ * Stats publish HERE (not only at `finishAgentRun`): text-split thought
+ * segments can render their aggregate mid-run, and a mid-conversation
+ * `agent_start` re-fire resets the run — publishing per turn_end keeps every
+ * registered segment's stats visible to the merged labels regardless of when
+ * (or whether) the run finalizes cleanly.
  */
 export function registerTurnFromMessage(message: unknown, toolResults: readonly TurnResultLike[]): void {
 	const calls = toolCallsOf(message);
@@ -289,6 +295,9 @@ export function registerTurnFromMessage(message: unknown, toolResults: readonly 
 	if (message !== null && typeof message === "object")
 		currentRunSegments.push({ message, members: Object.freeze(newMembers) });
 	for (const member of newMembers) memberByCallId.set(member.toolCallId, { turn: currentRun, member });
+	// Publish immediately (mid-run visibility + reset immunity).
+	if (message !== null && typeof message === "object")
+		publishSegmentStats({ message, members: Object.freeze(newMembers) });
 }
 
 /**
