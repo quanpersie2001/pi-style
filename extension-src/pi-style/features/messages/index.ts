@@ -993,6 +993,22 @@ export function decorateMessageUpdate(
 			const groups = observeThoughtMessage(instance, args[0], runs, durations);
 			const summary = Boolean(snapshot.thoughtSummary) && sessionThoughtTheme !== undefined;
 			const glyph = snapshot.thoughtGlyph ?? "◈";
+			// Run-level merge (`messages.mergedTurnSummary`): one line per agent run —
+			// the batch's first segment leader carries the run totals; later segment
+			// leaders stay zero-trace (their thinking remains reachable via Ctrl+T).
+			const mergedSummary = snapshot.mergedTurnSummary === true;
+			const labelValues = (group: {
+				count: number;
+				stats: MergedSegmentStats | undefined;
+				runFirst: boolean;
+				runStats: MergedSegmentStats | undefined;
+				runTotalThoughts: number | undefined;
+			}) =>
+				mergedSummary && group.runFirst && group.runTotalThoughts !== undefined
+					? { count: group.runTotalThoughts, stats: group.runStats, visible: true }
+					: mergedSummary
+						? { count: group.count, stats: group.stats, visible: false }
+						: { count: group.count, stats: group.stats, visible: true };
 			// Children are laid out in content order, thinking runs (hidden label or
 			// expanded Markdown, each in a MouseRegion) in run order; walking backward
 			// keeps splice/insert indices valid and assigns runs from the last.
@@ -1005,19 +1021,20 @@ export function decorateMessageUpdate(
 				const inner = region?.child;
 				if (isBlankTextChild(child)) {
 					// Hidden thinking-run label (MouseRegion-wrapped blank Text). Only
-					// the current segment's leader becomes its aggregate; every other
+					// the run's first segment leader becomes its aggregate; every other
 					// per-message/per-run label stays zero-trace.
 					const run = runCursor--;
 					if (run < 0) continue;
 					const group = groups[run];
-					const aggregateVisible = summary && group?.ended === true;
+					const values = group ? labelValues(group) : undefined;
+					const aggregateVisible = summary && group?.ended === true && (values?.visible ?? true);
 					if (aggregateVisible && group.leader) {
 						const aggregateText = thoughtLabelText(
 							glyph,
-							group.count,
+							values?.count ?? group.count,
 							group.durationMs,
-							group.stats,
-							snapshot.mergedTurnSummary === true,
+							values?.stats ?? group.stats,
+							mergedSummary,
 						);
 						const textComponent = (inner ?? child) as Component & { setText?: (text: string) => void };
 						textComponent.setText?.(styleThoughtText(aggregateText));
@@ -1039,15 +1056,16 @@ export function decorateMessageUpdate(
 					const run = runCursor--;
 					expandedRunSeen = true;
 					const group = groups[run];
-					const aggregateVisible = summary && group?.ended === true;
+					const values = group ? labelValues(group) : undefined;
+					const aggregateVisible = summary && group?.ended === true && (values?.visible ?? true);
 					if (aggregateVisible) children[index] = thoughtToggleRegion(inner as Component, instance, run);
 					if (aggregateVisible && group.leader) {
 						const aggregateText = thoughtLabelText(
 							glyph,
-							group.count,
+							values?.count ?? group.count,
 							group.durationMs,
-							group.stats,
-							snapshot.mergedTurnSummary === true,
+							values?.stats ?? group.stats,
+							mergedSummary,
 						);
 						const marker = new Text(
 							styleThoughtText(aggregateText),

@@ -220,20 +220,23 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		coordinator.app.update({ ...usagePatch(ctx) }, "deferred", { refreshContextUsage: true });
 	});
 	pi.on("agent_end", () => {
-		// Finalize each contiguous thought segment before tool collapse. Rebuilding
-		// bound assistant components leaves one clickable row per segment leader.
-		finishAgentThoughtRun();
-		// The run is complete: collapse its tool blocks into one summary line.
-		// Pi only re-invokes the tool renderer selectors from updateDisplay(), so
-		// the captured per-block invalidate callbacks force the collapse and the
-		// captured Tui repaints. Interrupted runs (a call without a result) stay
-		// expanded.
+		// Order matters: finishAgentRun FIRST — it finalizes the run, publishes
+		// per-message stats, and exposes `run.messages` for late attribution
+		// (tools-first rounds whose turn ended before any thought group existed).
+		// finishAgentThoughtRun THEN pools the run stats onto the first segment
+		// leader (one merged row per agent run) and refreshes the labels.
 		const run = finishAgentRun();
 		if (run) {
+			for (const message of run.messages ?? []) attributeMessageToLatestGroup(message);
+			// Pi only re-invokes the tool renderer selectors from updateDisplay(), so
+			// the captured per-block invalidate callbacks force the collapse and the
+			// captured Tui repaints. Interrupted runs (a call without a result) stay
+			// expanded.
 			invalidateTurnMembers(run);
 			releaseTurnInvalidators(run);
 			requestToolPresentationRender();
 		}
+		finishAgentThoughtRun();
 	});
 	pi.on("agent_settled", (_event, ctx) =>
 		coordinator.app.update({ ...usagePatch(ctx) }, "coalesced", { refreshContextUsage: true }),

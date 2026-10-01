@@ -259,3 +259,102 @@ describe("thinking-less tool messages attribute to the latest thought group", ()
 		disposePiCompatibilityProbe(report);
 	});
 });
+
+describe("contiguous tool rounds stay ONE segment", () => {
+	it("three thinking+tool messages with no text between collapse to a single label", () => {
+		initTheme("dark", false);
+		setThoughtLabelTheme(plainTheme);
+		const report = installProbe();
+
+		beginAgentThoughtRun();
+		beginAgentRun();
+
+		const comps: AssistantMessageComponent[] = [];
+		for (let i = 1; i <= 3; i++) {
+			const m = msg(
+				[
+					{ type: "thinking", thinking: `round ${i}` },
+					{ type: "toolCall", id: `t${i}`, name: "read", arguments: {} },
+				],
+				100 + i,
+			);
+			const comp = new AssistantMessageComponent(m, true, undefined, "", 1);
+			comp.setHideThinkingBlock(true);
+			comp.setHiddenThinkingLabel("");
+			comp.updateContent(m, false);
+			registerTurnFromMessage(m, [{ toolCallId: `t${i}`, isError: false, content: [] }]);
+			attributeMessageToLatestGroup(m);
+			refreshThoughtComponentsForMessage(m);
+			comps.push(comp);
+		}
+
+		finishAgentRun();
+		finishAgentThoughtRun();
+
+		// ONE aggregate on the leader (first message); the rest zero-trace.
+		const first = stripAnsi(comps[0].render(100).join("\n"));
+		const matches = first.match(/◈ [^\n]*/g) ?? [];
+		console.log(
+			"leader labels:",
+			matches,
+			"| others:",
+			comps.slice(1).map((c) => (stripAnsi(c.render(100).join("\n")).match(/◈ [^\n]*/g) ?? []).length),
+		);
+		expect(first).toContain("Thought 3 times · Called 3 tools");
+		for (const comp of comps.slice(1)) {
+			expect(stripAnsi(comp.render(100).join("\n"))).not.toContain("◈");
+		}
+		disposePiCompatibilityProbe(report);
+	});
+});
+
+describe("run-level merge (one line per agent run)", () => {
+	it("text-split rounds pool into the first segment's label with run totals", () => {
+		initTheme("dark", false);
+		setThoughtLabelTheme(plainTheme);
+		const report = installProbe();
+
+		beginAgentThoughtRun();
+		beginAgentRun();
+
+		const comps: AssistantMessageComponent[] = [];
+		for (let i = 1; i <= 3; i++) {
+			const m = msg(
+				[
+					{ type: "thinking", thinking: `round ${i}` },
+					{ type: "text", text: `tiến độ ${i}` },
+					{ type: "toolCall", id: `t${i}`, name: "read", arguments: {} },
+				],
+				200 + i,
+			);
+			const comp = new AssistantMessageComponent(m, true, undefined, "", 1);
+			comp.setHideThinkingBlock(true);
+			comp.setHiddenThinkingLabel("");
+			comp.updateContent(m, false);
+			registerTurnFromMessage(m, [{ toolCallId: `t${i}`, isError: false, content: [] }]);
+			attributeMessageToLatestGroup(m);
+			refreshThoughtComponentsForMessage(m);
+			comps.push(comp);
+		}
+
+		finishAgentRun();
+		for (const comp of comps) {
+			const m = comp.lastMessage as unknown as object;
+			attributeMessageToLatestGroup(m);
+		}
+		finishAgentThoughtRun();
+
+		const first = stripAnsi(comps[0].render(100).join("\n"));
+		expect(first).toContain("Thought 3 times · Called 3 tools");
+		for (const comp of comps.slice(1)) {
+			const text = stripAnsi(comp.render(100).join("\n"));
+			expect(text).not.toContain("◈ Thought");
+			expect(text).toContain("tiến độ");
+		}
+		// The run's ➔ leader defers (all messages attributed + ended).
+		const leader = dispatchCall("read", { path: "a.ts" }, theme, toolContext("t1"));
+		expect(leader.render(80)).toEqual([]);
+
+		disposePiCompatibilityProbe(report);
+	});
+});

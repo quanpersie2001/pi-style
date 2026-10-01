@@ -99,6 +99,12 @@ interface ThoughtGroup {
 	readonly id: string;
 	live: boolean;
 	ended: boolean;
+	/** Run-level merge: first group of the batch renders the single run line. */
+	runFirst?: boolean;
+	/** Run-total stats pooled across every group of the batch (leader only). */
+	runStats?: MergedSegmentStats | undefined;
+	/** Run-total thought count across every group of the batch (leader only). */
+	runTotalThoughts?: number;
 	members: ThoughtMember[];
 	/** Assistant messages whose thinking runs joined this group (identity).
 	 *  Feeds the merged-summary bridge: the leader label aggregates the tool
@@ -117,6 +123,10 @@ export interface ThoughtGroupPresentation {
 	/** Merged tool stats for the messages this segment covers (undefined when
 	 *  the segment produced no tool calls — the label stays thought-only). */
 	readonly stats: MergedSegmentStats | undefined;
+	/** Run-level merge: this group's leader renders the single run line. */
+	readonly runFirst: boolean;
+	readonly runStats: MergedSegmentStats | undefined;
+	readonly runTotalThoughts: number | undefined;
 }
 
 let memberByKey = new Map<string, ThoughtBinding>();
@@ -198,6 +208,9 @@ function presentation(binding: ThoughtBinding): ThoughtGroupPresentation {
 		count: group.members.length,
 		durationMs: completeDuration ? durationMs : undefined,
 		stats: mergedStatsFor([...group.messages]),
+		runFirst: group.runFirst === true,
+		runStats: group.runStats,
+		runTotalThoughts: group.runTotalThoughts,
 	};
 }
 
@@ -311,19 +324,41 @@ export function beginAgentThoughtRun(): void {
 	liveGroups = [];
 }
 
-/** Finalize all contiguous groups and rebuild every bound group leader. */
+/** Finalize all contiguous groups and rebuild every bound group leader.
+ *
+ * Run-level merge: all groups of the batch (one agent run) pool their stats —
+ * the FIRST group's leader renders the single run line (`◈ Thought N times ·
+ * Called M tools` with run totals); every later group leader stays zero-trace
+ * (its thinking remains reachable via Ctrl+T). This keeps inter-round
+ * commentary from fragmenting the summary into per-segment labels. */
 export function finishAgentThoughtRun(): void {
 	const groups = liveGroups;
 	liveAgentActive = false;
 	currentLiveGroup = undefined;
 	liveGroups = [];
 	if (groups.length === 0) return;
+	const runMessages: object[] = [];
+	let runThoughts = 0;
 	for (const group of groups) {
 		group.live = false;
 		group.ended = true;
-		// The merged-summary bridge: these messages belong to an ended segment,
-		// so the run's `➔` leader may defer to the merged segment labels.
-		for (const message of group.messages) publishEndedGroupMessage(message);
+		runThoughts += group.members.length;
+		for (const message of group.messages) {
+			runMessages.push(message);
+			// The merged-summary bridge: these messages belong to an ended segment,
+			// so the run's `➔` leader may defer to the merged run line.
+			publishEndedGroupMessage(message);
+		}
+	}
+	const runStats = mergedStatsFor(runMessages);
+	let first = true;
+	for (const group of groups) {
+		if (first && (group.members.length > 0 || group.messages.size > 0)) {
+			group.runFirst = true;
+			group.runStats = runStats;
+			group.runTotalThoughts = runThoughts;
+			first = false;
+		}
 	}
 	refreshInstances(groups.flatMap((group) => group.members.flatMap((member) => [...member.instances])));
 }
@@ -385,19 +420,44 @@ export function rebuildAgentThoughtRunsFromEntries(entries: readonly EntryLike[]
 	liveAgentActive = false;
 	if (!Array.isArray(entries)) return;
 	let group: ThoughtGroup | undefined;
+	let batch: ThoughtGroup[] = [];
 	const closeGroup = () => {
 		if (group) {
 			group.ended = true;
+			batch.push(group);
 			// Restore-path twin of finishAgentThoughtRun's publication.
 			for (const message of group.messages) publishEndedGroupMessage(message);
 		}
 		group = undefined;
+	};
+	const closeBatch = () => {
+		if (batch.length === 0) return;
+		const runMessages: object[] = [];
+		let runThoughts = 0;
+		for (const batchGroup of batch) {
+			runThoughts += batchGroup.members.length;
+			runMessages.push(...batchGroup.messages);
+		}
+		const runStats = mergedStatsFor(runMessages);
+		let first = true;
+		for (const batchGroup of batch) {
+			if (first && (batchGroup.members.length > 0 || batchGroup.messages.size > 0)) {
+				batchGroup.runFirst = true;
+				batchGroup.runStats = runStats;
+				batchGroup.runTotalThoughts = runThoughts;
+				first = false;
+			}
+		}
+		batch = [];
 	};
 	for (const entry of entries) {
 		if (entry?.type !== "message") continue;
 		const message = entry.message;
 		if (message?.role === "user") {
 			closeGroup();
+			// A user message ends the agent-run batch: pool its groups' stats
+			// into the first group's run line (restore twin of finishAgentThoughtRun).
+			closeBatch();
 			continue;
 		}
 		if (message?.role !== "assistant") continue;
@@ -421,6 +481,7 @@ export function rebuildAgentThoughtRunsFromEntries(entries: readonly EntryLike[]
 		}
 	}
 	closeGroup();
+	closeBatch();
 }
 
 /** Refresh components retained across a session-tree/rebind registry rebuild. */
