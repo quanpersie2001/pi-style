@@ -10,7 +10,9 @@ import {
 	renderBoxedToolResult,
 } from "../../../shared/box.js";
 import { formatElapsedMs, getElapsedMs } from "../../../shared/elapsed.js";
+import { safeVisibleWidth } from "../../../shared/render-budget.js";
 import { AdaptiveDiffComponent, buildSplitRows, countDiffStats } from "../../../shared/split-diff.js";
+import { compactToolPath } from "./path.js";
 import { getStateElapsedMs, isResultSeen } from "./session-config.js";
 import {
 	type BoxedToolContext,
@@ -237,7 +239,10 @@ export function quickEditTool(config: QuickEditToolConfig): BoxedToolDefinition 
 				// Lazy: the settled result publishes diff stats into the shared renderer
 				// state, and this function resolves at render time — so the header picks
 				// up `· +N -M` on the same paint the diff body appears.
-				headerDetail: () => `${path}${diffHeaderStatsSuffix(theme, context)}`,
+				headerDetail: (width) => {
+					const stats = diffHeaderStatsSuffix(theme, context);
+					return `${compactToolPath(path, width - safeVisibleWidth(stats))}${stats}`;
+				},
 				isError: Boolean(context.isError),
 				isPartial: Boolean(context.isPartial),
 				isPending: Boolean(context.isPartial),

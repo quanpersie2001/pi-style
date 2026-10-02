@@ -91,10 +91,11 @@ export function compactCall(
 	theme: BoxTheme,
 	toolName: string,
 	detailLine: string,
-	options: { detailKey: string; context: BoxedToolContext },
+	options: { detailKey: string; context: BoxedToolContext; headerDetail?: (availableWidth: number) => string },
 ): Component {
 	return renderCompactBoxedToolCall(theme, toolName, detailLine, {
 		widthKey: boxedToolWidthKey(toolName, options.detailKey),
+		...(options.headerDetail ? { headerDetail: options.headerDetail } : {}),
 		state: options.context.state,
 		isError: Boolean(options.context.isError),
 		isPartial: Boolean(options.context.isPartial),

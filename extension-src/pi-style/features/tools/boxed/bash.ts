@@ -51,6 +51,7 @@ import {
 	SEARCH_ICON,
 	TREE_INDENT,
 } from "./output-tree.js";
+import { compactToolPath } from "./path.js";
 import {
 	getStateElapsedMs,
 	getToolsRenderCacheSignature,
@@ -750,7 +751,9 @@ function bashTreeHeader(theme: BoxTheme, cls: BashTreeClass, counts?: { files?: 
 		}
 	}
 	const pathPart =
-		cls.pathLabel && cls.pathLabel !== "current directory" ? theme.fg("dim", ` · in ${cls.pathLabel}`) : "";
+		cls.pathLabel && cls.pathLabel !== "current directory"
+			? theme.fg("dim", ` · in ${compactToolPath(cls.pathLabel)}`)
+			: "";
 	return `${typeof theme?.bold === "function" ? theme.bold(prefix) : prefix}${patternPart}${middle}${pathPart}`;
 }
 

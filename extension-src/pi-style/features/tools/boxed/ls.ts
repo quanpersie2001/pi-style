@@ -19,6 +19,7 @@ import {
 } from "./batch.js";
 import { renderFallbackResult } from "./fallback.js";
 import { parseLsOutput } from "./output-tree.js";
+import { compactToolPath } from "./path.js";
 import { type BoxedToolDefinition, noteExecutionStart } from "./shared.js";
 
 const LIST_META: BatchToolMeta = Object.freeze({
@@ -30,7 +31,7 @@ const LIST_META: BatchToolMeta = Object.freeze({
 function displayPath(rawPath: string): string {
 	const path = String(rawPath ?? ".");
 	if (path === "." || path === "") return "current directory";
-	return shortenPath(path);
+	return compactToolPath(shortenPath(path));
 }
 
 export const lsTool: BoxedToolDefinition = {

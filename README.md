@@ -148,7 +148,7 @@ Ordinary mutations are session-only; persistence requires an explicit `global` o
 ## Compatibility
 
 - Public Pi APIs (widgets, editor, header, footer bridge) are preferred and enabled by default.
-- Tier C core patches (message prefixes, special blocks, tool selectors) are identity-certified per surface against recorded fingerprints (Pi `0.83.0`–`0.85.1` observed; Pi ≥`0.84.3` loads the CLI from a minified bundled runtime, so every surface also records the bundled identities; `0.85.1` rebundles with renamed minified parameters — every surface re-verified in both families), isolated, reversible, and flag/config gated; any surface whose runtime identity is not recorded falls back natively on its own.
+- Tier C core patches (message prefixes, special blocks, tool selectors) are identity-certified per surface against recorded fingerprints (Pi `0.83.0`–`0.85.1`, `0.99.1`–`0.99.2`, and `1.0.0` observed; Pi ≥`0.84.3` loads the CLI from a minified bundled runtime, so every surface also records the bundled identities; `0.85.1` rebundles with renamed minified parameters; `1.0.0` retains the `0.99.2` identities — every surface re-verified in both families), isolated, reversible, and flag/config gated; any surface whose runtime identity is not recorded falls back natively on its own.
 - No render-time I/O: filesystem, Git, settings, and session data flow through cached providers into immutable snapshots.
 - Terminal-global background synchronization is unsupported/off for technical v1; explicit cell backgrounds and Pi theme APIs remain supported.
 - Terminal multiplexers gate kitty graphics: in herdr, previews (and Pi's own tool-result images) require `experimental.kitty_graphics = true` in `~/.config/herdr/config.toml` plus a server restart; tmux disables images upstream.
@@ -194,7 +194,7 @@ npm run check
 
 `npm run check` runs all required automated gates in order.
 
-Current test suite: 853 tests across 43 files.
+Current test suite: 917 tests across 48 files.
 
 ---
 

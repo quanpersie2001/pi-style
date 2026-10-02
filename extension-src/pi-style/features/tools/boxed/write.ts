@@ -21,6 +21,7 @@ import {
 	renderCompactBoxedToolCall,
 	replaceTabs,
 } from "../../../shared/box.js";
+import { compactToolPath } from "./path.js";
 import { getToolsRenderConfig } from "./session-config.js";
 import {
 	type BoxedToolDefinition,
@@ -69,7 +70,7 @@ function formatNumberedLine(theme: BoxTheme, line: NumberedLine): string {
 /** Compact write box: path header, numbered content preview, metrics footer. */
 function renderWritePreviewBox(
 	theme: BoxTheme,
-	detailLine: string,
+	path: string,
 	content: string,
 	options: {
 		state?: Record<string, unknown>;
@@ -84,7 +85,8 @@ function renderWritePreviewBox(
 	const budget = options.expanded ? config.maxExpandedLines : config.maxCollapsedLines;
 	const truncated = preview.length > budget;
 
-	return renderCompactBoxedToolCall(theme, "Write", detailLine, {
+	return renderCompactBoxedToolCall(theme, "Write", "", {
+		headerDetail: (width) => `${theme.fg("dim", "Path: ")}${compactToolPath(path, width - 6)}`,
 		...(options.state ? { state: options.state } : {}),
 		isError: options.isError,
 		isPending: options.isPending,
@@ -106,16 +108,17 @@ export const writeTool: BoxedToolDefinition = {
 	call(args, theme, context) {
 		noteExecutionStart(context);
 		const detail = displayPath(String(args?.path ?? args?.file_path ?? ""), context);
-		const detailLine = `${theme.fg("dim", "Path: ")}${detail}`;
+		const detailLine = `${theme.fg("dim", "Path: ")}${compactToolPath(detail)}`;
 		// On error keep the plain open box: the result renderer continues it with
 		// the boxed error body, so call and result never duplicate a box.
 		if (context.isError) {
 			return compactCall(theme, "Write", detailLine, {
 				detailKey: detail,
+				headerDetail: (width) => `${theme.fg("dim", "Path: ")}${compactToolPath(detail, width - 6)}`,
 				context,
 			});
 		}
-		return renderWritePreviewBox(theme, detailLine, String(args?.content ?? ""), {
+		return renderWritePreviewBox(theme, detail, String(args?.content ?? ""), {
 			state: context.state,
 			isError: Boolean(context.isError),
 			isPending: Boolean(context.isPartial),

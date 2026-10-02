@@ -24,6 +24,7 @@ import {
 	SEARCH_ICON,
 	TREE_INDENT,
 } from "./output-tree.js";
+import { compactToolPath } from "./path.js";
 import { getToolsRenderConfig } from "./session-config.js";
 import { type BoxedToolDefinition, noteExecutionStart } from "./shared.js";
 
@@ -52,7 +53,7 @@ export function resetGrepRegistry(): void {
 
 function pathLabel(rawPath: string): string {
 	const displayPath = String(rawPath ?? ".");
-	return displayPath === "." || displayPath === "" ? "current directory" : shortenPath(displayPath);
+	return displayPath === "." || displayPath === "" ? "current directory" : compactToolPath(shortenPath(displayPath));
 }
 
 function registerGrepCall(toolCallId: string, pattern: string, label: string): void {

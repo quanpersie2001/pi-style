@@ -1,6 +1,14 @@
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { KNOWN_NATIVE_IDENTITIES, targetSpecs } from "../../extension-src/pi-style/pi/compatibility-probe.js";
+import { resetBatchRegistry } from "../../extension-src/pi-style/features/tools/boxed/batch.js";
+import {
+	type CompatibilityProbeReport,
+	disposePiCompatibilityProbe,
+	KNOWN_NATIVE_IDENTITIES,
+	probePiCompatibility,
+	targetSpecs,
+} from "../../extension-src/pi-style/pi/compatibility-probe.js";
+import { stripAnsi } from "../../extension-src/pi-style/shared/ansi.js";
 
 function fingerprintOf(value: unknown): string | undefined {
 	if (typeof value !== "function") return undefined;
@@ -14,8 +22,8 @@ function fingerprintOf(value: unknown): string | undefined {
 
 /**
  * Verifies every surface's runtime identity on a given pi build certifies
- * against the recorded registry. `sourceOf` maps a surface key to the live
- * function (own method or class constructor for additive installs).
+ * against the recorded registry, including name/arity/descriptor gates rather
+ * than checking only the source hash and observed-version metadata.
  */
 function certifyAgainst(module: Record<string, unknown>, version: string): string[] {
 	const misses: string[] = [];
@@ -24,13 +32,25 @@ function certifyAgainst(module: Record<string, unknown>, version: string): strin
 		const proto = (module as Record<string, { prototype?: object }>)[
 			spec.kind === "add-method" ? "BashExecutionComponent" : protoNameFor(key)
 		]?.prototype;
+		const descriptor = proto && Object.getOwnPropertyDescriptor(proto, spec.method);
 		const value =
 			spec.kind === "add-method"
-				? Object.getOwnPropertyDescriptor(proto, "constructor")?.value
-				: Object.getOwnPropertyDescriptor(proto, spec.method)?.value;
+				? proto && Object.getOwnPropertyDescriptor(proto, "constructor")?.value
+				: descriptor?.value;
 		const fp = fingerprintOf(value);
 		const identities = KNOWN_NATIVE_IDENTITIES[key] ?? [];
-		if (!identities.some((identity) => identity.fingerprint === fp && identity.versions.includes(version)))
+		const shape =
+			spec.kind === "add-method" ? descriptor === undefined : descriptor?.writable && descriptor.configurable;
+		if (
+			!shape ||
+			!identities.some(
+				(identity) =>
+					identity.fingerprint === fp &&
+					identity.name === value?.name &&
+					identity.arity === value?.length &&
+					identity.versions.includes(version),
+			)
+		)
 			misses.push(
 				`${version} ${key} fp=${fp ?? "none"} recorded=${identities.map((i) => `${i.fingerprint}@[${i.versions.join(",")}]`).join(" | ")}`,
 			);
@@ -113,7 +133,7 @@ describe("recorded identity registry vs real pi artifacts", () => {
 		expect(certifyAgainst(local, localVersion).join("\n")).toBe("");
 	});
 
-	it("certifies every surface against every discoverable pi CLI bundle (the artifact family extensions actually receive)", async () => {
+	it("certifies every surface against both artifact families of every discoverable pi install", async () => {
 		const { readFileSync } = await import("node:fs");
 		const { pathToFileURL } = await import("node:url");
 		const installs = await discoverPiInstalls();
@@ -121,11 +141,69 @@ describe("recorded identity registry vs real pi artifacts", () => {
 		const failures: string[] = [];
 		for (const install of installs) {
 			const pkg = JSON.parse(readFileSync(new URL("package.json", pathToFileURL(`${install.packageRoot}/`)), "utf8"));
-			const bundle = (await import(
-				pathToFileURL(`${install.packageRoot}/dist/bundle/index.js`).href
-			)) as unknown as Record<string, unknown>;
-			failures.push(...certifyAgainst(bundle, pkg.version as string).map((miss) => `[${install.label}] ${miss}`));
+			for (const entry of ["dist/index.js", "dist/bundle/index.js"]) {
+				const artifact = (await import(pathToFileURL(`${install.packageRoot}/${entry}`).href)) as Record<
+					string,
+					unknown
+				>;
+				failures.push(
+					...certifyAgainst(artifact, pkg.version as string).map((miss) => `[${install.label} ${entry}] ${miss}`),
+				);
+			}
 		}
 		expect(failures.join("\n")).toBe("");
+	});
+
+	it("installs, renders compact read paths and restores patches on actual modular and bundled hosts", async () => {
+		const { readFileSync } = await import("node:fs");
+		const { pathToFileURL } = await import("node:url");
+		for (const install of await discoverPiInstalls()) {
+			const version = JSON.parse(readFileSync(`${install.packageRoot}/package.json`, "utf8")).version as string;
+			for (const entry of ["dist/index.js", "dist/bundle/index.js"]) {
+				const artifact = (await import(
+					pathToFileURL(`${install.packageRoot}/${entry}`).href
+				)) as typeof import("@earendil-works/pi-coding-agent");
+				const originals = targetSpecs.map((spec) => spec.target);
+				let report: CompatibilityProbeReport | undefined;
+				try {
+					// Redirect only this isolated test's probe targets to the classes the
+					// real host gives extensions. Restore both patches and targets below.
+					for (const spec of targetSpecs) {
+						const name =
+							spec.kind === "add-method" ? "BashExecutionComponent" : protoNameFor(`${spec.subtype}:${spec.method}`);
+						spec.target = (artifact as unknown as Record<string, { prototype: object }>)[name].prototype;
+					}
+					const before = targetSpecs.map((spec) => Object.getOwnPropertyDescriptor(spec.target, spec.method));
+					artifact.initTheme("dark", false);
+					report = probePiCompatibility(version, { toolSnapshot: { style: "compact-box" } });
+					expect(report.unsupported, `${install.label} ${entry}`).toHaveLength(0);
+					expect(report.certification.every((surface) => surface.status === "certified")).toBe(true);
+					const path =
+						"src/Modules/FuelManagement/TransportERP.Modules.FuelManagement.Application/FuelDispensings/Workflow/AcceptStageWorkflow.cs";
+					const tool = new artifact.ToolExecutionComponent(
+						"read",
+						"actual-host-read",
+						{ path, offset: 1 },
+						{},
+						artifact.createReadToolDefinition("/project"),
+						undefined,
+						"/project",
+					);
+					tool.updateResult({ content: [{ type: "text", text: "ok" }], details: {}, isError: false });
+					expect(stripAnsi(tool.render(80).join("\n"))).toContain("src/../../../AcceptStageWorkflow.cs:1");
+					expect(disposePiCompatibilityProbe(report).complete).toBe(true);
+					for (let index = 0; index < targetSpecs.length; index++) {
+						const spec = targetSpecs[index];
+						expect(Object.getOwnPropertyDescriptor(spec.target, spec.method)).toEqual(before[index]);
+					}
+				} finally {
+					if (report) disposePiCompatibilityProbe(report);
+					targetSpecs.forEach((spec, index) => {
+						spec.target = originals[index];
+					});
+					resetBatchRegistry();
+				}
+			}
+		}
 	});
 });

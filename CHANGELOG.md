@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+
+- *(tools)* Cap structured path labels at 60 terminal columns, omitting middle directories while preserving filenames, extensions and read ranges.
+- *(compat)* Certify Pi 1.0.0 in both modular and bundled artifacts using the unchanged 0.99.2 runtime identities; extend peer ranges and verify patch install/restore on actual hosts.
+- *(build)* Fix extra shell quotes in the package smoke command and synchronize lockfile root metadata.
+
 ## [0.4.0] - 2026-10-01
 
 ### Features

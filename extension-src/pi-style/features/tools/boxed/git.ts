@@ -21,10 +21,11 @@ import {
 	renderBoxedToolResult,
 } from "../../../shared/box.js";
 import { formatElapsedMs } from "../../../shared/elapsed.js";
-import { safeTruncateToWidth } from "../../../shared/render-budget.js";
+import { safeTruncateToWidth, safeVisibleWidth } from "../../../shared/render-budget.js";
 import { AdaptiveDiffComponent, buildSplitRows, countDiffStats } from "../../../shared/split-diff.js";
 import { parseSimpleBashCommand } from "./command-shape.js";
 import { pluralForm, TREE_INDENT } from "./output-tree.js";
+import { compactToolPath, TOOL_PATH_MAX_WIDTH } from "./path.js";
 import { getStateElapsedMs, getToolsRenderConfig } from "./session-config.js";
 import { type BoxedToolContext, getRenderCacheKey, memoizedStateComponent } from "./shared.js";
 
@@ -1614,6 +1615,19 @@ function renderStatusCard(theme: BoxTheme, parsed: GitStatusParsed, out: string[
 	return renderStatusFileRows(theme, files, out, width);
 }
 
+/** Preserve both sides of a Git rename label instead of treating the arrow
+ *  and old path as disposable middle directories. */
+function compactGitPath(path: string, availableWidth = TOOL_PATH_MAX_WIDTH): string {
+	const width = Math.max(0, Math.min(TOOL_PATH_MAX_WIDTH, availableWidth));
+	if (safeVisibleWidth(path) <= width) return path;
+	const arrow = / (?:->|=>) /.exec(path);
+	if (!arrow || width < 6) return compactToolPath(path, width);
+	const budget = width - arrow[0].length;
+	const left = compactToolPath(path.slice(0, arrow.index), Math.floor(budget / 2));
+	const right = compactToolPath(path.slice(arrow.index + arrow[0].length), Math.ceil(budget / 2));
+	return `${left}${arrow[0]}${right}`;
+}
+
 /** Shared `├─ M  path` rows for status-style file lists (status card + reset). */
 function renderStatusFileRows(
 	theme: BoxTheme,
@@ -1629,7 +1643,8 @@ function renderStatusFileRows(
 		if (!file) continue;
 		const branch = i < lastIndex || more > 0 ? "├─" : "└─";
 		const mark = statusMarker(file);
-		const line = `${TREE_INDENT}${dimLine(branch)} ${theme.fg(statusMarkColor(file), mark)}  ${theme.fg("toolOutput", file.path)}`;
+		const prefix = `${TREE_INDENT}${dimLine(branch)} ${theme.fg(statusMarkColor(file), mark)}  `;
+		const line = `${prefix}${theme.fg("toolOutput", compactGitPath(file.path, width - safeVisibleWidth(prefix)))}`;
 		out.push(safeTruncateToWidth(line, width, "…"));
 	}
 	if (more > 0) {
@@ -1671,7 +1686,9 @@ function renderDiffStatCard(theme: BoxTheme, parsed: DiffStatSummary, out: strin
 		const branch = i < lastIndex || more > 0 ? "├─" : "└─";
 		const changes = file.changes ?? 0;
 		const detail = theme.fg("dim", file.binary ? "· binary" : `· ${changes} ${pluralForm("change", changes)}`);
-		const line = `${TREE_INDENT}${dimLine(branch)} ${theme.fg("toolOutput", file.path)} ${detail}`;
+		const prefix = `${TREE_INDENT}${dimLine(branch)} `;
+		const path = compactGitPath(file.path, width - safeVisibleWidth(prefix) - safeVisibleWidth(detail) - 1);
+		const line = `${prefix}${theme.fg("toolOutput", path)} ${detail}`;
 		out.push(safeTruncateToWidth(line, width, "…"));
 	}
 	if (more > 0) {
@@ -1857,7 +1874,8 @@ function diffStatsFragment(theme: BoxTheme, stats: { additions: number; removals
 }
 
 function fileBoxTopLabel(theme: BoxTheme, path: string, stats?: { additions: number; removals: number }): string {
-	const body = stats ? `${theme.fg("text", path)} · ${diffStatsFragment(theme, stats)}` : theme.fg("text", path);
+	const label = compactGitPath(path);
+	const body = stats ? `${theme.fg("text", label)} · ${diffStatsFragment(theme, stats)}` : theme.fg("text", label);
 	return typeof theme?.bold === "function" ? theme.bold(body) : body;
 }
 

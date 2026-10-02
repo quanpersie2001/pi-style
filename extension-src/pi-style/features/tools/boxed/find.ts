@@ -19,6 +19,7 @@ import {
 } from "./batch.js";
 import { renderFallbackResult } from "./fallback.js";
 import { parseFindOutput } from "./output-tree.js";
+import { compactToolPath } from "./path.js";
 import { type BoxedToolDefinition, noteExecutionStart } from "./shared.js";
 
 const FIND_META: BatchToolMeta = Object.freeze({
@@ -29,7 +30,7 @@ const FIND_META: BatchToolMeta = Object.freeze({
 
 function pathLabel(rawPath: string): string {
 	const displayPath = String(rawPath ?? ".");
-	return displayPath === "." || displayPath === "" ? "current directory" : shortenPath(displayPath);
+	return displayPath === "." || displayPath === "" ? "current directory" : compactToolPath(shortenPath(displayPath));
 }
 
 function queryDetail(pattern: string, rawPath: string): string {

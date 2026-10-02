@@ -21,7 +21,8 @@
 
 import type { BoxTheme } from "../../../shared/box.js";
 import { dimLine } from "../../../shared/box.js";
-import { safeTruncateToWidth } from "../../../shared/render-budget.js";
+import { safeTruncateToWidth, safeVisibleWidth } from "../../../shared/render-budget.js";
+import { compactToolPath } from "./path.js";
 
 /** Indent for top-level tree rows; matches the quiet-tool batch panel. */
 export const TREE_INDENT = "  ";
@@ -242,7 +243,10 @@ export function renderOutputTree(
 	const entryColor = options.entryColor ?? "toolOutput";
 	const indent = options.indent ?? TREE_INDENT;
 	const safeWidth = Math.max(1, width);
-	const label = (entry: string) => (options.withIcons && entry ? `${fileIcon(entry)} ${entry}` : entry);
+	const label = (entry: string) => {
+		const icon = options.withIcons && entry ? `${fileIcon(entry)} ` : "";
+		return `${icon}${compactToolPath(entry, safeWidth - safeVisibleWidth(indent) - 3 - safeVisibleWidth(icon))}`;
+	};
 
 	const out: string[] = [safeTruncateToWidth(header, safeWidth, "…")];
 	if (entries.length === 0) return out;
@@ -350,7 +354,8 @@ export function renderGrepTree(
 			if (visibleHere.length === 0) continue;
 
 			const groupIsLastRendered = shown >= totalVisible && !truncated;
-			const fileLabel = options.withIcons ? `${fileIcon(group.file)} ${group.file}` : group.file;
+			const icon = options.withIcons ? `${fileIcon(group.file)} ` : "";
+			const fileLabel = `${icon}${compactToolPath(group.file, safeWidth - safeVisibleWidth(indent) - 3 - safeVisibleWidth(icon))}`;
 			// File nodes use the primary (accent) color, matching read/ls/find paths.
 			push(`${indent}${dimLine(groupIsLastRendered ? "└─" : "├─")} ${theme.fg("accent", fileLabel)}`);
 

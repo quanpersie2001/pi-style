@@ -44,7 +44,7 @@
 import type { Component } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
 import { type BoxTheme, dimLine, formatToolTitlePrefix, themeCacheKey } from "../../../shared/box.js";
-import { safeTruncateToWidth } from "../../../shared/render-budget.js";
+import { safeTruncateToWidth, safeVisibleWidth } from "../../../shared/render-budget.js";
 import {
 	fileIcon,
 	OUTPUT_TREE_HEAD_LIMIT,
@@ -54,6 +54,7 @@ import {
 	TREE_CHILD_INDENT,
 	TREE_INDENT,
 } from "./output-tree.js";
+import { compactToolPath } from "./path.js";
 import { getToolsRenderCacheSignature, getToolsRenderConfig } from "./session-config.js";
 import type { BoxedToolContext } from "./shared.js";
 
@@ -473,6 +474,18 @@ function renderErrorLines(theme: BoxTheme, errorText: string, width: number): st
 	return out;
 }
 
+function renderPathRow(
+	theme: BoxTheme,
+	prefix: string,
+	path: string,
+	color: string,
+	width: number,
+	suffix = "",
+): string {
+	const detail = compactToolPath(path, width - safeVisibleWidth(prefix) - safeVisibleWidth(suffix));
+	return safeTruncateToWidth(`${prefix}${theme.fg(color, detail)}${suffix}`, Math.max(1, width), "…");
+}
+
 function renderBatchTree(theme: BoxTheme, batch: BatchState, status: BatchStatus, width: number): string[] {
 	const showGlyphs = !status.allDone || status.failed > 0;
 	const limit = batch.open ? batch.members.length : BATCH_TREE_HEAD_LIMIT;
@@ -487,8 +500,12 @@ function renderBatchTree(theme: BoxTheme, batch: BatchState, status: BatchStatus
 		const glyph = memberGlyph(theme, member, showGlyphs);
 		// Primary color for files read successfully, error red for failures.
 		const pathColor = member.isError ? "error" : member.status === "done" ? "accent" : "text";
-		const line = `${BATCH_TREE_INDENT}${dimLine(branch)}${glyph ? ` ${glyph}` : ""} ${theme.fg(pathColor, member.detail)}`;
-		out.push(safeTruncateToWidth(line, Math.max(1, width), "…"));
+		const prefix = `${BATCH_TREE_INDENT}${dimLine(branch)}${glyph ? ` ${glyph}` : ""} `;
+		out.push(
+			batch.meta.toolName === "find"
+				? safeTruncateToWidth(`${prefix}${theme.fg(pathColor, member.detail)}`, Math.max(1, width), "…")
+				: renderPathRow(theme, prefix, member.detail, pathColor, width),
+		);
 		if (member.isError && member.errorText) out.push(...renderErrorLines(theme, member.errorText, width));
 	}
 	if (more > 0) {
@@ -509,7 +526,7 @@ function formatLoneOutputHeader(theme: BoxTheme, meta: BatchToolMeta, member: Ba
 	const count = member.outputEntries?.length ?? 0;
 	const filesPart = theme.fg("accent", `${count} ${count === 1 ? "file" : "files"}`);
 	const patternPart = meta.toolName === "find" && member.pattern ? `${theme.fg("text", member.pattern)} ` : "";
-	const pathPart = member.pathLabel ? theme.fg("dim", ` · in ${member.pathLabel}`) : "";
+	const pathPart = member.pathLabel ? theme.fg("dim", ` · in ${compactToolPath(member.pathLabel)}`) : "";
 	// ls/find headers carry the magnifying-glass icon in Nerd Font mode,
 	// matching find/grep.
 	const icon = getToolsRenderConfig().nerdFonts ? `${SEARCH_ICON} ` : "";
@@ -531,21 +548,21 @@ function renderMemberSubtree(
 	// Member header row: path + file count (or status glyph when not done).
 	const entries = member.outputEntries ?? [];
 	if (member.isError) {
-		const line = `${BATCH_TREE_INDENT}${dimLine(isLastMember ? "└─" : "├─")} ${theme.fg("error", "✗")} ${theme.fg("error", member.pathLabel ?? member.detail)}`;
-		out.push(safeTruncateToWidth(line, safeWidth, "…"));
+		const prefix = `${BATCH_TREE_INDENT}${dimLine(isLastMember ? "└─" : "├─")} ${theme.fg("error", "✗")} `;
+		out.push(renderPathRow(theme, prefix, member.pathLabel ?? member.detail, "error", safeWidth));
 		if (member.errorText) out.push(...renderErrorLines(theme, member.errorText, width));
 		return out;
 	}
 	if (member.status !== "done" || member.outputEntries === undefined) {
 		const glyph = member.status === "done" ? theme.fg("success", "✓") : theme.fg("text", "◌");
-		const line = `${BATCH_TREE_INDENT}${dimLine(isLastMember ? "└─" : "├─")} ${glyph} ${theme.fg("text", member.pathLabel ?? member.detail)}`;
-		out.push(safeTruncateToWidth(line, safeWidth, "…"));
+		const prefix = `${BATCH_TREE_INDENT}${dimLine(isLastMember ? "└─" : "├─")} ${glyph} `;
+		out.push(renderPathRow(theme, prefix, member.pathLabel ?? member.detail, "text", safeWidth));
 		return out;
 	}
 
 	const countLabel = theme.fg("dim", ` · ${entries.length} ${pluralForm("file", entries.length)}`);
-	const headerLine = `${BATCH_TREE_INDENT}${dimLine(isLastMember ? "└─" : "├─")} ${theme.fg("accent", member.pathLabel ?? member.detail)}${countLabel}`;
-	out.push(safeTruncateToWidth(headerLine, safeWidth, "…"));
+	const prefix = `${BATCH_TREE_INDENT}${dimLine(isLastMember ? "└─" : "├─")} `;
+	out.push(renderPathRow(theme, prefix, member.pathLabel ?? member.detail, "accent", safeWidth, countLabel));
 
 	const visible = entries.slice(0, open ? entries.length : BATCH_MEMBER_FILE_HEAD_LIMIT);
 	const more = entries.length - visible.length;
@@ -553,10 +570,10 @@ function renderMemberSubtree(
 	const icons = getToolsRenderConfig().nerdFonts;
 	for (let i = 0; i < visible.length; i++) {
 		const entry = visible[i] ?? "";
-		const label = icons && entry ? `${fileIcon(entry)} ${entry}` : entry;
+		const icon = icons && entry ? `${fileIcon(entry)} ` : "";
 		const branch = i < lastIndex || more > 0 ? "├─" : "└─";
-		const line = `${BATCH_TREE_INDENT}${trunk}${TREE_CHILD_INDENT}${dimLine(branch)} ${theme.fg("toolOutput", label)}`;
-		out.push(safeTruncateToWidth(line, safeWidth, "…"));
+		const prefix = `${BATCH_TREE_INDENT}${trunk}${TREE_CHILD_INDENT}${dimLine(branch)} ${icon}`;
+		out.push(renderPathRow(theme, prefix, entry, "toolOutput", safeWidth));
 	}
 	if (more > 0) {
 		const line = `${BATCH_TREE_INDENT}${trunk}${TREE_CHILD_INDENT}${dimLine("└─")} ${theme.fg("dim", `… ${more} more ${pluralForm("file", more)}`)}`;
@@ -638,10 +655,13 @@ function renderMergedChunkPanel(theme: BoxTheme, batch: BatchState, status: Batc
 						? ""
 						: formatElapsed(theme, status.elapsedMs)
 			}`;
-	const line = safeTruncateToWidth(
-		`${prefix}${glyph ? ` ${glyph}` : ""} ${theme.fg(detailColor, mergedChunkDetail(batch))}${suffix}`,
-		Math.max(1, width),
-		"…",
+	const line = renderPathRow(
+		theme,
+		`${prefix}${glyph ? ` ${glyph}` : ""} `,
+		mergedChunkDetail(batch),
+		detailColor,
+		width,
+		suffix,
 	);
 	const out = [line];
 	const failedMember = batch.members.find((member) => member.isError);
@@ -656,13 +676,7 @@ function renderLoneReadPanel(theme: BoxTheme, batch: BatchState, status: BatchSt
 	const prefix = bold(theme, formatToolTitlePrefix(theme, batch.meta.label));
 	const glyph = memberGlyph(theme, member, !status.allDone || status.failed > 0);
 	const pathColor = member.isError ? "error" : member.status === "done" ? "accent" : "text";
-	const out = [
-		safeTruncateToWidth(
-			`${prefix}${glyph ? ` ${glyph}` : ""} ${theme.fg(pathColor, member.detail)}`,
-			Math.max(1, width),
-			"…",
-		),
-	];
+	const out = [renderPathRow(theme, `${prefix}${glyph ? ` ${glyph}` : ""} `, member.detail, pathColor, width)];
 	if (member.isError && member.errorText) out.push(...renderErrorLines(theme, member.errorText, width));
 	return out;
 }
@@ -729,7 +743,11 @@ export function renderStandaloneMemberCall(theme: BoxTheme, label: string, detai
 		invalidate() {},
 		render(width: number): string[] {
 			const prefix = bold(theme, formatToolTitlePrefix(theme, label));
-			return [safeTruncateToWidth(`${prefix} ${theme.fg("text", detail)}`, Math.max(1, width), "…")];
+			return [
+				label === "Read" || label === "List"
+					? renderPathRow(theme, `${prefix} `, detail, "text", width)
+					: safeTruncateToWidth(`${prefix} ${theme.fg("text", detail)}`, Math.max(1, width), "…"),
+			];
 		},
 	};
 }

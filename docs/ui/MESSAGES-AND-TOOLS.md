@@ -1,6 +1,6 @@
 # Messages and tool presentation
 
-> Status: **Implemented/certified subset — Pi 0.83.0 through 0.85.1; capability-conditioned fallbacks remain native**
+> Status: **Implemented/certified subset — Pi 0.83.0 through 0.85.1, 0.99.1–0.99.2, and 1.0.0; capability-conditioned fallbacks remain native**
 
 ## Scope
 
@@ -89,7 +89,7 @@ Once the **agent run completes**, the same patch surfaces one clickable aggregat
 
 ## Compatibility status
 
-The certified Tier C subset targets recorded runtime identities (observed on Pi `0.83.0`–`0.85.1`; policy range `>=0.83.0 <0.86.0`). Installation is session-only; the core/message/tool surface flags are default-on (fingerprint-certified, fail-closed elsewhere, conflict-preserving), and the OFF switch is `compatibility.allowCorePatches: false` in config. No execution, tool registration, prompt, filesystem, or process behavior is changed.
+The certified Tier C subset targets recorded runtime identities (observed on Pi `0.83.0`–`0.85.1`, `0.99.1`–`0.99.2`, and `1.0.0`; policy range `>=0.83.0 <0.86.0 || >=0.99.0 <0.100.0 || >=1.0.0 <1.1.0`). Installation is session-only; the core/message/tool surface flags are default-on (fingerprint-certified, fail-closed elsewhere, conflict-preserving), and the OFF switch is `compatibility.allowCorePatches: false` in config. No execution, tool registration, prompt, filesystem, or process behavior is changed.
 
 Certified presentation: assistant prefix; tool call/result selectors with exact markers `[tool]`, `[tool:result]`, `[tool:pending]`, `[tool:running]`, `[tool:error]` (marker style); and boxed special blocks when `tools.style: "compact-box"` and `messages.specialBlocks` are active. Boxed special blocks are certified adapters over the native `updateDisplay`/`rebuild` identities (fingerprint-verified) and fall back to native layout whenever no session theme is cached or the component shape is unsupported. ASCII mode uses configured ASCII markers on already-authorized surfaces.
 
@@ -207,6 +207,12 @@ test/config.test.ts
 
 - Match rows render `*<line>: <content>` (the `*` marks the hit); context rows render ` <line>: <content>` (leading space, dim). The marker distinguishes a hit from context without color alone (TOOL-002).
 - Context rows adjacent to a shown match are free of the match budget; the budget counts matches only. A trailing `… N more matches` row collapses long results.
+
+#### Compact path labels
+
+Tool path labels are capped at **60 terminal columns**, with a smaller budget when the row/frame has less room. Short paths stay unchanged; long paths keep the first directory and basename while replacing the middle with the display-only `../../../` marker, e.g. `src/../../../AcceptStageWorkflow.cs:1-20`. Read line ranges and directory `/` suffixes are retained; very long basenames are middle-clipped, preserving the beginning and ending (including extension). Narrow terminals prefer the basename over directory context.
+
+The common `compactToolPath` helper applies to read rows (lone, batched, chunk-merged, expanded), write/edit-family headers, ls/find entries, grep file nodes, and bash semantic tree/Git path labels. It runs before theme styling, measures terminal cells, and never replaces raw arguments, parser records, cache identity or read chunk merge keys. Raw expanded result bodies remain unchanged.
 
 Header requirements: stable human-readable tool label (`formatToolName`); concise primary argument; pending/success/error via `✓`/`✗` glyphs, the self-applied `toolPendingBg`/`toolErrorBg`/`toolSuccessBg` status tint on framed boxes, and — on failure — an error-colored frame (borders and side bars render in the theme's error color; direct-bash cancelled boxes use warning); boxless surfaces stay transparent (see the background rule above); no leaking of hidden/sensitive values beyond native Pi behavior; incomplete streaming arguments render safely; labels and glyphs remain meaningful in ASCII/no-color mode.
 

@@ -73,8 +73,9 @@ export interface BoxedRenderOptions {
 	/** Detail embedded in the top-border title after the tool name (e.g. the
 	 *  path). A function form is resolved lazily at render time so the header can
 	 *  pick up state a result renderer published in the same updateDisplay pass
-	 *  (e.g. diff stats: `path · +3 -0`). */
-	headerDetail?: string | (() => string);
+	 *  (e.g. diff stats: `path · +3 -0`). The callback receives the available
+	 *  terminal columns after reserving the title and border decoration. */
+	headerDetail?: string | ((availableWidth: number) => string);
 	isError?: boolean;
 	isPartial?: boolean;
 	isPending?: boolean;
@@ -736,9 +737,11 @@ export function renderBoxedToolCall(
 				options.isError,
 				options.isPending ? (options.running ? "running" : "pending") : undefined,
 			);
-			const headerDetail = typeof options.headerDetail === "function" ? options.headerDetail() : options.headerDetail;
-			const headerLabel = headerDetail ? `${title} · ${headerDetail}` : title;
 			const renderedWidth = boxWidth(width);
+			const detailWidth = Math.max(0, renderedWidth - safeVisibleWidth(title) - 9);
+			const headerDetail =
+				typeof options.headerDetail === "function" ? options.headerDetail(detailWidth) : options.headerDetail;
+			const headerLabel = headerDetail ? `${title} · ${headerDetail}` : title;
 			// A failed call renders its whole frame in the error color.
 			const frameColor = options.isError ? "error" : undefined;
 			const lines = [
@@ -813,7 +816,12 @@ export function renderCompactBoxedToolCall(
 				options.isError,
 				options.isPending ? (options.running ? "running" : "pending") : undefined,
 			);
-			const headerLabel = detailLine ? `${title} · ${detailLine}` : title;
+			const detailWidth = Math.max(0, renderedWidth - safeVisibleWidth(title) - 9);
+			const headerDetail =
+				typeof options.headerDetail === "function"
+					? options.headerDetail(detailWidth)
+					: (options.headerDetail ?? detailLine);
+			const headerLabel = headerDetail ? `${title} · ${headerDetail}` : title;
 			const compactFooter =
 				typeof options.state?.[COMPACT_FOOTER_KEY] === "string" ? options.state[COMPACT_FOOTER_KEY] : "";
 			const _footerIsError = Boolean(options.state?.[COMPACT_FOOTER_ERROR_KEY]);
