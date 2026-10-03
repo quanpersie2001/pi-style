@@ -223,10 +223,15 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		// per-message stats, and exposes `run.messages` for late attribution
 		// (tools-first rounds whose turn ended before any thought group existed).
 		// finishAgentThoughtRun THEN pools the run stats onto the first segment
-		// leader (one merged row per agent run) and refreshes the labels.
+		// leader (one merged row per agent run) and refreshes the labels. Only
+		// THEN rebuild the tool blocks: the collapse gate must see the ended
+		// thought groups or it leaves a stale ➔ row until the next toggle.
 		const run = finishAgentRun();
 		if (run) {
 			for (const message of run.messages ?? []) attributeMessageToLatestGroup(message);
+		}
+		finishAgentThoughtRun();
+		if (run) {
 			// Pi only re-invokes the tool renderer selectors from updateDisplay(), so
 			// the captured per-block invalidate callbacks force the collapse and the
 			// captured Tui repaints. Interrupted runs (a call without a result) stay
@@ -235,7 +240,6 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 			invalidateTurnMembers(run);
 			requestToolPresentationRender();
 		}
-		finishAgentThoughtRun();
 	});
 	pi.on("agent_settled", (_event, ctx) =>
 		coordinator.app.update({ ...usagePatch(ctx) }, "coalesced", { refreshContextUsage: true }),

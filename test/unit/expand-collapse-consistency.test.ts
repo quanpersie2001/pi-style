@@ -23,7 +23,9 @@ import {
 	targetSpecs,
 } from "../../extension-src/pi-style/pi/compatibility-probe.js";
 import { getCompatibilityRecords } from "../../extension-src/pi-style/pi/compatibility-registry.js";
+import piStyleExtension from "../../extension-src/pi-style/pi/index.js";
 import { stripAnsi } from "../../extension-src/pi-style/shared/ansi.js";
+import { FakePiHost } from "../helpers/fake-pi-host.js";
 import { createFakeTheme } from "../helpers/fake-theme.js";
 
 initTheme(createFakeTheme());
@@ -375,7 +377,7 @@ describe("toggleTurnOpen guard", () => {
 });
 
 describe("merged thought-label click opens the run's tools (bridge)", () => {
-	it("◈ … · Called N tools toggles thinking AND the tool blocks together", async () => {
+	it("agent_end hides merged tools immediately and ◈ toggles thinking AND tools consistently", async () => {
 		setToolsRenderConfig({
 			style: "compact-box",
 			maxCollapsedLines: 30,
@@ -390,9 +392,7 @@ describe("merged thought-label click opens the run's tools (bridge)", () => {
 		const { setThoughtLabelTheme, __resetMessageDecorationTestState } = await import(
 			"../../extension-src/pi-style/features/messages/index.js"
 		);
-		const { beginAgentThoughtRun, finishAgentThoughtRun, resetAgentThoughtRuns } = await import(
-			"../../extension-src/pi-style/features/messages/thought-summary.js"
-		);
+		const { resetAgentThoughtRuns } = await import("../../extension-src/pi-style/features/messages/thought-summary.js");
 		__resetMessageDecorationTestState();
 		resetAgentThoughtRuns();
 		setThoughtLabelTheme({ fg: (_c, t) => t } as never);
@@ -424,7 +424,9 @@ describe("merged thought-label click opens the run's tools (bridge)", () => {
 		} as never;
 		const readDef = createReadToolDefinition("/fake");
 		const components: ToolExecutionComponent[] = [];
-		beginAgentThoughtRun(); // agent_start fires before any streaming component exists
+		const host = new FakePiHost();
+		piStyleExtension(host.extensionApi);
+		await host.emit("agent_start", { type: "agent_start" });
 		const assistant = new AssistantMessageComponent(message, true, theme, "", 1);
 		for (const call of calls) {
 			const component = new ToolExecutionComponent(
@@ -447,9 +449,9 @@ describe("merged thought-label click opens the run's tools (bridge)", () => {
 			message,
 			calls.map((call) => ({ toolCallId: call.id, isError: false, content: [], details: {} })),
 		);
-		const run = finishAgentRun(); // agent_end order: run first (publishes stats)
-		finishAgentThoughtRun(); // then thought run (pools run stats onto the label)
-		if (run) invalidateTurnMembers(run); // agent_end forces the collapse re-dispatch
+		// Exercise the production handler: a manually ordered finalize/invalidate
+		// sequence would miss a stale ➔ row on the first collapsed render.
+		await host.emit("agent_end", { type: "agent_end", messages: [] });
 
 		// Collapsed: one thought label row, tools hidden.
 		const labelRow = visibleLines(assistant.render(100));
@@ -473,6 +475,13 @@ describe("merged thought-label click opens the run's tools (bridge)", () => {
 		const regionAfter = container.children.find((child) => typeof child.handleMouse === "function");
 		expect(regionAfter?.handleMouse?.(click(0))).toEqual({ handled: true });
 		expect(visibleLines(components.flatMap((c) => c.render(100)))).toHaveLength(0);
+
+		// Pi's global Ctrl+O path must round-trip to the same collapsed output.
+		for (const component of components) component.setExpanded(true);
+		expect(visibleLines(components.flatMap((c) => c.render(100))).join("\n")).toContain("a.ts");
+		for (const component of components) component.setExpanded(false);
+		expect(visibleLines(components.flatMap((c) => c.render(100)))).toHaveLength(0);
+		expect(visibleLines(assistant.render(100))).toEqual(labelRow);
 
 		disposePiCompatibilityProbe(report);
 		resetAgentThoughtRuns();
