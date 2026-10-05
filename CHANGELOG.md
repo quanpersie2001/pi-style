@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1] - 2026-10-05
+
+### Bug Fixes
+
+- *(startup)* Match Pi logo reference brand colors
+- *(editor)* Preserve native working indicator in styled frames
+- *(summary)* Unify run disclosure and native expansion state
+
 ## [0.5.0] - 2026-10-05
 
 ### Bug Fixes
