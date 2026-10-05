@@ -111,7 +111,11 @@ Available: model/provider, thinking level, context percentage/window, project/pa
 
 ## Thinking and working state
 
-Thinking level may communicate through border/frame color: off/minimal muted, low/medium progressively accented, high/xhigh/max strong semantic colors. Text stays in the status line by default; no rainbow animation interferes with input readability. Pi's working indicator remains the primary streaming signal; the editor may use a subtle active border but never continuously animates the frame or triggers expensive redraws.
+Thinking level may communicate through border/frame color: off/minimal muted, low/medium progressively accented, high/xhigh/max strong semantic colors. Text stays in the status line by default; no rainbow animation interferes with input readability.
+
+Pi's native working indicator is embedded in the editor's top border through `CustomEditor`'s `embedWorkingStatus` option. The styled renderer delegates to the protected native `renderTopBorder()` hook at the full frame width (minus two columns for rounded/outline corners), preserving indicator ANSI, native message updates, spinner-only degradation, and the `↑ N more` scroll label. Normal and autocomplete rendering retain that line; native style delegates unchanged. Idle frame glyphs remain styled as before.
+
+Pi owns the indicator instance, animation timer, lifecycle, interrupt handling, and disposal. pi-style neither reads the private indicator field nor creates a second loader/timer; animated border output is never cached. Older hosts without the border hook retain the idle styled frame and Pi's standalone status above the editor.
 
 ## Width behavior
 
@@ -146,6 +150,14 @@ Any constructor/render capability mismatch falls back to the previous/native edi
 - **EDIT-009:** no unrelated shell/history/navigation workflow is introduced.
 - **EDIT-010:** theme invalidation rebuilds themed content.
 - **EDIT-011:** no private autocomplete state dependency is required for v1.
+
+## Automated proof
+
+- `test/unit/editor-working-indicator.test.ts` — native embedding, frame/width matrix, full-width delegation with one native render, indicator update/replacement/removal, scroll labels, real autocomplete provider and cursor-marker preservation, interrupt delegation, render-failure cleanup, and older-renderer fallback.
+- `test/unit/editor.test.ts` — idle frames, prompt/input behavior, bash mode, and native render call counts.
+- `test/performance/editor-rendering-bounds.test.ts` — render-plan reuse and bounded native render work.
+
+Interactive terminal proof of host streaming/cleanup remains a manual check; the unit tests exercise the native border contract with a controllable indicator double.
 
 ## Roadmap coverage
 

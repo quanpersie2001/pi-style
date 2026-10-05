@@ -179,13 +179,15 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	private semanticDirty = false;
 	private disposed = false;
 	private renderPlanCache: { key: string; plan: RenderPlan } | undefined;
+	/** Scoped to one native render; never cache an animated/themed status line. */
+	private nativeFrame: { width: number; kind: RenderPlan["kind"]; topBorder?: string } | undefined;
 	private readonly clipboardImagePaste: ClipboardImagePasteSurface | undefined;
 	/** Keybinding matcher (the factory's KeybindingsManager) for keystroke-level
 	 *  interception: the paste keybinding and backspace checks below. */
 	private readonly editorKeybindings: { matches(data: string, keybinding: string): boolean };
 
 	constructor(tui: Tui, theme: PiEditorTheme, keybindings: Keybindings, options: EditorOptions) {
-		super(tui, theme, keybindings);
+		super(tui, theme, keybindings, { embedWorkingStatus: true });
 		this.config = options.config;
 		this.snapshot = options.snapshot;
 		this.piTheme = theme;
@@ -326,7 +328,7 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		if (plan.style === "native") return super.render(width).map((line) => widthSafe(line, width));
 		if (autocompleteState) return this.renderAutocompleteFrame(width, plan);
 
-		const innerLines = super.render(plan.innerWidth);
+		const innerLines = this.renderNativeFrame(plan.innerWidth, width, plan.kind);
 		if (innerLines.length === 0) return [];
 		const body = innerLines.slice(1, -1);
 		const hint = this.config.editor.hint;
@@ -345,7 +347,7 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 			return widthSafe(content, plan.renderWidth);
 		});
 		const metadata = this.metadata(width, plan.style);
-		const framed = this.frame(width, plan.style, renderedBody, metadata);
+		const framed = this.frame(width, plan.style, renderedBody, metadata, innerLines[0] ?? "");
 		return framed.map((line) => widthSafe(line, width));
 	}
 
@@ -384,13 +386,69 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		return plan;
 	}
 
+	/**
+	 * Pi supplies the live indicator and scroll count through its protected
+	 * border hook. Render it at the FRAME width, not the narrower text width,
+	 * so padding/prompt decoration cannot truncate a status that still fits.
+	 */
+	protected override renderTopBorder(width: number, hiddenLineCount: number): string {
+		const frame = this.nativeFrame;
+		if (!frame) return super.renderTopBorder(width, hiddenLineCount);
+		const borderWidth = this.topBorderWidth(frame.width, frame.kind);
+		const nativeBorder = super.renderTopBorder(borderWidth, hiddenLineCount);
+		frame.topBorder = this.styleTopBorder(frame.width, frame.kind, nativeBorder);
+		return frame.topBorder;
+	}
+
+	private topBorderWidth(width: number, kind: RenderPlan["kind"]): number {
+		return Math.max(0, width - (kind === "rounded" || kind === "outline" ? 2 : 0));
+	}
+
+	private styleTopBorder(width: number, kind: RenderPlan["kind"], nativeBorder?: string): string {
+		const border = this.borderFor();
+		const borderWidth = this.topBorderWidth(width, kind);
+		const glyph = kind === "boxed" ? (this.config.editor.frame === "halfblock" ? "▀" : "━") : "─";
+		// Only restyle an empty native rule. Status ANSI and scroll labels pass
+		// through verbatim; never parse a message or read Pi's private indicator.
+		const content =
+			nativeBorder !== undefined && !/^─*$/.test(stripAnsi(nativeBorder))
+				? nativeBorder
+				: border(glyph.repeat(borderWidth));
+		if (kind === "rounded") return `${border("╭")}${content}${border("╮")}`;
+		if (kind === "outline") return `${border("┌")}${content}${border("┐")}`;
+		return content;
+	}
+
+	private frameBottomBorder(width: number, kind: RenderPlan["kind"]): string {
+		const border = this.borderFor();
+		const inner = this.topBorderWidth(width, kind);
+		if (kind === "rounded") return border(`╰${"─".repeat(inner)}╯`);
+		if (kind === "outline") return border(`└${"─".repeat(inner)}┘`);
+		const glyph = kind === "boxed" ? (this.config.editor.frame === "halfblock" ? "▀" : "━") : "─";
+		return border(glyph.repeat(width));
+	}
+
+	private renderNativeFrame(nativeWidth: number, frameWidth: number, kind: RenderPlan["kind"]): string[] {
+		const previous = this.nativeFrame;
+		const frame: NonNullable<StyledEditor["nativeFrame"]> = { width: frameWidth, kind };
+		this.nativeFrame = frame;
+		try {
+			const lines = super.render(nativeWidth);
+			// Older Pi editors may not call the border hook. Retain our idle frame;
+			// their host still owns the standalone working indicator above it.
+			if (lines.length > 0) lines[0] = frame.topBorder ?? this.styleTopBorder(frameWidth, kind);
+			return lines;
+		} finally {
+			this.nativeFrame = previous;
+		}
+	}
+
 	private renderAutocompleteFrame(width: number, plan: RenderPlan): string[] {
-		const nativeLines = super.render(width);
+		const nativeLines = this.renderNativeFrame(width, width, plan.kind);
 		const borderIndex = nativeLines.slice(1).findIndex((line) => isNativeBorderLine(line));
 		const split = borderIndex >= 0 ? borderIndex + 1 : nativeLines.length;
 		const body = nativeLines.slice(1, split);
 		const dropdown = nativeLines.slice(split);
-		const border = this.borderFor();
 		const sideColor = plan.kind === "rounded" ? this.borderColorFor() : undefined;
 		const wrap = (line: string) =>
 			plan.kind === "rounded" && sideColor ? `${sideColor("│")}${line}${sideColor("│")}` : line;
@@ -400,15 +458,7 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 			return wrap(widthSafe(`${index === 0 ? plan.prefix : plan.continuation}${source}`, plan.renderWidth));
 		});
 		const dropdownLines = dropdown.map((line) => wrap(widthSafe(line, plan.renderWidth)));
-		if (plan.kind === "rounded") {
-			return [
-				border(`╭${"─".repeat(Math.max(0, width - 2))}╮`),
-				...renderedBody,
-				...dropdownLines,
-				border(`╰${"─".repeat(Math.max(0, width - 2))}╯`),
-			];
-		}
-		return [border("─".repeat(width)), ...renderedBody, ...dropdownLines, border("─".repeat(width))];
+		return [nativeLines[0] ?? "", ...renderedBody, ...dropdownLines, this.frameBottomBorder(width, plan.kind)];
 	}
 
 	private prompt(): string {
@@ -498,18 +548,10 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		style: "compact" | "boxed" | "dock" | "native",
 		body: string[],
 		metadata: string[],
+		topBorder: string,
 	): string[] {
-		const border = this.borderFor();
 		const kind = this.frameKind(style);
-		if (kind === "compact") {
-			// Match Pi's native editor: a horizontal border above and below the input.
-			return [border("─".repeat(width)), ...body, border("─".repeat(width)), ...metadata];
-		}
-		if (kind === "boxed") {
-			const glyph = this.config.editor.frame === "halfblock" ? "▀" : "━";
-			return [border(glyph.repeat(width)), ...body, border(glyph.repeat(width)), ...metadata];
-		}
-		if (kind === "native") return body;
+		const bottomBorder = this.frameBottomBorder(width, kind);
 		const inner = Math.max(0, width - 2);
 		if (kind === "rounded") {
 			// Rounded box with vertical side borders: `╭─╮ / │ text │ / ╰─╯`.
@@ -517,9 +559,9 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 			// Side glyphs use the raw border color (no full-width padding, unlike border()).
 			const sideColor = this.borderColorFor();
 			const side = (line: string) => `${sideColor("│")}${widthSafe(line, inner)}${sideColor("│")}`;
-			return [border(`╭${"─".repeat(inner)}╮`), ...body.map(side), border(`╰${"─".repeat(inner)}╯`), ...metadata];
+			return [topBorder, ...body.map(side), bottomBorder, ...metadata];
 		}
-		return [border(`┌${"─".repeat(inner)}┐`), ...body, border(`└${"─".repeat(inner)}┘`), ...metadata];
+		return [topBorder, ...body, bottomBorder, ...metadata];
 	}
 
 	private metadata(width: number, style: "compact" | "boxed" | "dock" | "native"): string[] {
