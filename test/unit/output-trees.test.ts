@@ -14,7 +14,7 @@ import {
 	parseLsLongOutput,
 	parseLsOutput,
 	pluralForm,
-	renderGrepTree,
+	renderGrepFilesTree,
 	renderOutputTree,
 	SEARCH_ICON,
 } from "../../extension-src/pi-style/features/tools/boxed/output-tree.js";
@@ -149,7 +149,7 @@ describe("fileIcon", () => {
 	});
 });
 
-describe("renderOutputTree / renderGrepTree", () => {
+describe("renderOutputTree / renderGrepFilesTree", () => {
 	it("renders a flat tree with a head limit and a 'more' row", () => {
 		const entries = Array.from({ length: 10 }, (_, i) => `f${i}.ts`);
 		const lines = plain(renderOutputTree(theme, "Find: **/*.ts 10 files · in .", entries, 80));
@@ -158,51 +158,23 @@ describe("renderOutputTree / renderGrepTree", () => {
 		expect(lines.at(-1)).toBe("  └─ … 4 more files");
 	});
 
-	it("renders a single-file grep tree with *line│content rows", () => {
-		const matches = parseGrepOutput("doc.md:13: alpha\ndoc.md:14: beta");
-		const lines = plain(renderGrepTree(theme, "Grep: x 2 matches · 1 file · in doc.md", matches, 80));
-		expect(lines[0]).toBe("Grep: x 2 matches · 1 file · in doc.md");
-		expect(lines[1]).toBe("  ├─ *13│ alpha");
-		expect(lines[2]).toBe("  └─ *14│ beta");
+	it("renders a files-only grep tree with a 'more files' row", () => {
+		const matches = parseGrepOutput(Array.from({ length: 9 }, (_, i) => `f${i}.ts:3: hit ${i}`).join("\n"));
+		const lines = plain(renderGrepFilesTree(theme, "Grep: x 9 matches · 9 files · in .", matches, 80));
+		expect(lines[0]).toBe("Grep: x 9 matches · 9 files · in .");
+		expect(lines[1]).toBe("  ├─ f0.ts");
+		expect(lines.at(-1)).toBe("  └─ … 3 more files");
+		expect(lines.join("\n")).not.toContain("hit");
 	});
 
-	it("renders a multi-file grep tree grouped under file nodes", () => {
-		const matches = parseGrepOutput("a.ts:3: alpha\nb.ts:5: beta");
-		const lines = plain(renderGrepTree(theme, "Grep: x 2 matches · 2 files · in .", matches, 80));
-		expect(lines).toEqual([
-			"Grep: x 2 matches · 2 files · in .",
-			"  ├─ a.ts",
-			"  │  ├─ *3│ alpha",
-			"  └─ b.ts",
-			"     └─ *5│ beta",
-		]);
-	});
-
-	it("aligns match rows on the widest line number so the content column stays put", () => {
-		const matches = parseGrepOutput(
-			"domain/config-normalization.ts:35: hideThinkingLabel: true\n" +
-				"domain/config-normalization.ts:36: thoughtSummary: true\n" +
-				"domain/config-normalization.ts:37: mergedTurnSummary: true\n" +
-				"domain/config-normalization.ts:185: hideThinkingLabel: bool(...)",
-		);
-		const lines = plain(renderGrepTree(theme, "Grep: x 4 matches · 1 file · in domain", matches, 80));
-		expect(lines[1]).toBe("  ├─ * 35│ hideThinkingLabel: true");
-		expect(lines[2]).toBe("  ├─ * 36│ thoughtSummary: true");
-		expect(lines[4]).toBe("  └─ *185│ hideThinkingLabel: bool(...)");
-		// Every row's separator sits at the same column.
-		const columns = lines.slice(1).map((line) => line.indexOf("│"));
-		expect(new Set(columns).size).toBe(1);
-	});
-
-	it("colors grep file nodes with the primary (accent) color", () => {
+	it("colors grep file rows with the primary (accent) color", () => {
 		const rich = createFakeTheme({ colors: { accent: "#8abeb7" } });
 		const matches = parseGrepOutput("a.ts:3: alpha\nb.ts:5: beta");
-		const raw = renderGrepTree(rich, "Grep: x", matches, 80);
+		const raw = renderGrepFilesTree(rich, "Grep: x", matches, 80);
 		const accentAnsi = "\x1b[38;2;138;190;183m";
 		const fileNode = raw.find((line) => line.includes("a.ts")) ?? "";
-		expect(fileNode).toContain(`${accentAnsi}a.ts`); // file node in accent
-		const matchRow = raw.find((line) => line.includes("*3│")) ?? "";
-		expect(matchRow).not.toContain(accentAnsi); // match rows stay text-colored
+		expect(fileNode).toContain(`${accentAnsi}a.ts`); // file row in accent
+		expect(fileNode).not.toContain("alpha"); // match content never renders
 	});
 
 	it("keeps every row within the requested width", () => {
@@ -210,7 +182,7 @@ describe("renderOutputTree / renderGrepTree", () => {
 			Array.from({ length: 30 }, (_, i) => `longfilename.ts:${i + 1}: ${"x".repeat(60)}`).join("\n"),
 		);
 		for (const width of [20, 40, 80]) {
-			for (const line of renderGrepTree(theme, "Grep: x", matches, width)) {
+			for (const line of renderGrepFilesTree(theme, "Grep: x", matches, width)) {
 				expect(visibleWidth(line)).toBeLessThanOrEqual(Math.max(1, width));
 			}
 		}
@@ -278,7 +250,7 @@ describe("ls/find output-tree panels", () => {
 });
 
 describe("grep output-tree panel", () => {
-	it("renders matches as a Grep tree grouped by file", () => {
+	it("renders a collapsed grep as a files-only tree (no match content)", () => {
 		const ctx1 = context({ toolCallId: "g1", args: { pattern: "foo", path: "src" }, cwd: "/fake" });
 		const call = dispatchCall("grep", { pattern: "foo", path: "src" }, theme, ctx1);
 		dispatchResult(
@@ -289,8 +261,60 @@ describe("grep output-tree panel", () => {
 			ctx1,
 		);
 		const lines = plain(call.render(80));
-		expect(lines[0]).toBe("Grep: foo 2 matches · 2 files · in src");
-		expect(lines.join("\n")).toContain("├─ * 3│ match one");
+		expect(lines).toEqual(["Grep: foo 2 matches · 2 files · in src", "  ├─ a.ts", "  └─ b.ts"]);
+	});
+
+	it("collapses the files-only view to a 'more files' row", () => {
+		const ctx1 = context({ toolCallId: "g1b", args: { pattern: "foo", path: "src" }, cwd: "/fake" });
+		const call = dispatchCall("grep", { pattern: "foo", path: "src" }, theme, ctx1);
+		dispatchResult(
+			"grep",
+			textResult(Array.from({ length: 9 }, (_, i) => `f${i}.ts:3: hit`).join("\n")),
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx1,
+		);
+		const lines = plain(call.render(80));
+		expect(lines[0]).toBe("Grep: foo 9 matches · 9 files · in src");
+		expect(lines.at(-1)).toBe("  └─ … 3 more files");
+		expect(lines.join("\n")).not.toContain("hit");
+	});
+
+	it("renders the uncut file list on header click (state.open), never content", () => {
+		const ctx1 = context({ toolCallId: "g1c", args: { pattern: "foo", path: "src" }, cwd: "/fake" });
+		const call = dispatchCall("grep", { pattern: "foo", path: "src" }, theme, ctx1) as unknown as {
+			render: (width: number) => string[];
+			handleMouse: (event: { type: string; button: string; y: number }) => { handled: boolean } | undefined;
+		};
+		dispatchResult(
+			"grep",
+			textResult(Array.from({ length: 9 }, (_, i) => `f${i}.ts:3: hit ${i}`).join("\n")),
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx1,
+		);
+		expect(call.handleMouse({ type: "click", button: "left", y: 0 })).toEqual({ handled: true });
+		const lines = plain(call.render(80));
+		expect(lines).toHaveLength(10); // header + all 9 files
+		expect(lines.join("\n")).toContain("f8.ts");
+		expect(lines.join("\n")).not.toContain("hit");
+		expect(lines.join("\n")).not.toContain("more files");
+	});
+
+	it("renders the uncut file list under Pi's global expansion (Ctrl+O), never content", () => {
+		const ctx1 = context({ toolCallId: "g1d", args: { pattern: "foo", path: "src" }, cwd: "/fake", expanded: true });
+		const call = dispatchCall("grep", { pattern: "foo", path: "src" }, theme, ctx1);
+		dispatchResult(
+			"grep",
+			textResult(Array.from({ length: 9 }, (_, i) => `f${i}.ts:3: hit ${i}`).join("\n")),
+			{ expanded: true, isPartial: false },
+			theme,
+			ctx1,
+		);
+		const lines = plain(call.render(80));
+		expect(lines).toHaveLength(10); // header + all 9 files
+		expect(lines.join("\n")).toContain("f8.ts");
+		expect(lines.join("\n")).not.toContain("hit");
 	});
 
 	it("renders a pending grep as a header-only line", () => {
@@ -320,7 +344,7 @@ describe("grep output-tree panel", () => {
 		resetGrepRegistry();
 		const lines = plain(call.render(80));
 		expect(lines[0]).toBe("Grep: foo 2 matches · 2 files · in src");
-		expect(lines.join("\n")).toContain("*3│ alpha");
+		expect(lines.join("\n")).toContain("a.ts");
 	});
 });
 
@@ -439,7 +463,7 @@ describe("bash command classification and tree routing", () => {
 		);
 		const lines = plain(call.render(90));
 		expect(lines[0]).toBe("Grep: name 2 matches · 1 file · in package.json");
-		expect(lines.join("\n")).toContain("*2│");
+		expect(lines.join("\n")).toContain("package.json");
 	});
 
 	it("renders zero matches as a tree without a boxed response", () => {

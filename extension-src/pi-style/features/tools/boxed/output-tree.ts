@@ -8,8 +8,8 @@
 //   match lines) into structured records, dropping trailing truncation notices;
 // - `renderOutputTree`, which lays out a flat list of entries under a header
 //   (used by lone ls/find and bash ls/find);
-// - `renderGrepTree`, which lays out grep matches grouped by file (used by grep
-//   and bash grep/rg).
+// - `renderGrepFilesTree`, the grep view: one row per matching file — match
+//   content is never rendered.
 //
 // Design notes:
 // - Pure + theme-consuming: no filesystem, no global state, no caching (callers
@@ -266,113 +266,35 @@ export function renderOutputTree(
 	return out;
 }
 
-export interface GrepTreeOptions {
-	/** Maximum matches shown (across all files) before the "… N more" row. */
+export interface GrepFilesTreeOptions {
+	/** Maximum files shown before the "… N more files" row. */
 	headLimit?: number;
-	/** Indent prefix applied to top-level rows. */
+	/** Indent prefix applied to every row (defaults to TREE_INDENT). */
 	indent?: string;
 	/** Nerd Font mode: prefix file nodes with their file-type icon. */
 	withIcons?: boolean;
 }
 
-/** Gutter width for match-row line numbers: the widest line number across
- *  ALL matches (not just the visible budget), so the content column stays put
- *  when the tree expands (header click / Ctrl+O) instead of re-shifting. */
-function matchLineGutterWidth(matches: readonly GrepMatch[]): number {
-	let width = 1;
-	for (const match of matches) {
-		const length = String(match.line).length;
-		if (length > width) width = length;
-	}
-	return width;
-}
-
-function formatMatchRow(theme: BoxTheme, match: GrepMatch, lineWidth: number): string {
-	// Match rows render in the output text color (not primary) so they read like
-	// the matched code; only the file nodes carry the primary color. Line
-	// numbers are right-aligned on the shared gutter so the `│` separator and
-	// the content column line up across rows (`* 35│` / `*186│`).
-	const label = theme.fg("toolOutput", `*${String(match.line).padStart(lineWidth)}`);
-	const sep = dimLine("│");
-	return `${label}${sep} ${theme.fg("toolOutput", match.content)}`;
-}
-
 /**
- * Render a grep matches tree: `<header>` then matches grouped by file. With a
- * single file the matches are direct children; with several files each file is
- * a `├─ file` node and its matches hang off an indented trunk beneath. A
- * trailing `└─ … N more matches` row appears when the match budget is exceeded.
+ * Render the grep tree: `<header>` then one `├─/└─` row per file with
+ * matches (accent color) — match content is never rendered; the file list is
+ * the whole view, and expansion only lifts the file head limit. A trailing `└─ … N more files` row appears when the file budget is exceeded.
  */
-export function renderGrepTree(
+export function renderGrepFilesTree(
 	theme: BoxTheme,
 	header: string,
 	matches: readonly GrepMatch[],
 	width: number,
-	options: GrepTreeOptions = {},
+	options: GrepFilesTreeOptions = {},
 ): string[] {
-	const headLimit = options.headLimit ?? OUTPUT_TREE_HEAD_LIMIT;
-	const indent = options.indent ?? TREE_INDENT;
-	const safeWidth = Math.max(1, width);
-
-	const out: string[] = [safeTruncateToWidth(header, safeWidth, "…")];
-	if (matches.length === 0) return out;
-
-	const groups = groupMatchesByFile(matches);
-	const singleFile = groups.length === 1;
-
-	// First decide which matches fit the budget so branch glyphs (├─ vs └─) and
-	// the trailing "… N more" row stay consistent.
-	const budget = matches.slice(0, headLimit);
-	const remaining = matches.length - budget.length;
-	const truncated = remaining > 0;
-	const totalVisible = budget.length;
-
-	const push = (line: string) => out.push(safeTruncateToWidth(line, safeWidth, "…"));
-	const lineWidth = matchLineGutterWidth(matches);
-
-	if (singleFile) {
-		budget.forEach((match, index) => {
-			const isLast = index === totalVisible - 1 && !truncated;
-			push(`${indent}${dimLine(isLast ? "└─" : "├─")} ${formatMatchRow(theme, match, lineWidth)}`);
-		});
-	} else {
-		// Walk the budget, tracking position within each file group so the file
-		// node and its match subtree render as one connected unit.
-		let shown = 0;
-		for (let gi = 0; gi < groups.length && shown < totalVisible; gi++) {
-			const group = groups[gi];
-			if (!group) continue;
-			const isLastGroup = gi === groups.length - 1;
-			const trunk = isLastGroup ? " " : dimLine("│");
-
-			const visibleHere: GrepMatch[] = [];
-			for (const match of group.matches) {
-				if (shown >= totalVisible) break;
-				visibleHere.push(match);
-				shown++;
-			}
-			if (visibleHere.length === 0) continue;
-
-			const groupIsLastRendered = shown >= totalVisible && !truncated;
-			const icon = options.withIcons ? `${fileIcon(group.file)} ` : "";
-			const fileLabel = `${icon}${compactToolPath(group.file, safeWidth - safeVisibleWidth(indent) - 3 - safeVisibleWidth(icon))}`;
-			// File nodes use the primary (accent) color, matching read/ls/find paths.
-			push(`${indent}${dimLine(groupIsLastRendered ? "└─" : "├─")} ${theme.fg("accent", fileLabel)}`);
-
-			visibleHere.forEach((match, index) => {
-				const isLastInGroup = index === visibleHere.length - 1;
-				const isLastOverall = groupIsLastRendered && isLastInGroup;
-				push(
-					`${indent}${trunk}${TREE_CHILD_INDENT}${dimLine(isLastOverall ? "└─" : "├─")} ${formatMatchRow(theme, match, lineWidth)}`,
-				);
-			});
-		}
-	}
-
-	if (truncated) {
-		push(`${indent}${dimLine("└─")} ${theme.fg("dim", `… ${remaining} more ${pluralForm("match", remaining)}`)}`);
-	}
-	return out;
+	const files = groupMatchesByFile(matches).map((group) => group.file);
+	return renderOutputTree(theme, header, files, width, {
+		headLimit: options.headLimit ?? OUTPUT_TREE_HEAD_LIMIT,
+		moreUnit: "file",
+		entryColor: "accent",
+		indent: options.indent ?? TREE_INDENT,
+		...(options.withIcons !== undefined ? { withIcons: options.withIcons } : {}),
+	});
 }
 
 /** Return the pluralized form of a noun for the given count. */

@@ -6,7 +6,10 @@ import {
 	renderBoxedToolCall as dispatchCall,
 	renderBoxedToolResult as dispatchResult,
 } from "../../extension-src/pi-style/features/tools/boxed/index.js";
-import { renderGrepTree, renderOutputTree } from "../../extension-src/pi-style/features/tools/boxed/output-tree.js";
+import {
+	renderGrepFilesTree,
+	renderOutputTree,
+} from "../../extension-src/pi-style/features/tools/boxed/output-tree.js";
 import { compactToolPath, TOOL_PATH_MAX_WIDTH } from "../../extension-src/pi-style/features/tools/boxed/path.js";
 import { setToolsRenderConfig } from "../../extension-src/pi-style/features/tools/boxed/session-config.js";
 import type { BoxedToolContext } from "../../extension-src/pi-style/features/tools/boxed/shared.js";
@@ -137,7 +140,7 @@ describe("tool path render contracts", () => {
 			{ file: path, line: 1, content: "x" },
 			{ file: `${directory}/OtherHandler.cs`, line: 2, content: "y" },
 		];
-		const grep = renderGrepTree(theme, "Grep: 2 matches", matches, 45, { withIcons });
+		const grep = renderGrepFilesTree(theme, "Grep: 2 matches", matches, 45, { withIcons });
 		expect(plain(grep)).toContain("AcceptStageWorkflow.cs");
 		for (const line of [...lines, ...grep]) expect(visibleWidth(line)).toBeLessThanOrEqual(45);
 	});

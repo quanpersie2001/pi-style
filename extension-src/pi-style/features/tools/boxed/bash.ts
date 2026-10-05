@@ -46,7 +46,7 @@ import {
 	parseLsLongOutput,
 	parseLsOutput,
 	pluralForm,
-	renderGrepTree,
+	renderGrepFilesTree,
 	renderOutputTree,
 	SEARCH_ICON,
 	TREE_INDENT,
@@ -903,7 +903,7 @@ function renderBashTreeLines(
 	}
 	if (state.parsed && "matches" in state.parsed) {
 		const matches = state.parsed.matches;
-		return renderGrepTree(
+		return renderGrepFilesTree(
 			theme,
 			bashTreeHeader(theme, cls, { matches: matches.length, files: groupMatchesByFile(matches).length }),
 			matches,

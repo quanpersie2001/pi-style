@@ -1,11 +1,12 @@
 // Boxed grep/search tool renderer.
 //
 // grep renders a **boxless tree panel**: a summary header
-// (`Grep: <pattern> <N> matches · <M> files · in <path>`) followed by match rows
-// grouped by file (`├─ *line│content`). Like the quiet-tool batch panel, the
-// whole panel lives in the call component and reads a live registry on every
-// render, so the result's match data is picked up without cross-component
-// invalidation. grep does not batch (each call owns its own panel).
+// (`Grep: <pattern> <N> matches · <M> files · in <path>`) followed by one row
+// per matching file (`├─ file`) — match content is never rendered; expansion
+// (header click or Ctrl+O) only lifts the file-list head limit. Like the quiet-tool batch panel, the whole panel lives in the call
+// component and reads a live registry on every render, so the result's match
+// data is picked up without cross-component invalidation. grep does not batch
+// (each call owns its own panel).
 //
 // Lifecycle: panels are keyed by toolCallId and cleared on session reset and new
 // message boundaries (see resetGrepRegistry wiring in session-coordinator.ts and
@@ -20,7 +21,7 @@ import {
 	groupMatchesByFile,
 	parseGrepOutput,
 	pluralForm,
-	renderGrepTree,
+	renderGrepFilesTree,
 	SEARCH_ICON,
 	TREE_INDENT,
 } from "./output-tree.js";
@@ -28,7 +29,7 @@ import { compactToolPath } from "./path.js";
 import { getToolsRenderConfig } from "./session-config.js";
 import { type BoxedToolDefinition, noteExecutionStart } from "./shared.js";
 
-const GREP_HEAD_LIMIT = 6;
+const GREP_FILE_HEAD_LIMIT = 6;
 const GREP_ERROR_LINES = 2;
 
 interface GrepPanelState {
@@ -39,7 +40,7 @@ interface GrepPanelState {
 	isError: boolean;
 	errorText: string | undefined;
 	isPartial: boolean;
-	/** User click-open: the header row was clicked, so the match tree renders
+	/** User click-open: the header row was clicked, so the file list renders
 	 *  uncut (same view Ctrl+O expansion gives every other tool). */
 	open: boolean;
 }
@@ -132,12 +133,11 @@ function renderGrepPanelLines(theme: BoxTheme, state: GrepPanelState, width: num
 		return [header, ...(state.errorText ? renderErrorLines(theme, state.errorText, width) : [])];
 	}
 	if (state.matches === undefined) return [header];
-	// The full tree when the user asked for it — header click (state.open) or
-	// Pi's global Ctrl+O expansion (the same contract read/ls/find/bash honor);
-	// the head limit otherwise.
-	const limit = state.open || expanded ? Number.POSITIVE_INFINITY : GREP_HEAD_LIMIT;
-	return renderGrepTree(theme, header, state.matches, safeWidth, {
-		headLimit: limit,
+	// Files-only tree, always — match content is never rendered. Header click
+	// (state.open) or Pi's global Ctrl+O expansion (the same contract
+	// read/ls/find/bash honor) lifts the file-list head limit instead.
+	return renderGrepFilesTree(theme, header, state.matches, safeWidth, {
+		headLimit: state.open || expanded ? Number.POSITIVE_INFINITY : GREP_FILE_HEAD_LIMIT,
 		withIcons: getToolsRenderConfig().nerdFonts,
 	});
 }
@@ -146,8 +146,8 @@ function renderGrepPanelLines(theme: BoxTheme, state: GrepPanelState, width: num
  *  reference is captured at creation (like the batch panel): a registry clear
  *  on session reset/resume must not blank already-rendered panels — the result
  *  renderer mutates this same object, so live updates still flow. Clicking the
- *  header row toggles the uncut tree; the handler consumes the click before
- *  Pi's native per-box toggle (which would re-render this panel with the
+ *  header row toggles the uncut file list; the handler consumes the click
+ *  before Pi's native per-box toggle (which would re-render this panel with the
  *  global expanded flag — the same view, so both paths agree anyway). */
 function renderGrepPanel(theme: BoxTheme, toolCallId: string, expanded: boolean): Component {
 	const state = grepPanels.get(toolCallId);

@@ -192,21 +192,17 @@ test/
 
 #### grep output tree
 
-`grep` renders a **file-anchored boxless tree** (ADR 0006): a summary header, then one section per file — the file path as a standalone header, with its matches as `*line│ content` rows (line numbers right-aligned on a shared gutter so the separator column stays aligned) beneath it. A dim `...` gap row marks elided line ranges within a file. `grep` is unbatched so match previews are never hidden.
+`grep` renders a **boxless tree panel** that lists **one row per matching file** — match content is never rendered (the counts in the header carry the match total; the file list is the scan target). `grep` is unbatched so each call owns its panel:
 
 ```text
 Grep: createConfig 3 matches · 2 files · in .
-src/config.ts
-  11: import { createConfig } from
-*14: export const createConfig = (opts) => {
-...
-*42: 	return createConfig(opts);
-test/config.test.ts
-*8: 	createConfig({ preset: "native" })
+  ├─ src/config.ts
+  └─ test/config.test.ts
 ```
 
-- Match rows render `*<line>: <content>` (the `*` marks the hit); context rows render ` <line>: <content>` (leading space, dim). The marker distinguishes a hit from context without color alone (TOOL-002).
-- Context rows adjacent to a shown match are free of the match budget; the budget counts matches only. A trailing `… N more matches` row collapses long results.
+- File rows render `├─/└─ <path>` in the accent color (Nerd Font file icons in nerd mode), first-seen order; a trailing `└─ … N more files` row collapses long results (head budget ~6 files).
+- **Expansion** (header click or Pi's global Ctrl+O) lifts the file-list head limit — every matching file renders, still without match content. Raw match lines stay available through Pi's native raw-result view.
+- Context lines are not parsed into the tree; the parsers keep only `file:line:` match records to compute counts and group files.
 
 #### Compact path labels
 
@@ -278,7 +274,7 @@ Edit, quick-edit, substitute-edit, and target-edit render their diff **adaptivel
 | Read | Badge + normalized path, optional line range; native syntax-highlighted content when possible; truncation notice preserved. Consecutive reads batch into one boxless tree panel. |
 | Write | Path in the header; numbered preview of the written content (cat -n style, `Ctrl+O for more` hint when truncated, expanded reveals more); concise success/error. |
 | Edit | Path **and diff stats** in the header (`path · +3 -0`); adaptive diff (unified/split) with collapsed unchanged context; failed unique-match errors prominent. |
-| Find/list/grep | Boxless file-anchored tree (ADR 0006): `ls`/`find` render a `List:`/`Glob: <pattern> <N> files · in <path>` tree (clean rows; `find` paths grouped by directory; nested per call when batched); `grep` renders a `Grep: <pattern> <N> matches · <M> files · in <path>` tree with per-file headers and `*line│ content` match rows (right-aligned line-number gutter). `ls`/`find` batch like reads; `grep` is unbatched so match previews are never hidden. Pending/failed calls without output fall back to the path-row tree; a trailing `… N more` row collapses long lists. |
+| Find/list/grep | Boxless tree panel: `ls`/`find` render a `List:`/`Glob: <pattern> <N> files · in <path>` tree (clean rows; `find` paths grouped by directory; nested per call when batched); `grep` renders a `Grep: <pattern> <N> matches · <M> files · in <path>` tree that lists **matching files only** (`├─ file` rows, `… N more files` truncation; match content is never rendered — expansion lifts the file-list head limit). `ls`/`find` batch like reads; `grep` is unbatched. Pending/failed calls without output fall back to the path-row tree. |
 | Bash | Concise command header, running/exit status (including timeout/cancelled), stdout/stderr distinction where host data supports it. When the command is a plain `ls`/`find`/`grep`/`rg` (no pipes, redirects, `;`, `&&`, or command substitution), its output renders as the same boxless output tree as the native tool — including `ls -l`/`ls -la` long format (parsed into names) and single-file `rg`/`grep` (`line: content` attributed to the file). `git`/`gh` invocations render as semantic views (status/diff/log cards, boxed diffs, PR/issue/run summaries; see [git / gh semantic views](#git--gh-semantic-views)) with the same gate. Unparseable output (e.g. `rg -c`, `rg -l`) falls back to the boxed command/response shell. Execution, environment, timeout, and shell behavior are never changed. |
 
 ## Direct bash execution (`!command`)
@@ -326,7 +322,7 @@ The summary also reports the turn's aggregate diff stats — `· Edit +6 -2` (di
   - The `➔ …` summary row is clickable: one click expands the WHOLE turn (every member block renders again, the leader keeps the summary row above its box as the close affordance); a second click re-collapses. Without this, Pi's native per-box click toggle would flip only ONE component's `expanded` and render a single solo tool — the "expand shows 1 tool" trap.
   - The merged thought label (`◈ … · Called N tools`) toggles its segment's thinking AND the run's tool blocks in one click (through the shared turn-summary bridge); plain thought-only labels keep their thinking-only toggle.
   - Batch panel headers (`▾ Read (N)`) and the `Grep:` header toggle their uncut trees; clicks on other batch rows are consumed so the native toggle cannot solo-render the leader.
-  - `grep` honors Pi's global Ctrl+O expansion exactly like read/ls/find/bash: the full match tree replaces the head-limited preview. Match rows right-align line numbers on a shared gutter (computed over ALL matches) so the `│` separator column stays aligned across rows and does not shift when the tree expands.
+  - `grep` honors Pi's global Ctrl+O expansion exactly like read/ls/find/bash: the uncut file list replaces the head-limited preview. Match content is never rendered by the grep panel.
 - Expansion is Pi's existing global toggle (`app.tools.expand`, Ctrl+O): when expanded, every block renders in full. A click-opened turn keeps rendering its blocks across Ctrl+O cycles (explicit user state, like expanded thought segments); the summary row closes it again.
 - Config leaf `tools.collapseAfterTurn: "off" | "on"` (default `on`; `off` for the `minimal`/`native` presets) and `tools.collapseMutatingTools: "off" | "on"` (default `off`).
 
