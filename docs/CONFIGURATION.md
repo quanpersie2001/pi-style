@@ -66,7 +66,7 @@ Global/project paths use Pi's exported `getAgentDir()` and `CONFIG_DIR_NAME`. Pr
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `startup.mode` | `off \| compact \| overlay` | `compact` | `compact` renders the gradient Pi logo header through the header/widget surface; `overlay` adds the centered overlay with System & Context / Available Tools panels; `off` installs nothing. |
+| `startup.mode` | `off \| compact \| overlay` | `compact` | `compact` renders the tri-color Pi logo header through the header/widget surface; `overlay` adds the centered overlay with System & Context / Available Tools panels; `off` installs nothing. |
 | `startup.showResources` | boolean | `false` | Show the `◆ Resources` chip summary (and panels when expanded). |
 | `startup.alwaysExpanded` | boolean | `false` | Render the System & Context / Available Tools panels in `compact` mode without the overlay. |
 

@@ -12,9 +12,9 @@ The startup surface introduces the pi-style visual identity and summarizes the a
 
 Rendered through Pi's public `setHeader` API above the chat and editor; when unavailable, the namespaced widget (`pi-style.startup`, `aboveEditor`) is used. An injected `getHeaderFactory` ownership adapter, when present, guards against overwriting a later header owner; without it the public header API is used directly.
 
-The compact presentation is the gradient logo block only:
+The compact presentation is the tri-color logo block only:
 
-1. **Gradient logo header** — eight-line block-art Pi logo with a per-character accent gradient (darken/lighten ±18% around the resolved theme accent, phase-shifted per row). Side details show the `π <project-path>` title — the home-contracted session cwd, i.e. the repo currently being worked in (falls back to its basename, then the brand, when no cwd is known; tail-truncated with a leading `…` so the repo name survives narrow widths) — the `/ commands` and `! bash` hints (each on its own row), and `● ready` when wide enough; the logo stacks above details on narrow widths and collapses to title + status on very narrow widths. The gradient applies only when an accent is resolvable; otherwise the logo renders plain.
+1. **Tri-color logo header** — eight-line block-art Pi logo with fixed brand colors: coral (`#f09082`) for the cap and dot, blue (`#509bb9`) for the P, and gold (`#f0c055`) for the i stem. Side details show the `π <project-path>` title — the home-contracted session cwd, i.e. the repo currently being worked in (falls back to its basename, then the brand, when no cwd is known; tail-truncated with a leading `…` so the repo name survives narrow widths) — the `/ commands` and `! bash` hints (each on its own row), and `● ready` when wide enough; the logo stacks above details on narrow widths and collapses to title + status on very narrow widths. The logo colors are independent of the active theme accent; under `NO_COLOR`, the logo renders plain unless `theme.colors.colorOverride` is `on`.
 2. **Resource chips** (optional, `startup.showResources`) — `◆ Resources` followed by `label count` chips for context files, extensions, skills, prompts, tools, and models (only groups with data).
 3. **Panels** (`showResources` + `alwaysExpanded`) — boxed **System & Context** (`Type | Path | Words/Lines`) and **Available Tools** (`Source | Count | Tools`) tables fed by snapshot `details`/`toolDetails` fields. Panels render only at ≥72 columns so the box stays intact; rows are bounded to host-collected data.
 
@@ -72,7 +72,7 @@ Resolves semantic colors from the active Pi theme supplied by the public factory
 ## Automated proof
 
 - `test/unit/startup.test.ts` — mode behavior, missing data, no invented values, chips/panels expansion, overlay structure, widths `0, 1, 20, 40, 60, 80, 120, 160`;
-- `test/unit/startup-logo.test.ts` — gradient palette, plain fallback, side/stacked/collapsed layouts, ANSI→RGB parsing;
+- `test/unit/startup-logo.test.ts` — brand color placement, unchanged silhouette, no-color/override behavior, side/stacked/collapsed layouts, ANSI→RGB parsing;
 - `test/unit/startup-resources.test.ts` — tool source labeling and active-tool filtering;
 - lifecycle tests — headless installation, repeated startup/shutdown cleanup, status/editor independence.
 

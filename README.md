@@ -15,7 +15,7 @@
 
 - **Status line** — responsive segment layout (model, thinking, path, Git, context, usage, cost, time, extension statuses) through native widgets above or below the editor.
 - **Editor** — compact/boxed/dock `CustomEditor` treatments with prompt glyph, metadata rows, and thinking-level border, preserving Pi keybindings and autocomplete.
-- **Startup** — compact gradient logo header and optional overlay with System & Context / Available Tools panels, rendered from snapshot data collected before mount.
+- **Startup** — compact tri-color logo header and optional overlay with System & Context / Available Tools panels, rendered from snapshot data collected before mount.
 - **Messages** — assistant prefix and boxed compaction/skill/branch/MCP special blocks, and certified tool call/result selectors with pending/running/error markers.
 - **Turn summaries** — when a turn completes, its finalized tool blocks collapse into one summary line (`➔ Read 2 files, ran 4 shell commands · 3.1s`); errors and interrupted turns stay visible, and Pi's global Ctrl+O toggle expands everything again (`tools.collapseAfterTurn`).
 - **Chunk-merged reads** — a large file read through sequential truncation chunks (`read` caps at 2000 lines / 50KB, so the model continues with `offset`, one call per message) merges into ONE expanding inline line per file — `➔ Read chat.ts:525-2629 · 10 chunks · 1.2s` — instead of one line per chunk; live progress shows `done/total`, a failed chunk keeps its error visible, and the turn summary counts chunks of one file as one file (`tools.mergeChunkedReads`).
@@ -52,7 +52,7 @@ No configuration is required. The `default` preset enables:
 
 - primary status row **below the editor** (`placement: "below"`), secondary row when it has content;
 - `dock` editor (rounded input box) with metadata ownership resolved so the status line and editor do not duplicate text;
-- `compact` startup header (gradient logo block only; resource chips are opt-in);
+- `compact` startup header (tri-color logo block only; resource chips are opt-in);
 - the `titanium` theme auto-applied at session start (`theme.autoApply`, default `"titanium"`; set `"off"` to keep your active Pi theme);
 - certified message prefixes and boxed tool presentation when the runtime surface identity matches a recorded fingerprint;
 - the complete image-paste flow out of the box: `Ctrl+V` → instant `[Image #N]` marker → submit → attachment + inline side-by-side preview below your message.
