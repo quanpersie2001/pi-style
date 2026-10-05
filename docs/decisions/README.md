@@ -22,6 +22,7 @@ Decision records capture durable choices that should not be rediscovered during 
 | [0008](0008-user-prompt-image-previews.md) | Accepted | Inline previews for user-prompt images via display-only CustomEntries (absorbs the presentation half of `@pi-archimedes/image-paste`). |
 | [0009](0009-clipboard-image-input.md) | Accepted | Clipboard image input: upgrade built-in paste temp paths to real image attachments (completes the image-paste absorption; supersedes ADR 0008's input exclusion). |
 | [0010](0010-chunk-merged-reads.md) | Accepted | Merge sequential same-file read chunks (large-file continuation reads) into one expanding inline line per file. |
+| [0011](0011-merged-run-disclosure.md) | Accepted | One duration-free merged run disclosure; native expansion controls, complete run attribution, active-branch replay, and no duplicate tool aggregate. |
 
 ## When a new ADR is required
 

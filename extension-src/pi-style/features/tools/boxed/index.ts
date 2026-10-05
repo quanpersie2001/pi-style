@@ -16,9 +16,10 @@ import { grepTool } from "./grep.js";
 import { lsTool } from "./ls.js";
 import { getQuickEditToolConfig, quickEditTool } from "./quick-edit.js";
 import { readTool } from "./read.js";
-import { getStateElapsedMs, getToolsRenderConfig } from "./session-config.js";
+import { getStateElapsedMs, getToolsRenderConfig, recordExecutionEnded, stopElapsedTicker } from "./session-config.js";
 import type { BoxedToolContext, BoxedToolDefinition } from "./shared.js";
 import {
+	effectiveTurnExpansion,
 	emptyTurnResult,
 	getTurnEntry,
 	isMutatingTool,
@@ -56,18 +57,29 @@ export function hasBoxedRenderer(toolName: unknown): boolean {
 /**
  * Turn-summary gate (ADR 0007): the member belongs to an ended turn, Pi's
  * global tool-output state is collapsed, the surface is enabled, and the block
- * itself is not an error (errors always stay visible). Mutating tools
- * (edit/write/…) are exempt unless `tools.collapseMutatingTools` is on — their
- * blocks are the record of what was done and stay visible by default.
+ * is finalized. Merged mode covers errors and mutations too; legacy mode
+ * retains the error/mutating exemptions. Native expansion flags always win.
  */
 function collapsedTurnFor(toolCallId: string, expanded: boolean): TurnState | undefined {
 	const config = getToolsRenderConfig();
 	if (expanded || !config.collapseAfterTurn) return undefined;
 	const entry = getTurnEntry(toolCallId);
-	if (!entry?.turn.ended || entry.member.isError) return undefined;
-	if (entry.turn.forcedOpen) return undefined;
-	if (isMutatingTool(entry.member.toolName) && !config.collapseMutatingTools) return undefined;
+	if (!entry?.turn.ended) return undefined;
+	// In merged mode the one disclosure owns ALL finalized tools: failures and
+	// file changes are represented in its stats and remain accessible on open.
+	if (!config.mergedTurnSummary) {
+		if (entry.member.isError) return undefined;
+		if (isMutatingTool(entry.member.toolName) && !config.collapseMutatingTools) return undefined;
+	}
 	return entry.turn;
+}
+
+function summaryLeaderId(turn: TurnState): string {
+	return getToolsRenderConfig().mergedTurnSummary ? (turn.members[0]?.toolCallId ?? "") : turn.leaderId;
+}
+
+function hasMergedThoughtLabel(turn: TurnState): boolean {
+	return getToolsRenderConfig().mergedTurnSummary && everyMessageInEndedGroup(turn.messages);
 }
 
 export function renderBoxedToolCall(
@@ -83,16 +95,14 @@ export function renderBoxedToolCall(
 	// summary-row click toggle re-dispatches every member later (agent_end no
 	// longer releases these callbacks).
 	noteTurnMemberRender(context.toolCallId, context.invalidate);
-	const turn = collapsedTurnFor(context.toolCallId, context.expanded);
+	const expanded = effectiveTurnExpansion(context.toolCallId, context.expanded);
+	context = { ...context, expanded };
+	const turn = collapsedTurnFor(context.toolCallId, expanded);
 	if (turn) {
-		if (turn.leaderId === context.toolCallId) {
-			// Merged summary (`messages.mergedTurnSummary`): when every message of
-			// the run belongs to an ended thought segment, the segment labels carry
-			// the counts (`◈ Thought N times · Called M tools · …`) and this run's
-			// `➔` leader defers to them. A run with any unattributed message (tools
-			// before the first thinking run, no thinking at all) keeps its line.
-			if (getToolsRenderConfig().mergedTurnSummary && everyMessageInEndedGroup(turn.messages))
-				return EMPTY_BATCH_COMPONENT;
+		if (summaryLeaderId(turn) === context.toolCallId) {
+			// The thought leader owns the sole merged row. Tools-only runs use the
+			// same ◈ format here with zero thoughts, never the legacy ➔ duration.
+			if (hasMergedThoughtLabel(turn)) return EMPTY_BATCH_COMPONENT;
 			return renderTurnSummaryCall(theme, turn);
 		}
 		// Same singleton the batch machinery uses: the decoration's hideBatchMember
@@ -102,14 +112,15 @@ export function renderBoxedToolCall(
 	const tool = typeof toolName === "string" ? REGISTRY[toolName] : undefined;
 	// Click-opened turn: the leader keeps its summary row above its normal call
 	// so the turn can be closed again; every member renders its normal block.
-	// Hidden while Pi's global expansion (Ctrl+O) is active — there the row's
-	// close would be a no-op (expanded bypasses the gate).
+	// A merged thought leader already supplies the close affordance, so never
+	// reintroduce a second tool-summary row beneath it.
 	const entry = getTurnEntry(context.toolCallId);
 	if (
 		entry?.turn.ended === true &&
 		entry.turn.forcedOpen &&
-		!context.expanded &&
-		entry.turn.leaderId === context.toolCallId
+		expanded &&
+		!hasMergedThoughtLabel(entry.turn) &&
+		summaryLeaderId(entry.turn) === context.toolCallId
 	) {
 		const child = tool ? tool.call(args, theme, context) : renderFallbackCall(toolName, args, theme, context);
 		return renderTurnToggleRow(theme, entry.turn, child);
@@ -126,12 +137,19 @@ export function renderBoxedToolResult(
 	context: BoxedToolContext,
 ): Component {
 	noteTurnMemberRender(context.toolCallId, context.invalidate);
-	const turn = collapsedTurnFor(context.toolCallId, options.expanded);
+	// The collapse gate must not skip terminal lifecycle cleanup. Otherwise a
+	// hidden tool's ticker keeps running and its elapsed grows while idle.
+	if (!options.isPartial) {
+		recordExecutionEnded(context.state);
+		stopElapsedTicker(context.state);
+		noteTurnMemberElapsed(context.toolCallId, getStateElapsedMs(context.state));
+	}
+	const expanded = effectiveTurnExpansion(context.toolCallId, options.expanded);
+	options = { ...options, expanded };
+	context = { ...context, expanded };
+	const turn = options.isPartial ? undefined : collapsedTurnFor(context.toolCallId, expanded);
 	if (turn) {
-		// Freeze the member's wall-clock elapsed into the registry once the turn
-		// collapsed (the value is already frozen by the renderer context state).
-		if (!options.isPartial) noteTurnMemberElapsed(context.toolCallId, getStateElapsedMs(context.state));
-		if (turn.leaderId === context.toolCallId) return emptyTurnResult();
+		if (summaryLeaderId(turn) === context.toolCallId && !hasMergedThoughtLabel(turn)) return emptyTurnResult();
 		return EMPTY_BATCH_COMPONENT;
 	}
 	const tool = typeof toolName === "string" ? REGISTRY[toolName] : undefined;

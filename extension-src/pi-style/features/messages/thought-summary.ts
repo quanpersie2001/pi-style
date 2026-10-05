@@ -105,6 +105,9 @@ interface ThoughtGroup {
 	runStats?: MergedSegmentStats | undefined;
 	/** Run-total thought count across every group of the batch (leader only). */
 	runTotalThoughts?: number;
+	/** The disclosure is run-wide even when assistant commentary splits groups. */
+	runGroups?: readonly ThoughtGroup[];
+	runMessages?: readonly object[];
 	members: ThoughtMember[];
 	/** Assistant messages whose thinking runs joined this group (identity).
 	 *  Feeds the merged-summary bridge: the leader label aggregates the tool
@@ -127,9 +130,8 @@ export interface ThoughtGroupPresentation {
 	readonly runFirst: boolean;
 	readonly runStats: MergedSegmentStats | undefined;
 	readonly runTotalThoughts: number | undefined;
-	/** The group's member messages, in attribution order. Consumed by the
-	 *  merged run-leader click to open the run's tool blocks together with
-	 *  the thinking (one coherent segment view). */
+	/** Whole-run messages after finalize, otherwise this group's messages.
+	 * Consumed by the merged leader to control every run tool with thinking. */
 	readonly messages: readonly object[];
 }
 
@@ -137,8 +139,11 @@ let memberByKey = new Map<string, ThoughtBinding>();
 let bindingByInstance = new WeakMap<object, ThoughtMessageBinding>();
 let entryKeyByMessage = new WeakMap<object, string>();
 let knownInstances = new Set<object>();
+let instanceOrder = new WeakMap<object, number>();
+let instanceSequence = 0;
 let currentLiveGroup: ThoughtGroup | undefined;
 let liveGroups: ThoughtGroup[] = [];
+let liveMessages = new Set<object>();
 let liveAgentActive = false;
 let groupSequence = 0;
 
@@ -165,7 +170,7 @@ function fallbackMessageKey(message: unknown): string {
 	const model = typeof candidate?.model === "string" ? candidate.model : "model";
 	return timestamp === undefined
 		? `message:unknown:${model}:${contentSignature(message)}`
-		: `message:${timestamp}:${model}`;
+		: `message:${timestamp}:${model}:${contentSignature(message)}`;
 }
 
 function messageKey(message: unknown): string {
@@ -215,7 +220,7 @@ function presentation(binding: ThoughtBinding): ThoughtGroupPresentation {
 		runFirst: group.runFirst === true,
 		runStats: group.runStats,
 		runTotalThoughts: group.runTotalThoughts,
-		messages: [...group.messages],
+		messages: group.runMessages ?? [...group.messages],
 	};
 }
 
@@ -263,8 +268,18 @@ export function observeThoughtMessage(
 	durations: readonly (number | undefined)[],
 ): ThoughtGroupPresentation[] {
 	if (runs.count === 0) {
-		if (liveAgentActive && runs.hasVisibleText) closeCurrentLiveGroup();
+		// Global native visibility changes also rebuild historical messages.
+		// Only a streaming/currently attributed message may split this run.
+		const currentMessage = message !== null && typeof message === "object" && liveMessages.has(message);
+		if (liveAgentActive && runs.hasVisibleText && ((instance as AssistantTarget).isStreaming || currentMessage)) {
+			closeCurrentLiveGroup();
+		}
 		return [];
+	}
+	let order = instanceOrder.get(instance);
+	if (order === undefined) {
+		order = ++instanceSequence;
+		instanceOrder.set(instance, order);
 	}
 	let messageBinding = bindingByInstance.get(instance);
 	if (!messageBinding) {
@@ -278,6 +293,17 @@ export function observeThoughtMessage(
 		const resolved = missingStandalone
 			? createStandaloneBindings(baseKey, runs)
 			: members.filter((binding): binding is ThoughtBinding => binding !== undefined);
+		// Registry rebuilds retain ancestor components for refresh, but fresh
+		// replacements may already have bound. Never let an older retained
+		// component steal those bindings back during the refresh pass.
+		if (
+			resolved.some((binding) =>
+				[...binding.member.instances].some((peer) => (instanceOrder.get(peer) ?? 0) > (order ?? 0)),
+			)
+		) {
+			knownInstances.delete(instance);
+			return resolved.map(presentation);
+		}
 		messageBinding = { members: resolved };
 		bindingByInstance.set(instance, messageBinding);
 		knownInstances.add(instance);
@@ -298,14 +324,30 @@ export function observeThoughtMessage(
 
 	// Attribute the message to every group it feeds (idempotent; Set). This is
 	// what lets the merged label aggregate exactly this message's tool stats.
-	if (message !== null && typeof message === "object")
+	if (message !== null && typeof message === "object") {
 		for (const binding of messageBinding.members) binding.group.messages.add(message);
+		// An old component refreshed by Ctrl+T must not contribute its tools to
+		// the new request. Bindings, not the time of a UI refresh, define ownership.
+		if (liveAgentActive && messageBinding.members.some((binding) => binding.group.live)) liveMessages.add(message);
+	}
 
 	for (let runIndex = 0; runIndex < runs.count; runIndex++) {
 		const binding = messageBinding.members[runIndex];
 		if (!binding) continue;
+		// A chat rebuild replaces the native component for this thinking run.
+		// Detached predecessors must not vote on disclosure state or be refreshed
+		// back into the group (an old open override otherwise defeats re-close).
+		for (const previous of binding.member.instances) {
+			if (previous === instance) continue;
+			knownInstances.delete(previous);
+			bindingByInstance.delete(previous);
+		}
+		binding.member.instances.clear();
 		binding.member.instances.add(instance);
 		binding.member.complete = runs.complete[runIndex] === true;
+		// Final message content may differ from its streaming key. Bind that
+		// stable signature too so a same-process component rebuild finds the run.
+		if (binding.member.complete) memberByKey.set(runKey(baseKey, runIndex), binding);
 		if (durations[runIndex] !== undefined) binding.member.duration = durations[runIndex];
 		if (liveAgentActive && runs.breakAfter[runIndex] && currentLiveGroup === binding.group) {
 			closeCurrentLiveGroup();
@@ -327,6 +369,7 @@ export function beginAgentThoughtRun(): void {
 	liveAgentActive = true;
 	currentLiveGroup = undefined;
 	liveGroups = [];
+	liveMessages = new Set();
 }
 
 /** Finalize all contiguous groups and rebuild every bound group leader.
@@ -334,42 +377,39 @@ export function beginAgentThoughtRun(): void {
  * Run-level merge: all groups of the batch (one agent run) pool their stats —
  * the FIRST group's leader renders the single run line (`◈ Thought N times ·
  * Called M tools` with run totals); every later group leader stays zero-trace
- * (its thinking remains reachable via Ctrl+T). This keeps inter-round
+ * (its thinking remains reachable via the run click and Ctrl+T). This keeps inter-round
  * commentary from fragmenting the summary into per-segment labels. */
 export function finishAgentThoughtRun(): void {
 	const groups = liveGroups;
+	const messages = [...liveMessages];
 	liveAgentActive = false;
 	currentLiveGroup = undefined;
 	liveGroups = [];
-	if (groups.length === 0) return;
-	const runMessages: object[] = [];
-	let runThoughts = 0;
-	for (const group of groups) {
+	liveMessages = new Set();
+	finalizeRunGroups(groups, messages);
+	refreshInstances(groups.flatMap((group) => group.members.flatMap((member) => [...member.instances])));
+}
+
+function finalizeRunGroups(groups: readonly ThoughtGroup[], messages: readonly object[]): void {
+	if (groups.length === 0) return; // Tools-only runs keep their own ◈ disclosure.
+	const runMessages = [...new Set([...messages, ...groups.flatMap((group) => [...group.messages])])];
+	const runThoughts = groups.reduce((count, group) => count + group.members.length, 0);
+	const runStats = mergedStatsFor(runMessages);
+	for (const message of runMessages) publishEndedGroupMessage(message);
+	for (const [index, group] of groups.entries()) {
 		group.live = false;
 		group.ended = true;
-		runThoughts += group.members.length;
-		for (const message of group.messages) {
-			runMessages.push(message);
-			// The merged-summary bridge: these messages belong to an ended segment,
-			// so the run's `➔` leader may defer to the merged run line.
-			publishEndedGroupMessage(message);
-		}
+		group.runGroups = groups;
+		group.runMessages = runMessages;
+		group.runFirst = index === 0;
+		group.runStats = runStats;
+		group.runTotalThoughts = runThoughts;
 	}
-	const runStats = mergedStatsFor(runMessages);
-	let first = true;
-	for (const group of groups) {
-		if (first && (group.members.length > 0 || group.messages.size > 0)) {
-			group.runFirst = true;
-			group.runStats = runStats;
-			group.runTotalThoughts = runThoughts;
-			first = false;
-		}
-	}
-	refreshInstances(groups.flatMap((group) => group.members.flatMap((member) => [...member.instances])));
 }
 
 function refreshInstances(instances: readonly object[]): void {
 	for (const instance of new Set(instances)) {
+		if (!knownInstances.has(instance)) continue;
 		const target = instance as AssistantTarget;
 		if (typeof target.updateContent !== "function" || target.lastMessage === undefined) continue;
 		try {
@@ -380,31 +420,44 @@ function refreshInstances(instances: readonly object[]): void {
 	}
 }
 
-/** Toggle every native thinking run in the clicked contiguous group. */
-export function toggleThoughtGroup(instance: object, runIndex: number): boolean {
-	const binding = bindingByInstance.get(instance)?.members[runIndex];
-	if (!binding?.group.ended) return false;
-	const instances = binding.group.members.flatMap((member) => [...member.instances]);
-	let anyVisible = false;
-	for (const member of binding.group.members) {
-		for (const rawInstance of member.instances) {
-			const target = rawInstance as AssistantTarget;
-			const hidden = target.thinkingVisibilityOverrides?.get(member.runIndex) ?? target.hideThinkingBlock ?? false;
-			if (!hidden) anyVisible = true;
-		}
-	}
-	const expand = !anyVisible;
+function toggleMembers(instance: object, runIndex: number, wholeRun: boolean): readonly ThoughtMember[] {
+	const group = bindingByInstance.get(instance)?.members[runIndex]?.group;
+	if (!group?.ended) return [];
+	return (wholeRun ? (group.runGroups ?? [group]) : [group]).flatMap((candidate) => candidate.members);
+}
+
+export function isThoughtGroupExpanded(instance: object, runIndex: number, wholeRun = false): boolean {
+	return toggleMembers(instance, runIndex, wholeRun).some((member) =>
+		[...member.instances].some((raw) => {
+			const target = raw as AssistantTarget;
+			return !(target.thinkingVisibilityOverrides?.get(member.runIndex) ?? target.hideThinkingBlock ?? false);
+		}),
+	);
+}
+
+/** Explicitly set all runs of a segment, or the entire merged agent run. */
+export function setThoughtGroupOpen(instance: object, runIndex: number, open: boolean, wholeRun = false): boolean {
+	const members = toggleMembers(instance, runIndex, wholeRun);
 	let changed = false;
-	for (const member of binding.group.members) {
-		for (const rawInstance of member.instances) {
-			const overrides = (rawInstance as AssistantTarget).thinkingVisibilityOverrides;
-			if (!(overrides instanceof Map)) continue;
-			overrides.set(member.runIndex, !expand);
+	for (const member of members) {
+		for (const raw of member.instances) {
+			const target = raw as AssistantTarget;
+			if (target.thinkingVisibilityOverrides instanceof Map) {
+				target.thinkingVisibilityOverrides.set(member.runIndex, !open);
+			} else {
+				// Older native components have only message-wide thinking visibility.
+				target.hideThinkingBlock = !open;
+			}
 			changed = true;
 		}
 	}
-	if (changed) refreshInstances(instances);
+	if (changed) refreshInstances(members.flatMap((member) => [...member.instances]));
 	return changed;
+}
+
+/** Plain labels stay segment-local; merged labels opt into the entire run. */
+export function toggleThoughtGroup(instance: object, runIndex: number, wholeRun = false): boolean {
+	return setThoughtGroupOpen(instance, runIndex, !isThoughtGroupExpanded(instance, runIndex, wholeRun), wholeRun);
 }
 
 interface EntryLike {
@@ -422,10 +475,12 @@ export function rebuildAgentThoughtRunsFromEntries(entries: readonly EntryLike[]
 	knownInstances = new Set(previousInstances);
 	currentLiveGroup = undefined;
 	liveGroups = [];
+	liveMessages = new Set();
 	liveAgentActive = false;
 	if (!Array.isArray(entries)) return;
 	let group: ThoughtGroup | undefined;
 	let batch: ThoughtGroup[] = [];
+	let batchMessages: object[] = [];
 	const closeGroup = () => {
 		if (group) {
 			group.ended = true;
@@ -436,24 +491,9 @@ export function rebuildAgentThoughtRunsFromEntries(entries: readonly EntryLike[]
 		group = undefined;
 	};
 	const closeBatch = () => {
-		if (batch.length === 0) return;
-		const runMessages: object[] = [];
-		let runThoughts = 0;
-		for (const batchGroup of batch) {
-			runThoughts += batchGroup.members.length;
-			runMessages.push(...batchGroup.messages);
-		}
-		const runStats = mergedStatsFor(runMessages);
-		let first = true;
-		for (const batchGroup of batch) {
-			if (first && (batchGroup.members.length > 0 || batchGroup.messages.size > 0)) {
-				batchGroup.runFirst = true;
-				batchGroup.runStats = runStats;
-				batchGroup.runTotalThoughts = runThoughts;
-				first = false;
-			}
-		}
+		finalizeRunGroups(batch, batchMessages);
 		batch = [];
+		batchMessages = [];
 	};
 	for (const entry of entries) {
 		if (entry?.type !== "message") continue;
@@ -466,6 +506,7 @@ export function rebuildAgentThoughtRunsFromEntries(entries: readonly EntryLike[]
 			continue;
 		}
 		if (message?.role !== "assistant") continue;
+		batchMessages.push(message);
 		if (message && typeof message === "object" && typeof entry.id === "string") {
 			entryKeyByMessage.set(message, `entry:${entry.id}`);
 		}
@@ -507,19 +548,18 @@ export function refreshThoughtComponentsForMessage(message: unknown): void {
 	if (instances.size > 0) refreshInstances([...instances]);
 }
 
-/** Attribute a thinking-less assistant message to the latest thought group
- *  (its tool calls ran under that segment's reasoning context), so the merged
- *  label counts them and the run's `➔` leader can defer. No-op when the
- *  message already belongs to a group; false when no group exists yet (tools
- *  before the first thinking run keep their `➔` line). Insertion order of
- *  `memberByKey` is run order, so its last binding marks the latest group. */
+/** Event-path attribution for the current request, including thinking-less
+ * continuations/tools before its first thought. Never borrow a prior request's
+ * group. Messages without a group still enter the run-wide finalize pool. */
 export function attributeMessageToLatestGroup(message: unknown): boolean {
-	if (message === null || typeof message !== "object") return false;
-	let latest: ThoughtGroup | undefined;
-	for (const binding of memberByKey.values()) {
-		if (binding.group.messages.has(message)) return true;
-		latest = binding.group;
-	}
+	if (!liveAgentActive || message === null || typeof message !== "object") return false;
+	// Track tools-before-thinking as well; finalizeRunGroups pools every message
+	// of THIS run. Never borrow a group from a previous user request.
+	liveMessages.add(message);
+	for (const group of liveGroups) if (group.messages.has(message)) return true;
+	const runs = parseThinkingRuns(message, false);
+	if (runs.count === 0 && runs.hasVisibleText) closeCurrentLiveGroup();
+	const latest = liveGroups.at(-1);
 	if (!latest) return false;
 	latest.messages.add(message);
 	return true;
@@ -531,7 +571,10 @@ export function resetAgentThoughtRuns(): void {
 	bindingByInstance = new WeakMap();
 	entryKeyByMessage = new WeakMap();
 	knownInstances.clear();
+	instanceOrder = new WeakMap();
+	instanceSequence = 0;
 	currentLiveGroup = undefined;
 	liveGroups = [];
+	liveMessages = new Set();
 	liveAgentActive = false;
 }

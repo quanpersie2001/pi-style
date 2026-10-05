@@ -91,11 +91,10 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			...config.tools,
 			batchOpenGlyph: resolveTheme(sessionTheme as never, config, process.env).glyph("batchOpen"),
 			nerdFonts: resolveTheme(sessionTheme as never, config, process.env).mode === "nerd",
-			// Mirror of `messages.mergedTurnSummary` (+ its `thoughtSummary`
-			// precondition): the dispatcher reads it to hide the ended run's `➔`
-			// leader in favor of the merged segment labels. Without a certified
-			// updateContent surface no segment ever ends, so the flag is inert.
+			// The thought leader owns the single run row; tools-only runs use the
+			// identical format at their first tool. Legacy formatting is opt-out.
 			mergedTurnSummary: config.messages.mergedTurnSummary && config.messages.thoughtSummary,
+			mergedSummaryGlyph: authorization.ascii ? ">" : "◈",
 		} satisfies ToolsRenderConfig);
 	};
 	/**
@@ -217,7 +216,10 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			// restored/forked history renders collapsed before the first render pass
 			// (deterministic; no in-process turn_end events needed).
 			resetTurnRegistry();
-			const sessionEntries = ctx.sessionManager.getEntries();
+			const sessionEntries =
+				typeof ctx.sessionManager.getBranch === "function"
+					? ctx.sessionManager.getBranch()
+					: ctx.sessionManager.getEntries();
 			// Turn registry FIRST: it publishes per-message tool stats to the merged
 			// bridge; the thought rebuild then reads them while building labels.
 			rebuildTurnRegistryFromEntries(sessionEntries);

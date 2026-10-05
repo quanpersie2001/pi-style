@@ -19,6 +19,7 @@ import { closeActiveBatch, resetReadChunkCandidates } from "../features/tools/bo
 import {
 	beginAgentRun,
 	finishAgentRun,
+	invalidateRegisteredTurnMembers,
 	invalidateTurnMembers,
 	rebuildTurnRegistryFromEntries,
 	registerTurnFromMessage,
@@ -248,10 +249,15 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		resetUsageFromSessionCache(ctx.sessionManager);
 		// Rebuild both agent-run presentation registries from the selected branch.
 		// Turn registry first: it publishes the tool stats the thought labels read.
-		const entries = ctx.sessionManager.getEntries();
+		const entries =
+			typeof ctx.sessionManager.getBranch === "function"
+				? ctx.sessionManager.getBranch()
+				: ctx.sessionManager.getEntries();
 		rebuildTurnRegistryFromEntries(entries);
 		rebuildAgentThoughtRunsFromEntries(entries);
 		refreshObservedThoughtComponents();
+		invalidateRegisteredTurnMembers();
+		requestToolPresentationRender();
 		coordinator.app.update({ ...usagePatch(ctx) }, "deferred", { refreshContextUsage: true });
 	});
 	pi.on("session_compact", (_event, ctx) => {

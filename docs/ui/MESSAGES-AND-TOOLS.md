@@ -58,7 +58,7 @@ Pasting an image with Pi's built-in `Ctrl+V` natively inserts a `<tmpdir>/pi-cli
 
 Assistant presentation uses a restrained prefix only when it improves role separation. It must handle normal text streaming, thinking-only updates, tool-only messages, mixed text and tool calls, aborted/error states, and final render cache reuse without stale partial content. Assistant text always remains visible when the same message carries tool calls: tool presence is not a reliable signal that adjacent prose is disposable narration. Thinking text uses Pi's thinking token and does not visually compete with final assistant text. By default the `Thinking...` placeholder label for hidden thinking blocks is suppressed entirely (`messages.hideThinkingLabel: true`): Pi wraps even an empty label in ANSI codes so its `Text` still occupies one invisible row, and the native layout appends a trailing spacer — together the visible gap where the label used to sit. A certified `AssistantMessageComponent.updateContent` patch (fingerprint-verified 0.83.0, fail-closed elsewhere) drops the invisible row and that trailing spacer, so a hidden thinking block leaves the same single top padding as a text-only message; a FINALIZED message whose every block is hidden (thinking collapsed, no text, no aggregate label, no error rows) collapses to zero lines entirely — its top spacer is dropped too, so the one-blank-line-per-message residue that stacked into large blank gaps between a run's summary rows is gone (tool blocks carry their own leading spacer, so nothing glues).
 
-Once the **agent run completes**, the same patch surfaces one clickable aggregate per contiguous thought segment (`messages.thoughtSummary: true`, default; requires `hideThinkingLabel`):
+With `messages.mergedTurnSummary: false`, once the **agent run completes**, the same patch surfaces one clickable aggregate per contiguous thought segment (`messages.thoughtSummary: true`; requires `hideThinkingLabel`). Default merged mode instead has the single run-wide disclosure described below:
 
 ```text
 ◈ 2 thoughts · 8.4s
@@ -302,29 +302,26 @@ Pi's direct bash execution (the `!`/`!!` input prefix, separate from the agent B
 - Custom key hints use Pi keybinding helpers rather than hardcoded keys.
 - No independent scrollable fixed tool box in v1.
 
-## Turn tool summary
+## Merged run summary (default)
 
-When the agent run completes (user request → `agent_end`), the run's finalized tool blocks collapse into a single summary line (ADR 0007): `➔ Read 2 files, ran 4 shell commands · 3.1s`. The first collapsible tool item of the run renders the summary; the remaining collapsible tool items render zero lines (the batch-member pattern). Pi emits `turn_end` per assistant message, so every tool batch of the request is appended to the same summary group. The summary is a pure function of session content plus Pi's `expanded` state:
+At `agent_end`, one disclosure represents the entire user request ([ADR 0011](../decisions/0011-merged-run-disclosure.md)):
 
-```ts
-showSummary(call) =
-  turnEnded(call.toolCallId) && !options.expanded && config.tools.collapseAfterTurn === "on" &&
-  (isMutatingTool(call.toolName) ? config.tools.collapseMutatingTools === "on" : true);
+```text
+◈ Thought 11 times · Called 33 tools · Edit +108 -43 · 4 failures
 ```
 
-The summary also reports the turn's aggregate diff stats — `· Edit +6 -2` (dim label, diff-colored `+N`/`-M`) — computed purely from tool-result data: `details.diff` for `edit`, the parsed `── diff ──` output section for the quick-edit family (the same sources the box renderers read). The stats aggregate over non-error edit-family members regardless of the mutating exemption (they describe exactly the edit blocks that stay visible beside the line) and survive session resume via the restore path; `write` carries no diff and is skipped. A turn with no diff stats omits the part entirely.
+- **One owner:** the first thinking group's leader owns the row. Visible assistant commentary can split thinking groups but does not create more summary rows. There is no duplicate `➔ Read…` aggregate, including while opened, and no duration on the merged row.
+- **Complete attribution:** include tool rounds before the first thinking run and thinking-less continuations. Count each assistant message's tools once even when it belongs to several thinking groups. Count applied edit/quick-edit diffs from result data, not error diffs. Tools-only runs use the same format with `Thought 0 times` at their first tool; thought-only runs use `Called 0 tools`. ASCII uses `>`.
+- **Whole-run click:** one desired open/closed state controls every native thinking run and every tool member. Opening invokes native `setExpanded(true)` for every tool, so quiet batch/chunk members render their own output rather than remaining hidden in a batch. Re-click closes all finalized blocks, including failures/mutations and previously individually opened leaves.
+- **Native authority:** native render-context expansion flags win over fallback run state. Ctrl+O still controls tools globally and Ctrl+T thinking globally; a prior aggregate click cannot defeat a native close. No keyboard/core patch is added.
+- **Zero-height closed members:** native component spacers and image containers disappear with their hidden tool. Error/diff totals remain visible in the header; individual failures and mutations are inspectable by opening it.
+- **Safe boundaries:** running/partial/incomplete runs and `user_bash` blocks do not collapse. Visible assistant prose is never removed. Per-tool `maxExpandedLines` and explicit truncation notices still apply; opening reveals every tool, not unlimited output.
+- **Replay:** startup/tree rebuilds use the selected branch (`getBranch`), reset stale attribution/turn mappings, and prefer replacement native components over detached predecessors. Retained tools are invalidated after rebind.
+- **Cleanup:** a terminal result stops its elapsed ticker and freezes its timestamp before the collapse gate, even when its per-tool renderer is skipped.
 
-- `turnEnded` is derived from the session tree (message completed, a subsequent message or session end exists) — never from runtime event flags — so scroll-back and session resume render identically.
-- Never collapsed: error results, partial/pending blocks, interrupted turns, the running turn. Error blocks stay visible below the summary; the summary may carry a `· N failure(s)` marker.
-- **Mutating tools** (`edit`/`write`/`quick_edit`/`substitute_edit`/`target_edit`) are never summarized by default (`tools.collapseMutatingTools: "off"`): their blocks are the record of what was done to the user's files, so they stay visible as compact previews beside the summary line. Only read-only tools (`read`/`ls`/`find`/`grep`/`bash`) collapse. A turn made of mutating tools only collapses nothing. `bash` is deliberately exempt from the classification — read-only and mutating commands are indistinguishable without parsing.
-- `user_bash` (`!command`) blocks are never summarized.
-- **Click expansion** (consistent across every surface):
-  - The `➔ …` summary row is clickable: one click expands the WHOLE turn (every member block renders again, the leader keeps the summary row above its box as the close affordance); a second click re-collapses. Without this, Pi's native per-box click toggle would flip only ONE component's `expanded` and render a single solo tool — the "expand shows 1 tool" trap.
-  - The merged thought label (`◈ … · Called N tools`) toggles its segment's thinking AND the run's tool blocks in one click (through the shared turn-summary bridge); plain thought-only labels keep their thinking-only toggle.
-  - Batch panel headers (`▾ Read (N)`) and the `Grep:` header toggle their uncut trees; clicks on other batch rows are consumed so the native toggle cannot solo-render the leader.
-  - `grep` honors Pi's global Ctrl+O expansion exactly like read/ls/find/bash: the uncut file list replaces the head-limited preview. Match content is never rendered by the grep panel.
-- Expansion is Pi's existing global toggle (`app.tools.expand`, Ctrl+O): when expanded, every block renders in full. A click-opened turn keeps rendering its blocks across Ctrl+O cycles (explicit user state, like expanded thought segments); the summary row closes it again.
-- Config leaf `tools.collapseAfterTurn: "off" | "on"` (default `on`; `off` for the `minimal`/`native` presets) and `tools.collapseMutatingTools: "off" | "on"` (default `off`).
+`messages.mergedTurnSummary: false` explicitly selects the legacy ADR 0007 `➔ Read 2 files, ran 4 shell commands · 3.1s` row and segment-local thought rows. In that mode error blocks stay visible, mutations are exempt unless `tools.collapseMutatingTools` is enabled, and the legacy tool summary retains its own close affordance. `tools.collapseAfterTurn: false` disables automatic tool hiding in either mode.
+
+Regression evidence: `test/unit/merged-summary-toggle-regressions.test.ts` drives real patched native components through repeated open/close, batch/chunk output, native setters, errors/mutations, stats dedup, replay and replacement; `test/integration/summary-active-branch.test.ts` exercises a real branching in-memory session through extension lifecycle events.
 
 ## Streaming correctness
 

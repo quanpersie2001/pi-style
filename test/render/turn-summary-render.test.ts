@@ -6,7 +6,7 @@
 // visible, Pi's `expanded` flag and `tools.collapseAfterTurn: "off"` disable
 // the collapse, and the summary is width-truncated.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EMPTY_BATCH_COMPONENT, resetBatchRegistry } from "../../extension-src/pi-style/features/tools/boxed/batch.js";
 import {
 	renderBoxedToolCall as dispatchCall,
@@ -69,10 +69,13 @@ function completedTurn(calls: readonly ReturnType<typeof toolCall>[]) {
 
 const emptyResult = { content: [] as readonly unknown[], details: {} };
 
+// These are the opt-out/legacy contracts; merged mode has its own suite.
+beforeEach(() => setToolsRenderConfig({ mergedTurnSummary: false }));
+
 afterEach(() => {
 	resetTurnRegistry();
 	resetBatchRegistry();
-	setToolsRenderConfig({ collapseAfterTurn: true, collapseMutatingTools: false });
+	setToolsRenderConfig({ collapseAfterTurn: true, collapseMutatingTools: false, mergedTurnSummary: true });
 });
 
 describe("turn summary through the boxed dispatcher", () => {

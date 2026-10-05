@@ -2,12 +2,18 @@ import { type Component, MouseRegion, Text } from "@earendil-works/pi-tui";
 import { visibleWidth } from "../../shared/ansi.js";
 import type { BoxTheme } from "../../shared/box.js";
 import { formatElapsedMs } from "../../shared/elapsed.js";
-import type { MergedSegmentStats } from "../../shared/turn-summary-bridge.js";
-import { toggleTurnsForMessages } from "../../shared/turn-summary-bridge.js";
 import {
+	type MergedSegmentStats,
+	mergedSummaryText,
+	toggleTurnsForMessages,
+	turnsOpenForMessages,
+} from "../../shared/turn-summary-bridge.js";
+import {
+	isThoughtGroupExpanded,
 	observeThoughtMessage,
 	parseThinkingRuns,
 	resetAgentThoughtRuns,
+	setThoughtGroupOpen,
 	type ThoughtGroupPresentation,
 	toggleThoughtGroup,
 } from "./thought-summary.js";
@@ -896,17 +902,7 @@ function thoughtLabelText(
 	stats: MergedSegmentStats | undefined = undefined,
 	merged = false,
 ): string {
-	if (merged && stats !== undefined && stats.calls > 0) {
-		const parts: string[] = [
-			`${glyph} Thought ${count} ${count === 1 ? "time" : "times"}`,
-			`Called ${stats.calls} ${stats.calls === 1 ? "tool" : "tools"}`,
-		];
-		if (stats.diff !== undefined && (stats.diff.additions > 0 || stats.diff.removals > 0))
-			parts.push(`Edit +${stats.diff.additions} -${stats.diff.removals}`);
-		if (stats.failed > 0) parts.push(`${stats.failed} ${stats.failed === 1 ? "failure" : "failures"}`);
-		if (durationMs !== undefined) parts.push(formatElapsedMs(durationMs));
-		return parts.join(" · ");
-	}
+	if (merged) return mergedSummaryText(glyph, count, stats ?? { calls: 0, failed: 0 });
 	const noun = count === 1 ? "thought" : "thoughts";
 	const label = `${glyph} ${count} ${noun}`;
 	return durationMs === undefined ? label : `${label} · ${formatElapsedMs(durationMs)}`;
@@ -936,11 +932,19 @@ function thoughtToggleRegion(
 	instance: object,
 	runIndex: number,
 	toolMessages?: readonly object[],
+	wholeRun = false,
 ): MouseRegion {
 	return new MouseRegion(child, (event) => {
 		if (event.type !== "click" || event.button !== "left") return undefined;
-		const thought = toggleThoughtGroup(instance, runIndex);
-		const tools = thought && toolMessages !== undefined ? toggleTurnsForMessages(toolMessages) : false;
+		if (toolMessages === undefined) {
+			return toggleThoughtGroup(instance, runIndex, wholeRun) ? { handled: true } : undefined;
+		}
+		// One desired state for both disclosures, not two independent toggles.
+		// A leaf click/Ctrl+O may already have opened tools while thoughts remain
+		// hidden; clicking the aggregate must then close everything together.
+		const expand = !(isThoughtGroupExpanded(instance, runIndex, true) || turnsOpenForMessages(toolMessages));
+		const thought = setThoughtGroupOpen(instance, runIndex, expand, true);
+		const tools = toggleTurnsForMessages(toolMessages, expand);
 		return thought || tools ? { handled: true } : undefined;
 	});
 }
@@ -1066,6 +1070,7 @@ export function decorateMessageUpdate(
 								instance,
 								run,
 								mergedRunToolMessages(mergedSummary, group),
+								mergedSummary,
 							);
 						continue;
 					}
@@ -1092,6 +1097,7 @@ export function decorateMessageUpdate(
 							instance,
 							run,
 							mergedRunToolMessages(mergedSummary, group),
+							mergedSummary,
 						);
 					if (aggregateVisible && group.leader) {
 						const aggregateText = thoughtLabelText(
@@ -1109,7 +1115,7 @@ export function decorateMessageUpdate(
 						children.splice(
 							index,
 							0,
-							thoughtToggleRegion(marker, instance, run, mergedRunToolMessages(mergedSummary, group)),
+							thoughtToggleRegion(marker, instance, run, mergedRunToolMessages(mergedSummary, group), mergedSummary),
 						);
 					}
 				}

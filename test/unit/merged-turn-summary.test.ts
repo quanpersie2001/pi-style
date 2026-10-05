@@ -144,7 +144,7 @@ describe("merged label format", () => {
 		expect(text).toContain("Edit +4 -2");
 	});
 
-	it("keeps the thought-only label when the segment produced no tools", () => {
+	it("keeps the same duration-free merged format when the run produced no tools", () => {
 		initTheme("dark", false);
 		setThoughtLabelTheme(plainTheme);
 		// Distinct timestamp: registry keys derive from message identity
@@ -155,7 +155,7 @@ describe("merged label format", () => {
 		decorateMessageUpdate(AssistantMessageComponent.prototype.updateContent, comp, [message, false], MERGED_SNAPSHOT);
 		finishAgentThoughtRun();
 		decorateMessageUpdate(AssistantMessageComponent.prototype.updateContent, comp, [message, false], MERGED_SNAPSHOT);
-		expect(rendered(comp)).toContain("◈ 1 thought");
+		expect(rendered(comp)).toContain("◈ Thought 1 time · Called 0 tools");
 	});
 });
 
@@ -173,7 +173,7 @@ describe("dispatcher defers the ➔ leader to merged labels", () => {
 		expect(leader.render(80)).toEqual([]);
 	});
 
-	it("keeps the leader for runs with unattributed messages or the config off", () => {
+	it("uses the same ◈ format for tools-only runs and preserves the opt-out legacy format", () => {
 		const assistant = { role: "assistant", content: [{ type: "toolCall", id: "t1", name: "read", arguments: {} }] };
 		rebuildTurnRegistryFromEntries([
 			{ type: "message", message: { role: "user", content: "q" } },
@@ -183,11 +183,13 @@ describe("dispatcher defers the ➔ leader to merged labels", () => {
 		]);
 		const kept = dispatchCall("read", { path: "a.ts" }, theme, toolContext("t1"));
 		expect(kept.render(80).length).toBeGreaterThan(0);
-		expect(stripAnsi(kept.render(80).join("\n"))).toContain("➔");
+		expect(stripAnsi(kept.render(80).join("\n"))).toContain("◈ Thought 0 times · Called 1 tool");
+		expect(stripAnsi(kept.render(80).join("\n"))).not.toContain("➔");
 
 		publishEndedGroupMessage(assistant);
 		setToolsRenderConfig({ mergedTurnSummary: false });
 		const configOff = dispatchCall("read", { path: "a.ts" }, theme, toolContext("t1"));
 		expect(configOff.render(80).length).toBeGreaterThan(0);
+		expect(stripAnsi(configOff.render(80).join("\n"))).toContain("➔ Read");
 	});
 });

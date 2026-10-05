@@ -1,22 +1,22 @@
 // Turn tool summary registry (ADR 0007).
 //
-// When a turn completes, its finalized tool blocks collapse into a single
-// summary line (`➔ Read 2 files, ran 4 shell commands · 3.1s`) rendered by the
-// turn's leader (its first non-error tool call that collapses under the render
-// config); every other collapsible tool item of the turn renders zero lines.
-// Error results stay visible, interrupted turns never collapse, and Pi's
-// global tool-output toggle (Ctrl+O) expands everything again
-// (`options.expanded` is read, never written).
+// Default merged mode has ONE duration-free ◈ thought/tool run disclosure.
+// Its thought leader owns the row; tools-only runs use their first tool call.
+// All finalized members (including errors/mutations) hide when closed. The
+// disclosure sets every member's public native expansion flag, so nested
+// batches and native Ctrl+O stay coherent. Incomplete runs never collapse.
+// Legacy mode (mergedTurnSummary:false) retains the ADR 0007 ➔ row, error
+// visibility, and optional mutating exemptions.
 //
 // The summary also reports the turn's aggregate diff stats (`· Edit +6 -2`,
 // diff colors) computed purely from tool-result data — `details.diff` for
 // edit, the parsed `── diff ──` output section for the quick-edit family
 // (the same sources the box renderers read) — so live, scroll-back, and
 // resume render identically. `write` carries no diff and is skipped; error
-// members keep their visible blocks and never contribute stats.
+// members never contribute applied-diff stats.
 //
-// Mutating tools (edit/write/quick_edit/substitute_edit/target_edit) are
-// exempt from the summary by default (`tools.collapseMutatingTools: off`):
+// In legacy mode, mutating tools (edit/write/quick_edit/substitute_edit/
+// target_edit) are exempt by default (`tools.collapseMutatingTools: off`):
 // their blocks are the record of what was done to the user's files, so they
 // always stay visible (compact preview) even in an ended turn — the summary
 // covers only read-only tools (read/ls/find/grep/bash). Turning the leaf on
@@ -26,7 +26,7 @@
 // - The registry is populated from **session content**, never from runtime
 //   event flags: the live path registers the final assistant message +
 //   toolResults at `turn_end`; the restore path rebuilds the registry from
-//   `sessionManager.getEntries()` at session start / `session_tree`, so
+//   `sessionManager.getBranch()` at session start / `session_tree`, so
 //   scroll-back and session resume render identically.
 // - A turn is "ended" only when every tool call of its message has a matching
 //   tool result AND (live) turn_end fired / (restore) the message is
@@ -42,7 +42,12 @@ import type { Component } from "@earendil-works/pi-tui";
 import type { BoxTheme } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import { countDiffStats, firstText } from "../../../shared/split-diff.js";
-import { publishMessageStats, registerTurnToggleHandler } from "../../../shared/turn-summary-bridge.js";
+import {
+	mergedSummaryText,
+	publishMessageStats,
+	registerTurnToggleHandler,
+	resetSummaryBridge,
+} from "../../../shared/turn-summary-bridge.js";
 import { pluralForm } from "./output-tree.js";
 import { extractQuickEditDiff, getQuickEditToolConfig } from "./quick-edit.js";
 import { getToolsRenderConfig } from "./session-config.js";
@@ -78,11 +83,9 @@ export interface TurnState {
 	 * run finalizes; consumed by the merged summary bridge to attribute each
 	 * message's tool stats to its thought segment. */
 	messages?: readonly object[];
-	/** User click-open override: the summary row was clicked, so the whole
-	 * turn renders expanded (every member box) instead of the one-line summary.
-	 * Clicking the row again (it stays rendered above the leader's box)
-	 * re-closes. Without this, Pi's native per-box click toggle would flip ONE
-	 * component's `expanded` and render that single tool solo. */
+	/** Fallback disclosure state for renderers without a native expansion
+	 * control, and the tools-only/legacy header affordance. Captured native
+	 * render-context flags take precedence (Ctrl+O can always re-close). */
 	forcedOpen: boolean;
 }
 
@@ -121,7 +124,32 @@ const memberByCallId = new Map<string, TurnEntry>();
 /** message → the turns its tool calls belong to. Lets the merged thought
  *  label (`◈ … · Called N tools`) toggle the run's tool blocks on click
  *  without the messages feature importing the turn registry directly. */
-const turnsByMessage = new WeakMap<object, Set<TurnState>>();
+let turnsByMessage = new WeakMap<object, Set<TurnState>>();
+
+interface MemberExpansion {
+	setExpanded(open: boolean): void;
+	isExpanded(): boolean;
+}
+
+// Native flags, not an independent click-open boolean, own tool visibility.
+// This lets Ctrl+O and individual tool clicks compose with the run disclosure.
+const expansionByCallId = new Map<string, MemberExpansion>();
+
+export function noteTurnMemberExpansion(toolCallId: string, expansion: MemberExpansion): void {
+	expansionByCallId.set(toolCallId, expansion);
+}
+
+export function effectiveTurnExpansion(toolCallId: string, expanded: boolean): boolean {
+	if (expansionByCallId.has(toolCallId)) return expanded;
+	return expanded || getTurnEntry(toolCallId)?.turn.forcedOpen === true;
+}
+
+function turnIsOpen(turn: TurnState): boolean {
+	return turn.members.some((member) => {
+		const control = expansionByCallId.get(member.toolCallId);
+		return control ? control.isExpanded() : turn.forcedOpen;
+	});
+}
 
 function attributeTurnMessage(message: object, turn: TurnState): void {
 	let turns = turnsByMessage.get(message);
@@ -134,30 +162,46 @@ function attributeTurnMessage(message: object, turn: TurnState): void {
 
 /** Set a turn's click-open state, invalidating every member when it flips. */
 function setTurnOpen(turn: TurnState, open: boolean): boolean {
-	if (!turn.ended || turn.forcedOpen === open) return false;
+	if (!turn.ended) return false;
+	let changed = turn.forcedOpen !== open;
 	turn.forcedOpen = open;
-	invalidateTurnMembers(turn);
-	return true;
+	for (const member of turn.members) {
+		const control = expansionByCallId.get(member.toolCallId);
+		if (!control || control.isExpanded() === open) continue;
+		try {
+			control.setExpanded(open);
+		} catch {
+			// A detached native component cannot prevent the remaining run from
+			// opening/closing. Its renderer falls back to the run override.
+			expansionByCallId.delete(member.toolCallId);
+		}
+		changed = true;
+	}
+	if (changed) invalidateTurnMembers(turn);
+	return changed;
 }
 
 /** Toggle every ended turn whose members belong to these messages (the
  *  merged thought-label click: `◈ … · Called N tools`). The turns flip as one
  *  coherent unit — any open member closes the whole set, all closed opens it.
  *  Returns whether any turn flipped. */
-export function toggleTurnsForMessages(messages: readonly object[]): boolean {
+function turnsForMessages(messages: readonly object[]): Set<TurnState> {
 	const turns = new Set<TurnState>();
 	for (const message of messages) {
-		for (const turn of turnsByMessage.get(message) ?? []) turns.add(turn);
+		for (const turn of turnsByMessage.get(message) ?? []) if (turn.ended) turns.add(turn);
 	}
-	let endedCount = 0;
-	for (const turn of turns) if (turn.ended) endedCount++;
-	if (endedCount === 0) return false;
-	const anyOpen = [...turns].some((turn) => turn.ended && turn.forcedOpen);
+	return turns;
+}
+
+export function turnsOpenForMessages(messages: readonly object[]): boolean {
+	return [...turnsForMessages(messages)].some(turnIsOpen);
+}
+
+export function toggleTurnsForMessages(messages: readonly object[], open?: boolean): boolean {
+	const turns = turnsForMessages(messages);
+	const expand = open ?? ![...turns].some(turnIsOpen);
 	let flipped = false;
-	for (const turn of turns) {
-		if (!turn.ended) continue;
-		if (setTurnOpen(turn, !anyOpen)) flipped = true;
-	}
+	for (const turn of turns) if (setTurnOpen(turn, expand)) flipped = true;
 	return flipped;
 }
 
@@ -168,6 +212,11 @@ const invalidateByCallId = new Map<string, () => void>();
 export function resetTurnRegistry(): void {
 	memberByCallId.clear();
 	invalidateByCallId.clear();
+	expansionByCallId.clear();
+	turnsByMessage = new WeakMap();
+	currentRun = undefined;
+	currentRunSegments = [];
+	resetSummaryBridge();
 }
 
 interface ToolCallLike {
@@ -256,7 +305,7 @@ function buildMembers(
 			toolName,
 			hasResult: result !== undefined,
 			isError: result?.isError === true,
-			diffStats: diffStatsFromResult(toolName, result),
+			diffStats: result?.isError ? undefined : diffStatsFromResult(toolName, result),
 			...(pathKey !== undefined ? { pathKey } : {}),
 		};
 	});
@@ -377,9 +426,8 @@ export function finishAgentRun(): TurnState | undefined {
 	return run.ended ? run : undefined;
 }
 
-/** Publish one message's tool stats to the merged-summary bridge. The stats
- * deliberately exclude elapsed (frozen later, at collapsed render time) — the
- * merged line carries the thought duration instead. */
+/** Publish one message's tool stats to the merged-summary bridge. The merged
+ * line deliberately has no elapsed; per-tool terminal clocks freeze separately. */
 function publishSegmentStats(segment: RunSegment): void {
 	let additions = 0;
 	let removals = 0;
@@ -421,6 +469,10 @@ interface TurnEntryLike {
  */
 export function rebuildTurnRegistryFromEntries(entries: readonly TurnEntryLike[] | undefined): void {
 	memberByCallId.clear();
+	turnsByMessage = new WeakMap();
+	currentRun = undefined;
+	currentRunSegments = [];
+	resetSummaryBridge();
 	if (!Array.isArray(entries)) return;
 	const resultsById = new Map<string, RawMemberResult>();
 	const runs: Array<{
@@ -448,8 +500,8 @@ export function rebuildTurnRegistryFromEntries(entries: readonly TurnEntryLike[]
 			const calls = toolCallsOf(message);
 			current.calls.push(...calls);
 			current.segments.push({ message, calls });
-			if (typeof message.stopReason === "string" && message.stopReason !== "")
-				current.lastStopReason = message.stopReason;
+			current.lastStopReason =
+				typeof message.stopReason === "string" && message.stopReason !== "" ? message.stopReason : undefined;
 		} else if (message?.role === "user") {
 			if (current) {
 				current.followedByUser = true;
@@ -466,6 +518,10 @@ export function rebuildTurnRegistryFromEntries(entries: readonly TurnEntryLike[]
 		const ended = complete && (run.followedByUser || run.lastStopReason !== undefined);
 		registerTurn(run.calls, run.segments, resultsById, ended);
 	}
+	// Branch switches may retain components for common ancestors, but never
+	// keep expansion/invalidation closures for tools outside the active branch.
+	for (const id of invalidateByCallId.keys()) if (!memberByCallId.has(id)) invalidateByCallId.delete(id);
+	for (const id of expansionByCallId.keys()) if (!memberByCallId.has(id)) expansionByCallId.delete(id);
 }
 
 /** Registry lookup for the render dispatcher. */
@@ -499,6 +555,12 @@ export function invalidateTurnMembers(turn: TurnState): void {
 			invalidateByCallId.delete(member.toolCallId);
 		}
 	}
+}
+
+/** Refresh retained tool components after a branch/registry rebuild. */
+export function invalidateRegisteredTurnMembers(): void {
+	const turns = new Set([...memberByCallId.values()].map((entry) => entry.turn));
+	for (const turn of turns) invalidateTurnMembers(turn);
 }
 
 /**
@@ -606,6 +668,16 @@ export function turnSummaryParts(turn: TurnState): TurnSummaryParts {
 
 function formatTurnSummaryLine(theme: BoxTheme, turn: TurnState): string {
 	const summary = turnSummaryParts(turn);
+	if (getToolsRenderConfig().mergedTurnSummary) {
+		return theme.fg(
+			"dim",
+			mergedSummaryText(getToolsRenderConfig().mergedSummaryGlyph, 0, {
+				calls: turn.members.length,
+				failed: summary.failedCount,
+				...(summary.diffStats ? { diff: summary.diffStats } : {}),
+			}),
+		);
+	}
 	// The summary is deliberately quiet: the whole line renders dim so completed
 	// tool work recedes behind the assistant's answer. Only the diff stats
 	// (`+N` added / `-M` removed) and the failed marker stay color-coded —
@@ -626,7 +698,7 @@ function formatTurnSummaryLine(theme: BoxTheme, turn: TurnState): string {
  *  row, members their boxes (open) or nothing (closed). */
 export function toggleTurnOpen(turn: TurnState): void {
 	if (!turn.ended) return;
-	setTurnOpen(turn, !turn.forcedOpen);
+	setTurnOpen(turn, !turnIsOpen(turn));
 }
 
 /** Leader call component: renders the live turn summary line on every pass.
@@ -690,4 +762,4 @@ export function emptyTurnResult(): Component {
 // Expose the message→turn toggle through the bridge so the merged thought
 // label (`◈ … · Called N tools`) can open/close the run's tool blocks without
 // the messages feature importing this registry (depcruise: sibling features).
-registerTurnToggleHandler(toggleTurnsForMessages);
+registerTurnToggleHandler(toggleTurnsForMessages, turnsOpenForMessages);

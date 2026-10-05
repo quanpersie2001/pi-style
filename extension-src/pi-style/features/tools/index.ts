@@ -1,6 +1,21 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { EMPTY_BATCH_COMPONENT } from "./boxed/batch.js";
 import { renderBoxedToolCall, renderBoxedToolResult } from "./boxed/index.js";
+import { noteTurnMemberExpansion } from "./boxed/turn-summary.js";
+
+/** Capture the public native setter and its most recent render-context flag.
+ * No private expanded field, prototype patch, or second disclosure state. */
+function noteNativeExpansion(instance: object, context: unknown): void {
+	const host = instance as { setExpanded?: (open: boolean) => void };
+	const native = context as { toolCallId?: unknown; expanded?: unknown } | undefined;
+	if (typeof host.setExpanded !== "function" || typeof native?.toolCallId !== "string") return;
+	if (typeof native.expanded !== "boolean") return;
+	const expanded = native.expanded;
+	noteTurnMemberExpansion(native.toolCallId, {
+		setExpanded: (open) => host.setExpanded?.(open),
+		isExpanded: () => expanded,
+	});
+}
 
 /**
  * Batch members render zero lines. Pi's ToolExecutionComponent always adds a
@@ -426,6 +441,7 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 				if (typeof renderer !== "function") {
 					if (subtype === "tool-call-renderer")
 						return (callArgs: unknown, theme: unknown, context: unknown) => {
+							noteNativeExpansion(instance, context);
 							const component = renderBoxedToolCall(
 								toolName,
 								callArgs as Record<string, unknown>,
@@ -441,6 +457,7 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 							return component;
 						};
 					return (result: unknown, options: unknown, theme: unknown, context: unknown) => {
+						noteNativeExpansion(instance, context);
 						const component = renderBoxedToolResult(
 							toolName,
 							result as { content?: readonly unknown[]; details?: unknown },
@@ -459,6 +476,7 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 						note(state, `${subtype}-malformed-context`);
 						return Reflect.apply(renderer, this, rendererArgs);
 					}
+					noteNativeExpansion(instance, rendererArgs.at(-1));
 					const component =
 						subtype === "tool-call-renderer"
 							? (() => {

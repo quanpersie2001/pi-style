@@ -240,13 +240,19 @@ describe("turn-summary click expansion (behavior consistency)", () => {
 		expect(expanded).toContain("a.ts");
 		expect(expanded).toContain("b.ts");
 
-		// Ctrl+O OFF: the click-opened turn keeps rendering its blocks (the
-		// user's explicit open survives the global view toggle; the toggle row
-		// remains the close affordance).
+		// Native Ctrl+O OFF is authoritative even after an aggregate click.
+		// A stale run-open fallback cannot strand visible blocks.
 		for (const component of components) component.setExpanded(false);
-		const afterOff = render().join("\n");
-		expect(afterOff).toContain("a.ts");
-		expect(afterOff).toContain("Read 2 files");
+		const afterOff = render();
+		expect(afterOff).toHaveLength(1);
+		expect(afterOff[0]).toContain("Read 2 files");
+		expect(afterOff.join("\n")).not.toContain("a.ts");
+
+		// The next click reopens the entire turn; the following click recloses.
+		(leaderBox.callRendererComponent as { handleMouse?: (e: never) => unknown }).handleMouse?.(click(0));
+		expect(render().join("\n")).toContain("b.ts");
+		(leaderBox.callRendererComponent as { handleMouse?: (e: never) => unknown }).handleMouse?.(click(0));
+		expect(render()).toHaveLength(1);
 
 		disposePiCompatibilityProbe(report);
 	});

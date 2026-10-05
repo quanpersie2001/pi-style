@@ -3,6 +3,8 @@
 - Status: **Accepted**
 - Date: 2026-08-08
 
+> Default merged presentation is now governed by [ADR 0011](0011-merged-run-disclosure.md). This record describes the opt-out legacy row/exemptions. Disclosure clicks in both modes now use native expansion controls rather than an independent run-open override.
+
 ## Context
 
 After an agent turn finishes, the feed is dominated by completed tool blocks (read/ls/find/grep/bash/edit/write), each a box or tree panel. The user must scroll through tall completed output to reach the assistant's final answer — output that was already consumed while it streamed.

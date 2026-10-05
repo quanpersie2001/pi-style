@@ -32,8 +32,26 @@ export interface MergedSegmentStats {
 	readonly failed: number;
 }
 
-const statsByMessage = new WeakMap<object, MergedSegmentStats>();
-const endedGroupMessages = new WeakSet<object>();
+let statsByMessage = new WeakMap<object, MergedSegmentStats>();
+let endedGroupMessages = new WeakSet<object>();
+
+/** Rebuild/session boundaries must not retain attribution from an old branch. */
+export function resetSummaryBridge(): void {
+	statsByMessage = new WeakMap();
+	endedGroupMessages = new WeakSet();
+}
+
+/** One canonical, duration-free run label, shared by thought and tools-only runs. */
+export function mergedSummaryText(glyph: string, thoughts: number, stats: MergedSegmentStats): string {
+	const parts = [
+		`${glyph} Thought ${thoughts} ${thoughts === 1 ? "time" : "times"}`,
+		`Called ${stats.calls} ${stats.calls === 1 ? "tool" : "tools"}`,
+	];
+	if (stats.diff && (stats.diff.additions > 0 || stats.diff.removals > 0))
+		parts.push(`Edit +${stats.diff.additions} -${stats.diff.removals}`);
+	if (stats.failed > 0) parts.push(`${stats.failed} ${stats.failed === 1 ? "failure" : "failures"}`);
+	return parts.join(" · ");
+}
 
 /** Publish one assistant message's tool stats (turn registry, run finalize). */
 export function publishMessageStats(message: object, stats: MergedSegmentStats): void {
@@ -54,7 +72,7 @@ export function mergedStatsFor(messages: readonly object[]): MergedSegmentStats 
 	let removals = 0;
 	let diffMembers = 0;
 	let seen = 0;
-	for (const message of messages) {
+	for (const message of new Set(messages)) {
 		const stats = statsByMessage.get(message);
 		if (!stats) continue;
 		seen++;
@@ -75,8 +93,8 @@ export function mergedStatsFor(messages: readonly object[]): MergedSegmentStats 
 }
 
 /** Whether every message of a run belongs to an ended thought group — the
- *  precondition for hiding the run's `➔` leader line in favor of the merged
- *  segment lines. Empty/undefined message lists keep their `➔` line. */
+ *  precondition for hiding the tool leader in favor of the merged thought
+ *  row. Unattributed/tools-only runs retain a ◈ fallback, never a second ➔. */
 export function everyMessageInEndedGroup(messages: readonly object[] | undefined): boolean {
 	if (!messages || messages.length === 0) return false;
 	return messages.every((message) => endedGroupMessages.has(message));
@@ -85,15 +103,24 @@ export function everyMessageInEndedGroup(messages: readonly object[] | undefined
 /** Registered by the turn registry at module load: opens/closes every ended
  *  turn whose members belong to the given messages (the merged thought-label
  *  click). The indirection keeps this module import-free. */
-let turnToggleHandler: ((messages: readonly object[]) => boolean) | undefined;
+let turnToggleHandler: ((messages: readonly object[], open?: boolean) => boolean) | undefined;
+let turnOpenReader: ((messages: readonly object[]) => boolean) | undefined;
 
-/** Register (or clear) the tools-side turn toggle implementation. */
-export function registerTurnToggleHandler(handler: ((messages: readonly object[]) => boolean) | undefined): void {
+/** Register (or clear) the tools-side run controls without sibling imports. */
+export function registerTurnToggleHandler(
+	handler: ((messages: readonly object[], open?: boolean) => boolean) | undefined,
+	isOpen?: (messages: readonly object[]) => boolean,
+): void {
 	turnToggleHandler = handler;
+	turnOpenReader = isOpen;
 }
 
-/** Open/close the tool blocks covering these messages. False when no handler
- *  is registered or nothing flipped. */
-export function toggleTurnsForMessages(messages: readonly object[]): boolean {
-	return turnToggleHandler?.(messages) ?? false;
+/** Native per-tool expansion is authoritative, including clicks and Ctrl+O. */
+export function turnsOpenForMessages(messages: readonly object[]): boolean {
+	return turnOpenReader?.(messages) ?? false;
+}
+
+/** Toggle, or explicitly set, every tool block of these runs. */
+export function toggleTurnsForMessages(messages: readonly object[], open?: boolean): boolean {
+	return turnToggleHandler?.(messages, open) ?? false;
 }

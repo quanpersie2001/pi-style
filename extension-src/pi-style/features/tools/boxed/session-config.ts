@@ -23,6 +23,8 @@ export interface ToolsRenderConfig {
 	 *  defers to the thought-segment labels (`◈ Thought N times · Called M
 	 *  tools · …`). Set by the coordinator; read by the dispatcher. */
 	mergedTurnSummary: boolean;
+	/** Matches the messages-side thought glyph for tools-only merged runs. */
+	mergedSummaryGlyph: string;
 }
 
 let sessionToolsConfig: ToolsRenderConfig = {
@@ -36,6 +38,7 @@ let sessionToolsConfig: ToolsRenderConfig = {
 	collapseMutatingTools: false,
 	mergeChunkedReads: true,
 	mergedTurnSummary: true,
+	mergedSummaryGlyph: "◈",
 };
 
 export function setToolsRenderConfig(config: Partial<ToolsRenderConfig>): void {
@@ -58,6 +61,7 @@ export function getToolsRenderCacheSignature(): string {
 		sessionToolsConfig.collapseMutatingTools ? 1 : 0,
 		sessionToolsConfig.mergeChunkedReads ? 1 : 0,
 		sessionToolsConfig.mergedTurnSummary ? 1 : 0,
+		sessionToolsConfig.mergedSummaryGlyph,
 	].join("|");
 }
 
