@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.0] - 2026-10-05
+
+### Bug Fixes
+
+- *(messages)* Finalize merged summaries before rebuilding tools
+
+### Features
+
+- *(tools)* Grep panels list matching files only
+
 ## [0.4.1] - 2026-10-02
 
 ### Bug Fixes
