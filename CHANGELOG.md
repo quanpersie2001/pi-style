@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3] - 2026-10-07
+
+### Features
+
+- Add session editor badges and redesign compaction cards
+- Add compact pi-teams companion UI
+
 ## [0.5.2] - 2026-10-07
 
 ### Features
