@@ -144,7 +144,7 @@ describe("merged label format", () => {
 		expect(text).toContain("Edit +4 -2");
 	});
 
-	it("keeps the same duration-free merged format when the run produced no tools", () => {
+	it("omits the Called part entirely when the run produced no tools", () => {
 		initTheme("dark", false);
 		setThoughtLabelTheme(plainTheme);
 		// Distinct timestamp: registry keys derive from message identity
@@ -155,7 +155,8 @@ describe("merged label format", () => {
 		decorateMessageUpdate(AssistantMessageComponent.prototype.updateContent, comp, [message, false], MERGED_SNAPSHOT);
 		finishAgentThoughtRun();
 		decorateMessageUpdate(AssistantMessageComponent.prototype.updateContent, comp, [message, false], MERGED_SNAPSHOT);
-		expect(rendered(comp)).toContain("◈ Thought 1 time · Called 0 tools");
+		expect(rendered(comp)).toContain("◈ Thought 1 time");
+		expect(rendered(comp)).not.toContain("Called");
 	});
 });
 

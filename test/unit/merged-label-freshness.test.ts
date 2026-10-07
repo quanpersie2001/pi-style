@@ -308,8 +308,8 @@ describe("contiguous tool rounds stay ONE segment", () => {
 	});
 });
 
-describe("run-level merge (one line per agent run)", () => {
-	it("text-split rounds pool into the first segment's label with run totals", () => {
+describe("interleaved run-progress labels (cumulative per text segment)", () => {
+	it("text-split rounds each keep their cumulative label right before their text", () => {
 		initTheme("dark", false);
 		setThoughtLabelTheme(plainTheme);
 		const report = installProbe();
@@ -344,14 +344,15 @@ describe("run-level merge (one line per agent run)", () => {
 		}
 		finishAgentThoughtRun();
 
-		const first = stripAnsi(comps[0].render(100).join("\n"));
-		expect(first).toContain("Thought 3 times · Called 3 tools");
-		for (const comp of comps.slice(1)) {
-			const text = stripAnsi(comp.render(100).join("\n"));
-			expect(text).not.toContain("◈ Thought");
-			expect(text).toContain("tiến độ");
-		}
-		// The run's ➔ leader defers (all messages attributed + ended).
+		// Every segment leader keeps its own CUMULATIVE run-progress line.
+		const texts = comps.map((comp) => stripAnsi(comp.render(100).join("\n")));
+		expect(texts[0]).toContain("◈ Thought 1 time · Called 1 tool");
+		expect(texts[1]).toContain("◈ Thought 2 times · Called 2 tools");
+		expect(texts[2]).toContain("◈ Thought 3 times · Called 3 tools");
+		// Each label sits right before its segment's commentary text.
+		expect(texts[1].indexOf("Thought 2 times")).toBeLessThan(texts[1].indexOf("tiến độ 2"));
+		for (const [index, text] of texts.entries()) expect(text).toContain(`tiến độ ${index + 1}`);
+		// The run's ➔ leader still defers (all messages attributed + ended).
 		const leader = dispatchCall("read", { path: "a.ts" }, theme, toolContext("t1"));
 		expect(leader.render(80)).toEqual([]);
 

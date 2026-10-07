@@ -58,7 +58,7 @@ Pasting an image with Pi's built-in `Ctrl+V` natively inserts a `<tmpdir>/pi-cli
 
 Assistant presentation uses a restrained prefix only when it improves role separation. It must handle normal text streaming, thinking-only updates, tool-only messages, mixed text and tool calls, aborted/error states, and final render cache reuse without stale partial content. Assistant text always remains visible when the same message carries tool calls: tool presence is not a reliable signal that adjacent prose is disposable narration. Thinking text uses Pi's thinking token and does not visually compete with final assistant text. By default the `Thinking...` placeholder label for hidden thinking blocks is suppressed entirely (`messages.hideThinkingLabel: true`): Pi wraps even an empty label in ANSI codes so its `Text` still occupies one invisible row, and the native layout appends a trailing spacer — together the visible gap where the label used to sit. A certified `AssistantMessageComponent.updateContent` patch (fingerprint-verified 0.83.0, fail-closed elsewhere) drops the invisible row and that trailing spacer, so a hidden thinking block leaves the same single top padding as a text-only message; a FINALIZED message whose every block is hidden (thinking collapsed, no text, no aggregate label, no error rows) collapses to zero lines entirely — its top spacer is dropped too, so the one-blank-line-per-message residue that stacked into large blank gaps between a run's summary rows is gone (tool blocks carry their own leading spacer, so nothing glues).
 
-With `messages.mergedTurnSummary: false`, once the **agent run completes**, the same patch surfaces one clickable aggregate per contiguous thought segment (`messages.thoughtSummary: true`; requires `hideThinkingLabel`). Default merged mode instead has the single run-wide disclosure described below:
+With `messages.mergedTurnSummary: false`, once the **agent run completes**, the same patch surfaces one clickable aggregate per contiguous thought segment (`messages.thoughtSummary: true`; requires `hideThinkingLabel`). Default merged mode instead interleaves cumulative run-progress labels, described below:
 
 ```text
 ◈ 2 thoughts · 8.4s
@@ -304,14 +304,17 @@ Pi's direct bash execution (the `!`/`!!` input prefix, separate from the agent B
 
 ## Merged run summary (default)
 
-At `agent_end`, one disclosure represents the entire user request ([ADR 0011](../decisions/0011-merged-run-disclosure.md)):
+At `agent_end`, interleaved progress rows represent the user request ([ADR 0011](../decisions/0011-merged-run-disclosure.md)): every commentary segment keeps one row right before its text, carrying the CUMULATIVE totals through that segment — the last row carries the run totals, and each row reads in the context of the work that produced the following text:
 
 ```text
+◈ Thought 4 times · Called 12 tools · Edit +41 -12
+│  Round 1 commentary…
 ◈ Thought 11 times · Called 33 tools · Edit +108 -43 · 4 failures
+│  Final answer…
 ```
 
-- **One owner:** the first thinking group's leader owns the row. Visible assistant commentary can split thinking groups but does not create more summary rows. There is no duplicate `➔ Read…` aggregate, including while opened, and no duration on the merged row.
-- **Complete attribution:** include tool rounds before the first thinking run and thinking-less continuations. Count each assistant message's tools once even when it belongs to several thinking groups. Count applied edit/quick-edit diffs from result data, not error diffs. Tools-only runs use the same format with `Thought 0 times` at their first tool; thought-only runs use `Called 0 tools`. ASCII uses `>`.
+- **One row per segment:** visible assistant commentary splits the labels but never detaches a summary from its text; contiguous `thinking → tool-only → thinking` rounds still collapse into one row instead of a stack of adjacent labels. There is no duplicate `➔ Read…` aggregate, including while opened, and no duration on the merged rows.
+- **Complete attribution:** include tool rounds before the first thinking run and thinking-less continuations. Count each assistant message's tools once even when it belongs to several thinking groups. Count applied edit/quick-edit diffs from result data, not error diffs. Tools-only runs use the same format with `Thought 0 times` at their first tool; runs/prefixes without tool calls render `◈ Thought N times` with no `Called` part. ASCII uses `>`.
 - **Whole-run click:** one desired open/closed state controls every native thinking run and every tool member. Opening invokes native `setExpanded(true)` for every tool, so quiet batch/chunk members render their own output rather than remaining hidden in a batch. Re-click closes all finalized blocks, including failures/mutations and previously individually opened leaves.
 - **Native authority:** native render-context expansion flags win over fallback run state. Ctrl+O still controls tools globally and Ctrl+T thinking globally; a prior aggregate click cannot defeat a native close. No keyboard/core patch is added.
 - **Zero-height closed members:** native component spacers and image containers disappear with their hidden tool. Error/diff totals remain visible in the header; individual failures and mutations are inspectable by opening it.

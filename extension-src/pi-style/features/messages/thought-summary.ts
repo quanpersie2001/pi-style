@@ -99,11 +99,10 @@ interface ThoughtGroup {
 	readonly id: string;
 	live: boolean;
 	ended: boolean;
-	/** Run-level merge: first group of the batch renders the single run line. */
-	runFirst?: boolean;
-	/** Run-total stats pooled across every group of the batch (leader only). */
+	/** Cumulative stats pooled over the batch's messages through this segment
+	 *  (every segment leader renders its own interleaved run-progress line). */
 	runStats?: MergedSegmentStats | undefined;
-	/** Run-total thought count across every group of the batch (leader only). */
+	/** Cumulative thought count through this segment (including it). */
 	runTotalThoughts?: number;
 	/** The disclosure is run-wide even when assistant commentary splits groups. */
 	runGroups?: readonly ThoughtGroup[];
@@ -126,12 +125,12 @@ export interface ThoughtGroupPresentation {
 	/** Merged tool stats for the messages this segment covers (undefined when
 	 *  the segment produced no tool calls — the label stays thought-only). */
 	readonly stats: MergedSegmentStats | undefined;
-	/** Run-level merge: this group's leader renders the single run line. */
-	readonly runFirst: boolean;
+	/** Cumulative stats through this segment (interleaved run-progress labels). */
 	readonly runStats: MergedSegmentStats | undefined;
+	/** Cumulative thought count through this segment. */
 	readonly runTotalThoughts: number | undefined;
 	/** Whole-run messages after finalize, otherwise this group's messages.
-	 * Consumed by the merged leader to control every run tool with thinking. */
+	 * Every merged label click toggles the entire run's disclosure. */
 	readonly messages: readonly object[];
 }
 
@@ -217,7 +216,6 @@ function presentation(binding: ThoughtBinding): ThoughtGroupPresentation {
 		count: group.members.length,
 		durationMs: completeDuration ? durationMs : undefined,
 		stats: mergedStatsFor([...group.messages]),
-		runFirst: group.runFirst === true,
 		runStats: group.runStats,
 		runTotalThoughts: group.runTotalThoughts,
 		messages: group.runMessages ?? [...group.messages],
@@ -374,11 +372,12 @@ export function beginAgentThoughtRun(): void {
 
 /** Finalize all contiguous groups and rebuild every bound group leader.
  *
- * Run-level merge: all groups of the batch (one agent run) pool their stats —
- * the FIRST group's leader renders the single run line (`◈ Thought N times ·
- * Called M tools` with run totals); every later group leader stays zero-trace
- * (its thinking remains reachable via the run click and Ctrl+T). This keeps inter-round
- * commentary from fragmenting the summary into per-segment labels. */
+ * Interleaved run merge: every group leader of the batch (one agent run)
+ * renders its own line right before its segment's commentary, carrying the
+ * CUMULATIVE totals through that segment (`◈ Thought N times · Called M
+ * tools`). The last leader shows the whole run's totals, so each summary row
+ * stays attached to the text its work produced instead of one detached top
+ * line. */
 export function finishAgentThoughtRun(): void {
 	const groups = liveGroups;
 	const messages = [...liveMessages];
@@ -393,17 +392,23 @@ export function finishAgentThoughtRun(): void {
 function finalizeRunGroups(groups: readonly ThoughtGroup[], messages: readonly object[]): void {
 	if (groups.length === 0) return; // Tools-only runs keep their own ◈ disclosure.
 	const runMessages = [...new Set([...messages, ...groups.flatMap((group) => [...group.messages])])];
-	const runThoughts = groups.reduce((count, group) => count + group.members.length, 0);
-	const runStats = mergedStatsFor(runMessages);
+	// Cumulative attribution: prefix sums over the batch's groups. The seed is
+	// the run-level attributions that no group owns (tools before the first
+	// thought, thinking-less continuations before any group) — they belong to
+	// the START of the run, so segment 1's label already covers them.
+	const grouped = new Set(groups.flatMap((group) => [...group.messages]));
+	const cumulative = new Set(messages.filter((message) => !grouped.has(message)));
+	let thoughts = 0;
 	for (const message of runMessages) publishEndedGroupMessage(message);
-	for (const [index, group] of groups.entries()) {
+	for (const group of groups) {
 		group.live = false;
 		group.ended = true;
+		for (const message of group.messages) cumulative.add(message);
+		thoughts += group.members.length;
 		group.runGroups = groups;
 		group.runMessages = runMessages;
-		group.runFirst = index === 0;
-		group.runStats = runStats;
-		group.runTotalThoughts = runThoughts;
+		group.runStats = mergedStatsFor([...cumulative]);
+		group.runTotalThoughts = thoughts;
 	}
 }
 
@@ -500,8 +505,8 @@ export function rebuildAgentThoughtRunsFromEntries(entries: readonly EntryLike[]
 		const message = entry.message;
 		if (message?.role === "user") {
 			closeGroup();
-			// A user message ends the agent-run batch: pool its groups' stats
-			// into the first group's run line (restore twin of finishAgentThoughtRun).
+			// A user message ends the agent-run batch: assign each group its
+			// cumulative run-progress label (restore twin of finishAgentThoughtRun).
 			closeBatch();
 			continue;
 		}

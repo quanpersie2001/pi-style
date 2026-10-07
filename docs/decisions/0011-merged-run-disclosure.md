@@ -57,6 +57,17 @@ A native tool setter may rebuild the component before the captured invalidator r
 - Legacy render tests explicitly select `mergedTurnSummary: false` to retain opt-out coverage.
 - Full release gates (`npm run check`) remain required. Real fullscreen mouse/keyboard and terminal-resize smoke remains a manual check in addition to native component tests.
 
+## Update — interleaved cumulative labels
+
+**2026-10-07.** The "exactly one row" layout detached the summary from the commentary that produced it: a long multi-round request rendered one aggregate at the very top of the turn with every text segment stacked below, which read as context-free noise. The disclosure mechanics of this ADR (whole-run click, native authority, zero-height closed members, complete attribution) are unchanged; only the label layout is revised:
+
+- Every commentary segment keeps its own row right before its text, carrying the **cumulative** totals through that segment (`◈ Thought N times · Called M tools · …`); the last row equals the run totals, so nothing from the single-row layout is lost.
+- Contiguous `thinking → tool-only → thinking` rounds still collapse into one row; the fragmentation problem this ADR originally solved stays solved — only rows that have a following text segment are added.
+- Clicking any row still toggles the entire run (thinking + tools together); tools-only runs keep the single `Thought 0 times` row at their first tool.
+- The `Called` part is omitted entirely when there are no tool calls: thought-only runs and tool-less prefixes render plain `◈ Thought N times` instead of `Called 0 tools` noise.
+
+This supersedes the "exactly one duration-free row" decision line and the "first thinking group's leader owns the row" bullet above.
+
 ## Related decisions
 
 - [0007 — Turn tool summaries](0007-turn-tool-summaries.md): legacy mode and session-content derivation.

@@ -660,10 +660,11 @@ export type MessageDecorationSnapshot = Readonly<{
 	 *  aggregate per contiguous segment after the agent run completes. Visible
 	 *  assistant text splits segments; active runs keep zero-trace. */
 	thoughtSummary?: boolean;
-	/** Merge the segment's tool stats into the leader label
-	 *  (`◈ Thought N times · Called M tools · …`) and hide the run's `➔`
-	 *  leader line when every message of the run belongs to an ended segment
-	 *  (Claude-Code-style single line; `messages.mergedTurnSummary`). */
+	/** Interleaved run-progress labels: after the agent run completes, every
+	 *  segment leader renders `◈ Thought N times · Called M tools · …` with the
+	 *  CUMULATIVE totals through its segment (the last label carries the run
+	 *  totals), and the run's `➔` leader line hides when every message of the
+	 *  run belongs to an ended segment (`messages.mergedTurnSummary`). */
 	mergedTurnSummary?: boolean;
 	/** Glyph for the thought summary row — one glyph for both states (the
 	 *  content below an expanded header is what distinguishes them). Unicode
@@ -921,9 +922,9 @@ function mergedRunToolMessages(
 	mergedSummary: boolean,
 	group: ThoughtGroupPresentation | undefined,
 ): readonly object[] | undefined {
-	if (!mergedSummary || !group?.runFirst || group.runTotalThoughts === undefined) return undefined;
-	// Only labels that actually carry tool stats open the tool view; a
-	// thought-only label keeps its thinking-only toggle.
+	if (!mergedSummary || group?.runTotalThoughts === undefined) return undefined;
+	// Every interleaved run-progress label toggles the whole run; only labels
+	// that actually carry tool stats open the tool view as well.
 	return group.stats !== undefined || group.runStats !== undefined ? group.messages : undefined;
 }
 
@@ -974,8 +975,9 @@ function isTextComponent(child: unknown): boolean {
  *   the spacer after it are dropped, leaving the same single top padding as a
  *   text-only message (the streaming block is the chat's trailing row);
  * - while the agent run is active, completed intermediate runs remain zero-trace;
- * - once the run ends, each segment leader keeps one row; its click handler
- *   toggles only that segment's native thinking runs;
+ * - once the run ends, each segment leader keeps one row (merged mode: a
+ *   cumulative run-progress line whose click toggles the whole run; plain
+ *   mode: a thinking-only toggle for that segment);
  * - expanded segments get the same single aggregate header, while every member's
  *   content keeps the continuous quote rail.
  *
@@ -1019,22 +1021,20 @@ export function decorateMessageUpdate(
 			const groups = observeThoughtMessage(instance, args[0], runs, durations);
 			const summary = Boolean(snapshot.thoughtSummary) && sessionThoughtTheme !== undefined;
 			const glyph = snapshot.thoughtGlyph ?? "◈";
-			// Run-level merge (`messages.mergedTurnSummary`): one line per agent run —
-			// the batch's first segment leader carries the run totals; later segment
-			// leaders stay zero-trace (their thinking remains reachable via Ctrl+T).
+			// Interleaved run merge (`messages.mergedTurnSummary`): every segment
+			// leader renders its own line right before its segment's commentary,
+			// carrying the CUMULATIVE run totals through that segment — progress
+			// markers between the run's texts, the last one carrying the totals.
 			const mergedSummary = snapshot.mergedTurnSummary === true;
 			const labelValues = (group: {
 				count: number;
 				stats: MergedSegmentStats | undefined;
-				runFirst: boolean;
 				runStats: MergedSegmentStats | undefined;
 				runTotalThoughts: number | undefined;
 			}) =>
-				mergedSummary && group.runFirst && group.runTotalThoughts !== undefined
+				mergedSummary && group.runTotalThoughts !== undefined
 					? { count: group.runTotalThoughts, stats: group.runStats, visible: true }
-					: mergedSummary
-						? { count: group.count, stats: group.stats, visible: false }
-						: { count: group.count, stats: group.stats, visible: true };
+					: { count: group.count, stats: group.stats, visible: true };
 			// Children are laid out in content order, thinking runs (hidden label or
 			// expanded Markdown, each in a MouseRegion) in run order; walking backward
 			// keeps splice/insert indices valid and assigns runs from the last.
@@ -1047,8 +1047,8 @@ export function decorateMessageUpdate(
 				const inner = region?.child;
 				if (isBlankTextChild(child)) {
 					// Hidden thinking-run label (MouseRegion-wrapped blank Text). Only
-					// the run's first segment leader becomes its aggregate; every other
-					// per-message/per-run label stays zero-trace.
+					// each segment's first run becomes its aggregate; non-leader
+					// per-message/per-run labels stay zero-trace.
 					const run = runCursor--;
 					if (run < 0) continue;
 					const group = groups[run];

@@ -189,17 +189,20 @@ describe("one coherent merged run disclosure (real native components)", () => {
 		finish();
 		expectHidden(allTools);
 		const transcript = assistants.map((comp) => rendered(comp)).join("\n");
-		expect(transcript.match(/◈/g)).toHaveLength(1);
-		expect(transcript).toContain("◈ Thought 3 times · Called 9 tools");
+		expect(transcript.match(/◈/g)).toHaveLength(3);
+		expect(rendered(assistants[0])).toContain("◈ Thought 1 time · Called 3 tools");
+		expect(rendered(assistants[1])).toContain("◈ Thought 2 times · Called 6 tools");
+		expect(rendered(assistants[2])).toContain("◈ Thought 3 times · Called 9 tools");
 		for (let cycle = 0; cycle < 3; cycle++) {
-			clickSummary(assistants[0]);
+			// ANY cumulative label owns the whole-run disclosure — click the last.
+			clickSummary(assistants[2]);
 			for (let round = 0; round < 3; round++) expect(rendered(assistants[round])).toContain(`private_thought_${round}`);
 			for (const [index, comp] of allTools.entries()) {
 				const id = ["r0a", "r0b", "b0", "r1a", "r1b", "b1", "r2a", "r2b", "b2"][index];
 				expect(rendered(comp), `expanded member ${id}`).toContain(`payload_${id}`);
 			}
 			expect(allTools.map((comp) => rendered(comp)).join("\n")).not.toMatch(/➔ Read \d+ files/);
-			clickSummary(assistants[0]);
+			clickSummary(assistants[2]);
 			expectHidden(allTools);
 			for (let round = 0; round < 3; round++) {
 				expect(rendered(assistants[round])).not.toContain(`private_thought_${round}`);
@@ -284,8 +287,9 @@ describe("one coherent merged run disclosure (real native components)", () => {
 		const comp = assistant(msg);
 		const blocks = tools(msg, { edit: { details: { diff: "+a\n-b" } } }).components;
 		finish();
+		expect(rendered(comp)).toContain("◈ Thought 1 time · Called 1 tool · Edit +1 -1");
 		expect(rendered(comp)).toContain("◈ Thought 2 times · Called 1 tool · Edit +1 -1");
-		expect(rendered(comp).match(/◈/g)).toHaveLength(1);
+		expect(rendered(comp).match(/◈/g)).toHaveLength(2);
 		clickSummary(comp);
 		expect(rendered(comp)).toContain("first_reason");
 		expect(rendered(comp)).toContain("second_reason");
