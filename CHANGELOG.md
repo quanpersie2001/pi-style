@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.2] - 2026-10-07
+
+### Features
+
+- *(messages)* Interleaved cumulative run-summary labels
+
 ## [0.5.1] - 2026-10-05
 
 ### Bug Fixes
