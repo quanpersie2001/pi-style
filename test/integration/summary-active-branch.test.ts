@@ -64,14 +64,15 @@ describe("summary registries follow the selected session branch", () => {
 		piStyleExtension(host.extensionApi);
 		try {
 			await host.sessionStart();
-			expect(getBranch).toHaveBeenCalledTimes(1);
+			// Both summary reconstruction and session editor-color restoration read the active branch.
+			expect(getBranch).toHaveBeenCalledTimes(2);
 			expect(getTurnEntry("abandoned")).toBeUndefined();
 			expect(getTurnEntry("selected")?.turn.members).toHaveLength(1);
 			expect(getTurnEntry("selected")?.member.isError).toBe(false);
 
 			session.branch(abandonedLeaf);
 			await host.emit("session_tree", { type: "session_tree", newLeafId: abandonedLeaf, oldLeafId: selectedLeaf });
-			expect(getBranch).toHaveBeenCalledTimes(2);
+			expect(getBranch).toHaveBeenCalledTimes(4);
 			expect(getTurnEntry("selected")).toBeUndefined();
 			expect(getTurnEntry("abandoned")?.turn.members).toHaveLength(1);
 			expect(getTurnEntry("abandoned")?.member.isError).toBe(true);

@@ -26,6 +26,7 @@ import {
 } from "../features/tools/boxed/turn-summary.js";
 import { requestToolPresentationRender } from "../features/tools/index.js";
 import { registerPiStyleCommand } from "./commands.js";
+import { parseEditorColor, savedEditorColor } from "./editor-color.js";
 import { type CompatibilityTestHooks, createPiStyleSessionCoordinator } from "./session-coordinator.js";
 import { resetUsageFromSessionCache, usageFromSession } from "./session-usage.js";
 
@@ -77,6 +78,7 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		pi.registerFlag(name, { type: "boolean", description, default: true });
 	// ASCII markers stay opt-in; unicode markers are the default.
 	pi.registerFlag("pi-style-ascii", { type: "boolean", description: "Use ASCII pi-style markers" });
+	pi.registerFlag("color", { type: "string", description: "Initial editor border color (#RGB or #RRGGBB)" });
 	const coordinator = createPiStyleSessionCoordinator(pi, compatibilityTestHooks);
 	registerPiStyleCommand(pi, coordinator.app);
 	// User-prompt image previews (ADR 0008): the entry renderer must be
@@ -109,6 +111,18 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 			activateReadOnlyTools(pi);
 		}
 		await coordinator.start(event, ctx);
+		const rawColor = pi.getFlag("color");
+		const cliColor = typeof rawColor === "string" ? parseEditorColor(rawColor) : undefined;
+		if (rawColor !== undefined && !cliColor) ctx.ui?.notify?.("Invalid --color; use #RGB or #RRGGBB", "warning");
+		const saved = savedEditorColor(
+			typeof ctx.sessionManager.getBranch === "function"
+				? ctx.sessionManager.getBranch()
+				: ctx.sessionManager.getEntries(),
+		);
+		coordinator.app.update(
+			{ sessionName: pi.getSessionName(), editorBorderColor: saved === undefined ? cliColor : (saved ?? undefined) },
+			"immediate",
+		);
 	});
 	pi.on("agent_start", () => {
 		coordinator.app.runtime.current?.dismissStartup();
@@ -258,7 +272,15 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		refreshObservedThoughtComponents();
 		invalidateRegisteredTurnMembers();
 		requestToolPresentationRender();
-		coordinator.app.update({ ...usagePatch(ctx) }, "deferred", { refreshContextUsage: true });
+		const saved = savedEditorColor(
+			typeof ctx.sessionManager.getBranch === "function"
+				? ctx.sessionManager.getBranch()
+				: ctx.sessionManager.getEntries(),
+		);
+		const cli = pi.getFlag("color");
+		const color =
+			saved === undefined ? (typeof cli === "string" ? parseEditorColor(cli) : undefined) : (saved ?? undefined);
+		coordinator.app.update({ ...usagePatch(ctx), editorBorderColor: color }, "deferred", { refreshContextUsage: true });
 	});
 	pi.on("session_compact", (_event, ctx) => {
 		resetUsageFromSessionCache(ctx.sessionManager);

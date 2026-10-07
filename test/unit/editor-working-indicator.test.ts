@@ -121,6 +121,18 @@ describe("native working indicator in the styled editor", () => {
 		expect(replacement.status.dispose).not.toHaveBeenCalled();
 	});
 
+	it("fits the session title beside native working status when space allows", () => {
+		const { editor } = createEditor();
+		editor.update({ sessionName: "Expand brand components" });
+		const loader = indicator();
+		editor.setWorkingStatusIndicator(loader.native);
+		const line = stripAnsi(editor.render(100)[0] ?? "");
+		expect(line).toContain("⠹ Working");
+		expect(line).toContain("Expand brand components");
+		expect(visibleWidth(line)).toBe(100);
+		expect(stripAnsi(editor.render(40)[0] ?? "")).toContain("⠹ Working");
+	});
+
 	it("preserves the native hidden-line counter beside the spinner", () => {
 		const { editor } = createEditor();
 		const loader = indicator();

@@ -97,12 +97,16 @@ Certified presentation: assistant prefix; tool call/result selectors with exact 
 
 When `messages.specialBlocks` is enabled and authorized:
 
-- compaction summaries — `⊟ Compaction · 12,345 tokens`;
+- compaction summaries — `▾ Compaction · 12,345 tokens` (expanded), `▸` when collapsed;
 - skill invocations — `⊟ Skill · <name>`;
 - branch summaries — `⊟ Branch`;
 - extension custom (MCP) messages — `⊟ Custom · <customType>`, preserving a provided `customRenderer` inside the boxed shell.
 
-Each block embeds its title in a rounded top border, shows a compact single-line body with an expand hint (`Ctrl+O to expand`) at the right end of the bottom border, and falls back to native layout when no session theme is cached, the shape is unsupported, or the surface is unauthorized.
+Each block embeds its title in a rounded top border and falls back to native layout when no session theme is cached, the shape is unsupported, or the surface is unauthorized.
+
+Compaction uses a dense summary card with no shell breathing rows. It retains its default-expanded behavior and full Markdown summary. Collapsing shows one genuine summary line (preferring prose over headings), truncated to the available width, rather than an empty box; an empty summary omits the body row entirely. The bottom border shows the configured expand/collapse key hint, and clicking still toggles the native state. The parent container's native layout padding is preserved.
+
+Its background is a neutral card surface, not a success/error state: `extras.compactionBgColor` overrides the fill (hex or theme variable/color reference); missing/invalid extras fall back to `userMessageBg`. Titanium sets it to `darkTitanium` (`#0f1216`), matching the tool-card tone without inheriting tool status. Other special blocks retain `customMessageBg`. Native background is restored when the compaction patch is removed.
 
 ## Tool call header
 

@@ -36,6 +36,7 @@ export const THEME_EXTRA_DEFAULTS: Readonly<Record<string, string>> = Object.fre
 	slashDescriptionColor: "",
 	slashHintColor: "",
 	userBoxBorderColor: "",
+	compactionBgColor: "",
 	gitInsertionColor: "#2ea043",
 	gitDeletionColor: "#f85149",
 });

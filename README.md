@@ -14,7 +14,7 @@
 ## Features
 
 - **Status line** — responsive segment layout (model, thinking, path, Git, context, usage, cost, time, extension statuses) through native widgets above or below the editor.
-- **Editor** — compact/boxed/dock `CustomEditor` treatments with prompt glyph, metadata rows, and thinking-level border, preserving Pi keybindings and autocomplete.
+- **Editor** — compact/boxed/dock `CustomEditor` treatments with prompt glyph, metadata rows, session name on the top border, and a session-selectable border color independent of thinking effort; preserves Pi keybindings and autocomplete.
 - **Startup** — compact tri-color logo header and optional overlay with System & Context / Available Tools panels, rendered from snapshot data collected before mount.
 - **Messages** — assistant prefix and boxed compaction/skill/branch/MCP special blocks, and certified tool call/result selectors with pending/running/error markers.
 - **Merged run summaries** — interleaved `◈ Thought N times · Called M tools · Edit +A -R · K failures` progress rows: after a request completes, every commentary segment keeps its own row with the CUMULATIVE totals through that point (the last row carries the whole run's totals), so each summary stays attached to the text its work produced. No duplicate `➔ Read…` aggregate, no duration. Clicking any row opens/closes all run thoughts and finalized tools (including failures and edits); native Ctrl+O still expands/collapses tools. Incomplete runs stay visible (`messages.mergedTurnSummary`, `tools.collapseAfterTurn`).
@@ -42,6 +42,9 @@ Run a real TUI session with the extension source (development):
 
 ```bash
 pi -e ./extension-src/pi-style/pi/index.ts
+
+# Optional session title (Pi built-in) + editor-frame color (pi-style extension):
+pi --name "Expand brand components" --color '#e879f9'
 ```
 
 ---
@@ -134,6 +137,8 @@ Tier C surfaces are immutable session authorizations, not persisted config:
 | `/pi-style preset <name>` | Apply a named preset. |
 | `/pi-style placement above\|below` | Move the primary status row. |
 | `/pi-style editor <style> [frame]` | Select compact, boxed, dock, or native editor. |
+| `/color #RGB\|#RRGGBB\|off` | Set or reset this session's editor border color; `/color` shows it. |
+| `/name <title>` | Set Pi's session name, shown on the editor's top border. |
 | `/pi-style startup <off\|compact\|overlay>` | Select startup mode. |
 | `/pi-style surface <name> on\|off` | Toggle startup/status/editor/messages/tools. |
 | `/pi-style set <path> <JSON>` | Set one documented leaf after validation, e.g. `set statusLine.layout.left ["model","git"]`. |

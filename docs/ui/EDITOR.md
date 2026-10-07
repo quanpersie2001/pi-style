@@ -43,7 +43,7 @@ Code-defined layouts selected by configuration; users may override colors/glyphs
 ╰──────────────────────────────────────────────────────╯
 ```
 
-Rounded box with vertical side borders — the default editor frame (`dock` style + `rounded` frame). Compact prompt gap, one owned status row, no attempt to become a fixed terminal zone. Side borders reserve two columns; the cursor marker stays inside the box (the TUI derives the cursor column from the rendered prefix, so the hardware cursor lands after the `│ ` border). Body rows are rendered at `width − 2` and wrapped in the thinking-synced border color. The autocomplete dropdown is re-framed inside the same box. Falls back to `compact` bars below 40 columns and native below 20.
+Rounded box with vertical side borders — the default editor frame (`dock` style + `rounded` frame). Compact prompt gap, one owned status row, no attempt to become a fixed terminal zone. Side borders reserve two columns; the cursor marker stays inside the box (the TUI derives the cursor column from the rendered prefix, so the hardware cursor lands after the `│ ` border). Body rows are rendered at `width − 2` and wrapped in the session-selected border color (or the theme's primary `accent` color). The autocomplete dropdown is re-framed inside the same box. Falls back to `compact` bars below 40 columns and native below 20.
 
 ### `outline` frame
 
@@ -60,7 +60,7 @@ Native-looking Pi editor output with minimal decoration; both a user preference 
 
 ## Frame modes
 
-`auto` (choose by style/width/color capability/thinking level), `halfblock`, `line`, `solid`, `outline`, `rounded`, `native`. Unknown or unsupported modes fall back to the style default. `rounded` renders the rounded box with side borders (see above); `outline` keeps the square-corner box without side borders.
+`auto` (choose by style/width/color capability), `halfblock`, `line`, `solid`, `outline`, `rounded`, `native`. Unknown or unsupported modes fall back to the style default. `rounded` renders the rounded box with side borders (see above); `outline` keeps the square-corner box without side borders.
 
 ## Empty-input hint
 
@@ -89,7 +89,7 @@ Pi treats an input starting with `!` as a direct bash command and switches the e
 
 - Prompt glyph becomes `` (Nerd Font; `$` in Unicode/ASCII modes; `theme.glyphs.bashPrompt` override), colored with the live bash border color.
 - The leading `!` (and the `!!` context-exclusion run) is hidden from the display; the cursor stays correctly aligned (the hardware-cursor marker rides along). A cursor sitting on a hidden `!` keeps the native cursor block.
-- Emptying the input returns to the normal `❯` prompt and the thinking-synced border automatically (Pi's `isBashMode` rule).
+- Emptying the input returns to the normal `❯` prompt; the frame keeps the selected session color (or the theme's primary `accent` color).
 - A bare bang submit (`!` / `!!` with no command after it) is dropped instead of being sent to the agent as a literal message: Pi's submit path already cleared the editor, so the input just returns to the normal prompt. Real bash commands (`!echo hi`) and non-interactive input sources are never touched.
 - Display-only: the real editor text keeps the `!` prefix, so submit/history/undo and Pi's execution path are untouched.
 
@@ -111,7 +111,7 @@ Available: model/provider, thinking level, context percentage/window, project/pa
 
 ## Thinking and working state
 
-Thinking level may communicate through border/frame color: off/minimal muted, low/medium progressively accented, high/xhigh/max strong semantic colors. Text stays in the status line by default; no rainbow animation interferes with input readability.
+Thinking level does not recolor the decorated editor frame. Use Pi's `/name` or `--name` to set the session title displayed as a solid badge on its top border. The badge uses the frame color as its background, terminal-background-colored text, and one cell of padding on each side. Use `/color #RGB`, `/color #RRGGBB`, or `pi --color '#RRGGBB'` to set a per-session frame color; `/color off` resets it to the theme's primary `accent` color. A saved `/color` setting survives resume and takes precedence over the CLI default for that session. Native editor style remains Pi-owned.
 
 Pi's native working indicator is embedded in the editor's top border through `CustomEditor`'s `embedWorkingStatus` option. The styled renderer delegates to the protected native `renderTopBorder()` hook at the full frame width (minus two columns for rounded/outline corners), preserving indicator ANSI, native message updates, spinner-only degradation, and the `↑ N more` scroll label. Normal and autocomplete rendering retain that line; native style delegates unchanged. Idle frame glyphs remain styled as before.
 
@@ -123,7 +123,7 @@ Degradation order: remove optional metadata → abbreviate labels/values → red
 
 ## Theming
 
-Consumes semantic tokens from `THEMING.md`: prompt/input text, background/frame, metadata label/value, thinking-level border, active/working state. Pre-baked strings are rebuilt after theme invalidation.
+Consumes semantic tokens from `THEMING.md`: prompt/input text, background/frame, metadata label/value, primary accent border, active/working state. Pre-baked strings are rebuilt after theme invalidation.
 
 ## Existing editor conflict
 
@@ -142,7 +142,7 @@ Any constructor/render capability mismatch falls back to the previous/native edi
 - **EDIT-001:** extend `CustomEditor` and preserve native app keybindings.
 - **EDIT-002:** support compact, boxed, dock, and native styles.
 - **EDIT-003:** multiline prompt, wrapping, continuation, and cursor alignment are width-correct.
-- **EDIT-004:** thinking level updates editor frame semantics live.
+- **EDIT-004:** session color overrides the primary accent editor frame; thinking level does not recolor it.
 - **EDIT-005:** metadata follows preset ownership and avoids accidental duplication.
 - **EDIT-006:** existing editor ownership follows documented composition settings.
 - **EDIT-007:** disabling/shutdown restores a usable prior/native editor.

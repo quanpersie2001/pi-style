@@ -218,6 +218,66 @@ describe("styled editor renderer", () => {
 		expect(plain(editor.render(80).join("\n"))).toContain("!echo hi");
 	});
 
+	it("shows the session name on the frame, truncates it safely, and updates on rename", () => {
+		const editor = new StyledEditor(fakeTui(), fakeTheme(), fakeKeys(), {
+			config: DEFAULT_CONFIG,
+			snapshot: { sessionName: "Expand brand components like an-sao" },
+			theme: fakeTheme(),
+			onSnapshot: () => {},
+		});
+		const plain = (line: string) => line.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "");
+		const topBorder = editor.render(80)[0] ?? "";
+		expect(plain(topBorder)).toContain("Expand brand components like an-sao");
+		expect(topBorder).toContain("\x1b[7m Expand brand components like an-sao \x1b[27m");
+		expect(topBorder.indexOf("\x1b[27m")).toBeLessThan(topBorder.lastIndexOf("╮"));
+		// Native cursor also uses reverse video; only the title badge is new.
+		expect(editor.render(80)[1]).not.toContain("Expand brand components like an-sao");
+		expect(editor.render(40).every((line) => visibleWidth(line) <= 40)).toBe(true);
+		editor.update({ sessionName: "Renamed" });
+		expect(plain(editor.render(80)[0] ?? "")).toContain("Renamed");
+		editor.update({});
+		expect(plain(editor.render(80)[0] ?? "")).not.toContain("Renamed");
+	});
+
+	it("uses the primary accent by default and after clearing a session color, independent of effort", () => {
+		const fg = vi.fn((_token: string, text: string) => `primary:${text}`);
+		const editor = new StyledEditor(fakeTui(), fakeTheme(), fakeKeys(), {
+			config: DEFAULT_CONFIG,
+			snapshot: { thinkingLevel: "low" },
+			theme: fakeTheme(),
+			fullTheme: { fg, getColorMode: () => "truecolor" } as never,
+			onSnapshot: () => {},
+		});
+		editor.render(80);
+		expect(fg.mock.calls.every(([token]) => token === "accent")).toBe(true);
+		editor.update({ thinkingLevel: "max", editorBorderColor: "#aabbcc" });
+		expect(editor.render(80)[0]).toContain("\x1b[38;2;170;187;204m");
+		fg.mockClear();
+		editor.update({ thinkingLevel: "max" });
+		editor.render(80);
+		expect(fg).toHaveBeenCalled();
+		expect(fg.mock.calls.every(([token]) => token === "accent")).toBe(true);
+	});
+
+	it("uses a fixed session color instead of thinking effort, including bash and autocomplete", () => {
+		const editor = new StyledEditor(fakeTui(), fakeTheme(), fakeKeys(), {
+			config: DEFAULT_CONFIG,
+			snapshot: { thinkingLevel: "low", editorBorderColor: "#aabbcc" },
+			theme: fakeTheme(),
+			onSnapshot: () => {},
+		});
+		const border = () => editor.render(80)[0] ?? "";
+		expect(border()).toContain("\x1b[38;2;170;187;204m");
+		editor.update({ thinkingLevel: "max", editorBorderColor: "#aabbcc" });
+		expect(border()).toContain("\x1b[38;2;170;187;204m");
+		editor.setText("!pwd");
+		expect(border()).toContain("\x1b[38;2;170;187;204m");
+		(editor as unknown as { autocompleteState?: unknown }).autocompleteState = { active: true };
+		expect(border()).toContain("\x1b[38;2;170;187;204m");
+		editor.update({});
+		expect(border()).not.toContain("\x1b[38;2;170;187;204m");
+	});
+
 	it("renders decorated paths with exactly one native render call", () => {
 		const editor = new StyledEditor(fakeTui(), fakeTheme(), fakeKeys(), {
 			config: normalizeConfig({ editor: { style: "dock", frame: "rounded" } }),

@@ -71,6 +71,9 @@
     "thinkingXhigh": "titaniumGold",
     "bashMode": "readoutGreen"
   },
+  "extras": {
+    "compactionBgColor": "darkTitanium"
+  },
   "export": {
     "pageBg": "brushedTitanium",
     "cardBg": "darkTitanium",

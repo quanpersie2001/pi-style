@@ -9,13 +9,29 @@
 import { keyText } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { Markdown, type MarkdownTheme, MouseRegion } from "@earendil-works/pi-tui";
+import { bgHexAnsi, isHexColor, stripAnsi, truncateAnsi, wrapAnsiBackground } from "../../shared/ansi.js";
 import type { BoxTheme } from "../../shared/box.js";
-import { setFullTheme } from "../../shared/theme-extras.js";
+import { getThemeExtra, setFullTheme } from "../../shared/theme-extras.js";
 import { renderBoxedMessageBlock } from "./boxed-block.js";
 
 let cachedTheme: BoxTheme | undefined;
+const compactionBackgroundOwners = new Set<WeakRef<MessageBlockInstance>>();
+let trackedCompactions = new WeakSet<object>();
+
+export function restoreCompactionBackgrounds(): void {
+	const nativeTheme = cachedTheme;
+	for (const reference of compactionBackgroundOwners) {
+		reference.deref()?.setBgFn?.((text) => nativeTheme?.bg?.("customMessageBg", text) ?? text);
+	}
+	compactionBackgroundOwners.clear();
+	trackedCompactions = new WeakSet<object>();
+}
 
 export function setSpecialBlockTheme(theme: BoxTheme | undefined): void {
+	if (!theme) restoreCompactionBackgrounds();
+	for (const reference of compactionBackgroundOwners) {
+		if (!reference.deref()) compactionBackgroundOwners.delete(reference);
+	}
 	cachedTheme = theme;
 	if (theme) setFullTheme(theme);
 }
@@ -47,6 +63,7 @@ interface MessageBlockInstance {
 	expanded?: unknown;
 	_expanded?: unknown;
 	setExpanded?(expanded: boolean): unknown;
+	setBgFn?(bgFn?: (text: string) => string): void;
 	markdownTheme?: unknown;
 	box?: { clear(): void; addChild(child: unknown): void };
 	customComponent?: unknown;
@@ -58,12 +75,12 @@ interface MessageBlockInstance {
 
 const EXPAND_HINT = "Ctrl+O to expand";
 
-function expandHint(): string {
+function expandHint(expanded = false): string {
 	try {
 		const text = keyText("app.tools.expand");
-		return text ? `${text} to expand` : EXPAND_HINT;
+		return text ? `${text} to ${expanded ? "collapse" : "expand"}` : expanded ? "Ctrl+O to collapse" : EXPAND_HINT;
 	} catch {
-		return EXPAND_HINT;
+		return expanded ? "Ctrl+O to collapse" : EXPAND_HINT;
 	}
 }
 
@@ -97,6 +114,30 @@ function clickToggleRegion(instance: MessageBlockInstance, block: Component): Co
 	});
 }
 
+/** One genuine summary line, preferring prose over headings/formatting. */
+function compactionPreview(summary: string): string {
+	const lines = stripAnsi(summary)
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter(Boolean);
+	const line = lines.find((line) => !/^(#{1,6}\s|```|~~~|[-*_]{3,}$)/u.test(line)) ?? lines[0] ?? "";
+	return [...line.replace(/^(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)/u, "").replace(/[*`]/g, "")]
+		.map((char) => (char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? " " : char))
+		.join("")
+		.trim();
+}
+
+function compactionBackground(theme: BoxTheme, text: string): string {
+	const color = getThemeExtra(theme, "compactionBgColor");
+	// A neutral message surface, not a tool success/pending/error state.
+	if (isHexColor(color)) return wrapAnsiBackground(text, bgHexAnsi(theme, color));
+	try {
+		return theme.bg?.("userMessageBg", text) ?? text;
+	} catch {
+		return text;
+	}
+}
+
 function patchCompaction(instance: MessageBlockInstance, _original: () => void, theme: BoxTheme): boolean {
 	const tokensBefore = instance.message?.tokensBefore;
 	if (tokensBefore == null) return false;
@@ -112,17 +153,30 @@ function patchCompaction(instance: MessageBlockInstance, _original: () => void, 
 	const summary = typeof instance.message?.summary === "string" ? instance.message.summary : "";
 	const markdownTheme = instance.markdownTheme as MarkdownTheme | undefined;
 
-	const body = expanded && summary && markdownTheme ? createMarkdownBody(summary, markdownTheme, theme) : () => [];
+	const preview = compactionPreview(summary);
+	const body =
+		expanded && summary && markdownTheme
+			? createMarkdownBody(summary, markdownTheme, theme)
+			: (width: number) => (preview ? [theme.fg("customMessageText", truncateAnsi(preview, width, "…"))] : []);
 
 	const tokenStr = Number(tokensBefore).toLocaleString();
 	const block = renderBoxedMessageBlock(theme, {
 		kind: "Compaction",
 		title: `${tokenStr} tokens`,
-		...(expanded ? {} : { right: expandHint() }),
+		right: expandHint(expanded),
 		body,
-		icon: "⊟",
-		hasDivider: expanded,
+		icon: expanded ? "▾" : "▸",
+		compact: true,
 	});
+	// Change only the public container background, leaving native layout/mouse
+	// padding intact. Restore native fill on teardown; weak refs don't retain chat.
+	if (instance.setBgFn) {
+		instance.setBgFn((text) => compactionBackground(cachedTheme ?? theme, text));
+		if (!trackedCompactions.has(instance)) {
+			trackedCompactions.add(instance);
+			compactionBackgroundOwners.add(new WeakRef(instance));
+		}
+	}
 	instance.addChild(clickToggleRegion(instance, block));
 	return true;
 }

@@ -63,6 +63,10 @@ Conservative order: explicit `PI_STYLE_NERD_FONTS=1|0` → explicit config `on|o
 
 Paint backgrounds only across cells owned by the component; never assume the terminal default background matches a chosen theme. When a box/background extends to the component width, padding is included in width calculations and ANSI reset behavior.
 
+### Compaction card background
+
+`extras.compactionBgColor` is an optional neutral surface override for Compaction only. It accepts a hex color or a theme variable/color reference. The default is empty; missing/invalid values use Pi's `userMessageBg`, never a tool status token. Titanium uses `darkTitanium` (`#0f1216`); titanium-light uses `userMsgBg` (`#e8e8e8`). Resolution is cached outside render; truecolor and 256-color terminals are supported. Themes without background styling retain the card layout without a fill. Other special blocks keep their native `customMessageBg`.
+
 ## Terminal-global background synchronization
 
 Unsupported/off for technical v1: production emits no OSC 10/11/111, performs no terminal query or polling, installs no terminal-background widget, and claims no terminal-global ownership. Explicit cell backgrounds and Pi theme APIs remain supported; physical terminal/platform/color synchronization stays unclaimed unless mandatory platform evidence requires a future decision.

@@ -18,7 +18,11 @@ import {
 	decorateMessageUpdate,
 	type MessageDecorationSnapshot,
 } from "../features/messages/index.js";
-import { renderSpecialMessageBlock, type SpecialBlockSubtype } from "../features/messages/special-blocks.js";
+import {
+	renderSpecialMessageBlock,
+	restoreCompactionBackgrounds,
+	type SpecialBlockSubtype,
+} from "../features/messages/special-blocks.js";
 import { renderBashExecutionBox } from "../features/tools/bash-execution.js";
 import { createToolDecorationOwner } from "../features/tools/index.js";
 import {
@@ -827,6 +831,16 @@ function probeSpec(options: {
 			return renderSpecialMessageBlock(spec.subtype as SpecialBlockSubtype, original, target, args);
 		},
 	});
+	if (spec.subtype === "native-compaction-message" && result.status !== "skipped") {
+		const dispose = result.record.disposer;
+		result.record.disposer = () => {
+			const wasDisposed = result.record.disposed;
+			dispose();
+			// Only restore per-instance background changes after our prototype
+			// wrapper is actually removed (conflicting wrappers remain retryable).
+			if (!wasDisposed && result.record.disposed) restoreCompactionBackgrounds();
+		};
+	}
 	return {
 		record: result.record,
 		reason: result.reason ?? result.record.diagnostic ?? "skipped",

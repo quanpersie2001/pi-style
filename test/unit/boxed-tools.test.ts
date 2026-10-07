@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import {
 	BranchSummaryMessageComponent,
 	CompactionSummaryMessageComponent,
@@ -59,6 +60,7 @@ import {
 	safeWrapTextWithAnsi,
 	truncateAtCodePointBoundary,
 } from "../../extension-src/pi-style/shared/render-budget.js";
+import { resetThemeExtrasCache } from "../../extension-src/pi-style/shared/theme-extras.js";
 import { createFakeTheme } from "../helpers/fake-theme.js";
 
 const theme = createFakeTheme();
@@ -102,6 +104,7 @@ function assertFit(lines: readonly string[], width: number): void {
 
 afterEach(() => {
 	setSpecialBlockTheme(undefined);
+	resetThemeExtrasCache();
 	if (activeReport) {
 		disposePiCompatibilityProbe(activeReport);
 		activeReport = undefined;
@@ -1063,7 +1066,7 @@ describe("special message blocks", () => {
 		setSpecialBlockTheme(theme);
 		const component = new CompactionSummaryMessageComponent({
 			role: "compactionSummary",
-			summary: "the record of the conversation",
+			summary: "## Goal\n\n- the record of the conversation\n\n## Progress\n\nSecond section remains expanded-only.",
 			tokensBefore: 4321,
 			timestamp: 1,
 		});
@@ -1072,11 +1075,119 @@ describe("special message blocks", () => {
 		const expanded = stripAnsi(component.render(80).join("\n"));
 		expect(expanded).toContain("Compaction");
 		expect(expanded).toContain("the record of the conversation");
-		// An explicit collapse (Ctrl+O / click) hides the body and shows the hint.
+		expect(expanded).toContain("Second section remains expanded-only.");
+		expect(expanded).toContain("▾ Compaction");
+		// An explicit collapse (Ctrl+O / click) shows one real preview and the hint.
 		component.setExpanded(false);
 		const collapsed = stripAnsi(component.render(80).join("\n"));
 		expect(collapsed).toContain("Compaction");
-		expect(collapsed).not.toContain("the record of the conversation");
+		expect(collapsed).toContain("the record of the conversation");
+		expect(collapsed).not.toContain("Second section remains expanded-only.");
+		expect(collapsed).toContain("▸ Compaction");
+		const shell = component
+			.render(80)
+			.map(stripAnsi)
+			.filter((line) => line.trim());
+		expect(shell).toHaveLength(3);
+		expect(shell[1]?.trim()).toMatch(/^│\s+the record of the conversation\s+│$/u);
+	});
+
+	it("uses a neutral background and restores the native background on teardown", () => {
+		installSpecialBlockAdapters();
+		const rich = createFakeTheme({ backgrounds: { userMessageBg: "#0f1216", customMessageBg: "#2a3038" } });
+		setSpecialBlockTheme(rich);
+		const component = new CompactionSummaryMessageComponent({
+			role: "compactionSummary",
+			summary: "summary",
+			tokensBefore: 1234,
+			timestamp: 1,
+		});
+		expect(component.render(80).join("\n")).toContain("\x1b[48;2;15;18;22m");
+		expect(component.render(80).join("\n")).not.toContain("\x1b[48;2;42;48;56m");
+		setSpecialBlockTheme(undefined);
+		component.invalidate();
+		expect(component.render(80).join("\n")).toContain("\x1b[48;2;42;48;56m");
+		expect(component.render(80).join("\n")).not.toContain("╭");
+	});
+
+	it("restores native fill when compatibility patches are disabled, without clearing the cached theme", () => {
+		installSpecialBlockAdapters();
+		const rich = createFakeTheme({ backgrounds: { userMessageBg: "#0f1216", customMessageBg: "#2a3038" } });
+		setSpecialBlockTheme(rich);
+		const component = new CompactionSummaryMessageComponent({
+			role: "compactionSummary",
+			summary: "summary",
+			tokensBefore: 1234,
+			timestamp: 1,
+		});
+		expect(component.render(80).join("\n")).toContain("\x1b[48;2;15;18;22m");
+		if (!activeReport) throw new Error("missing compatibility report");
+		expect(disposePiCompatibilityProbe(activeReport).complete).toBe(true);
+		component.invalidate();
+		expect(component.render(80).join("\n")).toContain("\x1b[48;2;42;48;56m");
+		expect(component.render(80).join("\n")).not.toContain("╭");
+	});
+
+	it.each(["truecolor", "256color"])("resolves titanium's compactionBgColor extra in %s", (mode) => {
+		installSpecialBlockAdapters();
+		const rich = createFakeTheme();
+		Object.assign(rich, { sourcePath: resolve("themes/titanium.json"), getColorMode: () => mode });
+		setSpecialBlockTheme(rich);
+		const component = new CompactionSummaryMessageComponent({
+			role: "compactionSummary",
+			summary: "summary",
+			tokensBefore: 1234,
+			timestamp: 1,
+		});
+		expect(component.render(80).join("\n")).toContain(mode === "truecolor" ? "\x1b[48;2;15;18;22m" : "\x1b[48;5;");
+	});
+
+	it("fits Unicode previews at narrow widths and has no empty body for an empty summary", () => {
+		installSpecialBlockAdapters();
+		setSpecialBlockTheme(theme);
+		const component = new CompactionSummaryMessageComponent({
+			role: "compactionSummary",
+			summary: `## Goal\n\n- ${"Sửa giao diện 界 🚀 ".repeat(20)}\n\nSecond paragraph.`,
+			tokensBefore: 1234,
+			timestamp: 1,
+		});
+		component.setExpanded(false);
+		for (const width of [20, 40, 80, 120]) {
+			const lines = component.render(width);
+			assertFit(lines, width);
+			expect(lines.map(stripAnsi).filter((line) => line.trim())).toHaveLength(3);
+			expect(stripAnsi(lines.join("\n"))).not.toContain("Second paragraph.");
+		}
+		const empty = new CompactionSummaryMessageComponent({
+			role: "compactionSummary",
+			summary: "",
+			tokensBefore: 1234,
+			timestamp: 1,
+		});
+		empty.setExpanded(false);
+		expect(
+			empty
+				.render(80)
+				.map(stripAnsi)
+				.filter((line) => line.trim()),
+		).toHaveLength(2);
+	});
+
+	it("keeps click-to-toggle behavior for the dense compaction card", () => {
+		installSpecialBlockAdapters();
+		setSpecialBlockTheme(theme);
+		const component = new CompactionSummaryMessageComponent({
+			role: "compactionSummary",
+			summary: "preview\n\nexpanded-only",
+			tokensBefore: 1234,
+			timestamp: 1,
+		});
+		component.render(80);
+		const event = { type: "click", button: "left", x: 2, y: 1, width: 80, height: 10 } as const;
+		expect(component.handleMouse(event as never)?.handled).toBe(true);
+		expect(stripAnsi(component.render(80).join("\n"))).not.toContain("expanded-only");
+		expect(component.handleMouse(event as never)?.handled).toBe(true);
+		expect(stripAnsi(component.render(80).join("\n"))).toContain("expanded-only");
 	});
 
 	it("falls back to native layout without a session theme", () => {

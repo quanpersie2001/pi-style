@@ -76,6 +76,8 @@ export interface StatusSnapshot {
 	readonly usage?: UsageSnapshot;
 	readonly hostname?: string;
 	readonly sessionName?: string | undefined;
+	/** Per-session editor frame color; independent of thinking effort. */
+	readonly editorBorderColor?: string | undefined;
 	readonly sessionId?: string | undefined;
 	readonly sessionStartedAt?: number;
 	readonly extensionStatuses?: readonly ExtensionStatus[];

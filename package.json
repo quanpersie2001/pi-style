@@ -4,6 +4,14 @@
   "description": "A native-layout, cohesive visual style package for Pi.",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/quanpersie2001/pi-style.git"
+  },
+  "homepage": "https://github.com/quanpersie2001/pi-style#readme",
+  "bugs": {
+    "url": "https://github.com/quanpersie2001/pi-style/issues"
+  },
   "keywords": [
     "pi-package",
     "pi",

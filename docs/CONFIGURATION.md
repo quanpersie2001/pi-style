@@ -182,6 +182,8 @@ Tier C is default-deny: core alone, surface-only flags, and ordinary product def
 | `/pi-style preset <name>` | Apply a named preset. |
 | `/pi-style placement above\|below` | Move the primary status row. |
 | `/pi-style editor <style> [frame]` | Select compact, boxed, dock, or native editor. |
+| `/color #RGB\|#RRGGBB\|off` | Set/reset the editor border color for this session; `/color` shows the value. |
+| `/name <title>` | Set Pi's session name, shown on the editor's top border. |
 | `/pi-style startup <off\|compact\|overlay>` | Select startup mode. |
 | `/pi-style surface <name> on\|off` | Toggle startup/status/editor/messages/tools. |
 | `/pi-style set <path> <JSON>` | Set one documented leaf/array/map/custom item after validation, e.g. `set statusLine.layout.left ["model","git"]`. |
@@ -294,7 +296,7 @@ When the input starts with `!` (Pi's native bash mode), the editor switches to a
 - The prompt glyph becomes the bash icon (`` Nerd Font, `$` Unicode/ASCII fallback; configurable via `theme.glyphs.bashPrompt`).
 - The leading `!` (and `!!` for context-excluded commands) is hidden from the displayed input; the command text starts right after the icon. A cursor sitting on the hidden `!` keeps the native cursor block.
 - The whole frame (borders and glyph) takes the bash-mode color — Pi's native `bashMode` theme color, already used for the direct-execution display.
-- Clearing the input returns the editor to the normal `❯` prompt and thinking-synced border color automatically.
+- Clearing the input returns the editor to the normal `❯` prompt. The border uses `/color` or the theme's primary `accent` color (`#00b4ff` in `titanium`); thinking effort does not recolor it.
 
 This is display-only: the real editor text still contains the `!` prefix, so submit, history, undo, and Pi's bash execution are unchanged.
 

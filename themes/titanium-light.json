@@ -74,6 +74,9 @@
     "thinkingXhigh": "#8b008b",
     "bashMode": "green"
   },
+  "extras": {
+    "compactionBgColor": "userMsgBg"
+  },
   "export": {
     "pageBg": "#f8f8f8",
     "cardBg": "#ffffff",

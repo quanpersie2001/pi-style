@@ -1,8 +1,8 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
-import { type EditorComponent, visibleWidth } from "@earendil-works/pi-tui";
+import { type EditorComponent, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { NormalizedPiStyleConfig } from "../../domain/config-types.js";
-import { contextPercent, type StatusSnapshot, type ThinkingLevel } from "../../domain/status.js";
+import { contextPercent, type StatusSnapshot } from "../../domain/status.js";
 import type { ResolvedTheme } from "../../domain/theme.js";
 import { resolveTheme } from "../../domain/theme.js";
 import { stripAnsi, truncateAnsi } from "../../shared/ansi.js";
@@ -17,8 +17,10 @@ type Keybindings = Parameters<EditorFactory>[2];
 type EditorHost = Pick<ExtensionUIContext, "setEditorComponent"> & {
 	getEditorComponent?: () => EditorFactory | undefined;
 	notify?: (message: string, type?: "info" | "warning" | "error") => void;
-	/** Full Pi theme; provides thinking-level border colors when available. */
-	readonly theme?: { getThinkingBorderColor?: (level: ThinkingLevel) => (str: string) => string };
+	/** Full Pi theme; semantic primary color and concrete color styling. */
+	readonly theme?: ExtensionUIContext["theme"] & {
+		style?: (text: string, options: { fg: string }) => string;
+	};
 };
 
 export interface EditorInstallation {
@@ -47,8 +49,8 @@ interface EditorOptions {
 	config: NormalizedPiStyleConfig;
 	snapshot: StatusSnapshot;
 	theme: PiEditorTheme;
-	/** Full Pi theme for thinking-level border colors (optional; falls back to borderColor). */
-	fullTheme?: { getThinkingBorderColor?: (level: ThinkingLevel) => (str: string) => string };
+	/** Full Pi theme for primary accent and concrete session color. */
+	fullTheme?: EditorHost["theme"];
 	onSnapshot: (snapshot: StatusSnapshot) => void;
 	/** Clipboard image paste surface (ADR 0009): instant `[Image #N] ` markers
 	 *  at keystroke time, artifact-path fallback, atomic marker backspace.
@@ -82,6 +84,16 @@ interface RenderPlan {
 }
 
 const widthOf = visibleWidth;
+
+/** Older Pi themes lack style(); respect their truecolor/256-color mode. */
+function rgbBorder(color: string, mode: "truecolor" | "256color"): (text: string) => string {
+	const channels = [1, 3, 5].map((offset) => Number.parseInt(color.slice(offset, offset + 2), 16));
+	const [red = 0, green = 0, blue = 0] = channels;
+	const cube = (value: number) => Math.round((value / 255) * 5);
+	const code =
+		mode === "256color" ? `38;5;${16 + 36 * cube(red) + 6 * cube(green) + cube(blue)}` : `38;2;${red};${green};${blue}`;
+	return (text) => `\x1b[${code}m${text}\x1b[39m`;
+}
 
 function widthSafe(value: string, width: number): string {
 	if (width <= 0) return "";
@@ -395,7 +407,16 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		const frame = this.nativeFrame;
 		if (!frame) return super.renderTopBorder(width, hiddenLineCount);
 		const borderWidth = this.topBorderWidth(frame.width, frame.kind);
-		const nativeBorder = super.renderTopBorder(borderWidth, hiddenLineCount);
+		// Let Pi compose its native spinner/scroll labels, but color only the
+		// surrounding rule with our fixed session color instead of thinking effort.
+		const previousBorderColor = this.borderColor;
+		let nativeBorder: string;
+		try {
+			this.borderColor = this.borderColorFor();
+			nativeBorder = super.renderTopBorder(borderWidth, hiddenLineCount);
+		} finally {
+			this.borderColor = previousBorderColor;
+		}
 		frame.topBorder = this.styleTopBorder(frame.width, frame.kind, nativeBorder);
 		return frame.topBorder;
 	}
@@ -410,10 +431,32 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		const glyph = kind === "boxed" ? (this.config.editor.frame === "halfblock" ? "▀" : "━") : "─";
 		// Only restyle an empty native rule. Status ANSI and scroll labels pass
 		// through verbatim; never parse a message or read Pi's private indicator.
-		const content =
+		const label = this.snapshot.sessionName
+			? [...stripAnsi(this.snapshot.sessionName)]
+					.map((char) => (char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? " " : char))
+					.join("")
+					.trim()
+			: undefined;
+		let content =
 			nativeBorder !== undefined && !/^─*$/.test(stripAnsi(nativeBorder))
 				? nativeBorder
 				: border(glyph.repeat(borderWidth));
+		if (label && borderWidth > 12) {
+			// Reserve room for the native working indicator and scroll label. Never
+			// truncate their content just to display the session name.
+			const plain = stripAnsi(content);
+			const trailing = plain.match(/[─━▀]+$/u)?.[0] ?? "";
+			const maxLabel = Math.min(visibleWidth(label), Math.floor(borderWidth / 2), borderWidth - 8);
+			const title = truncateToWidth(label, maxLabel, "…");
+			const suffixWidth = visibleWidth(title) + 3;
+			if (trailing.length >= suffixWidth) {
+				// Reverse the frame foreground over the terminal's default background:
+				// a solid frame-colored badge with contrasting terminal-background text.
+				// Close reverse video before drawing the remaining rule/corner.
+				const badge = border(`\x1b[49m\x1b[7m ${title} \x1b[27m`);
+				content = truncateToWidth(content, borderWidth - suffixWidth, "") + badge + border(glyph);
+			}
+		}
 		if (kind === "rounded") return `${border("╭")}${content}${border("╮")}`;
 		if (kind === "outline") return `${border("┌")}${content}${border("┐")}`;
 		return content;
@@ -467,7 +510,7 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 			// leading `!` is hidden from the input text. The glyph takes the live
 			// border color (pi sets editor.borderColor to the bashMode color).
 			const glyph = this.semantic.glyph("bashPrompt");
-			return this.borderColor(glyph);
+			return this.borderColorFor()(glyph);
 		}
 		const configured = this.config.theme.glyphs.prompt;
 		if (configured) return configured;
@@ -532,15 +575,18 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		return (line: string) => this.borderColorFor()(line);
 	}
 
-	/** Raw border color function (thinking-synced) WITHOUT full-width padding, for single glyphs. */
+	/** Session color takes priority; otherwise use the theme's primary accent,
+	 * never the thinking-effort-dependent editor border. */
 	private borderColorFor(): (line: string) => string {
-		// While bash mode is active pi keeps editor.borderColor set to the
-		// bashMode color (its native updateEditorBorderColor path); prefer it over
-		// the thinking-level color so the whole frame switches to the bash color.
-		if (this.isBashMode()) return this.borderColor;
-		const level = this.snapshot.thinkingLevel;
-		const thinking = this.fullTheme?.getThinkingBorderColor?.(level ?? "off");
-		return thinking ?? this.piTheme.borderColor;
+		const color = this.snapshot.editorBorderColor;
+		if (color) {
+			const style = this.fullTheme?.style?.bind(this.fullTheme);
+			if (style) return (line) => style(line, { fg: color });
+			return rgbBorder(color, this.fullTheme?.getColorMode() === "256color" ? "256color" : "truecolor");
+		}
+		const fg = this.fullTheme?.fg?.bind(this.fullTheme);
+		if (fg) return (line) => fg("accent", line);
+		return this.piTheme.borderColor;
 	}
 
 	private frame(
