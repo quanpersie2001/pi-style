@@ -59,7 +59,7 @@ import { getToolsRenderCacheSignature, getToolsRenderConfig } from "./session-co
 import type { BoxedToolContext } from "./shared.js";
 
 /** Quiet tools whose calls group into a single batch panel. */
-export const BATCHABLE_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "ls", "find"]);
+export const BATCHABLE_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "ls", "find", "Agent"]);
 
 export function isBatchableTool(toolName: unknown): boolean {
 	return typeof toolName === "string" && BATCHABLE_TOOL_NAMES.has(toolName);
@@ -81,6 +81,8 @@ export interface BatchMember {
 	status: BatchMemberStatus;
 	isError: boolean;
 	errorText?: string;
+	/** Effective mode for optional pi-teams dispatches, when the runtime confirms it. */
+	effectiveMode?: "background" | "foreground";
 	/** find glob pattern (header detail for output panels). */
 	pattern?: string;
 	/** Display path (header detail for output panels). */

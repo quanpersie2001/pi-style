@@ -326,6 +326,13 @@ export function renderSpecialMessageBlock(
 	const instance = thisArg as unknown as MessageBlockInstance;
 	const base = original as (this: object, ...rest: unknown[]) => unknown;
 	const applyBase = () => base.apply(thisArg, args);
+	// pi-style owns these native custom renderers; another boxed shell would
+	// duplicate their frame and padding. Keep Pi's renderer dispatch intact.
+	if (
+		subtype === "native-custom-message" &&
+		(instance.message?.customType === "teammate-notification" || instance.message?.customType === "teammate-message")
+	)
+		return applyBase();
 	const theme = cachedTheme;
 	if (!theme) return applyBase();
 	try {

@@ -240,10 +240,12 @@ describe("thinking-less tool messages attribute to the latest thought group", ()
 		// The run's ➔ leader defers entirely (every message attributed), and
 		// Ctrl+O expansion still renders every member standalone (unknown/
 		// extension tools through the boxed fallback).
-		// Collapsed: leader defers, members hide.
+		// Collapsed: general tools hide; the compact teammate receipt stays visible.
 		const leader = dispatchCall("read", { path: "a.ts" }, theme, toolContext("t1"));
 		expect(leader.render(80)).toEqual([]);
-		expect(dispatchCall("get_subagent_result", {}, theme, toolContext("t2")).render(80)).toEqual([]);
+		expect(stripAnsi(dispatchCall("get_subagent_result", {}, theme, toolContext("t2")).render(80)[0] ?? "")).toContain(
+			"Get result",
+		);
 		expect(dispatchCall("bash", { command: "ls" }, theme, toolContext("t3")).render(80)).toEqual([]);
 		// Expanded (Ctrl+O): every member renders standalone — the extension
 		// tool through the boxed fallback, bash through its own renderer.

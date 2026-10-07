@@ -41,7 +41,7 @@ describe("scheduler timers and fake-host runtime resources", () => {
 				await host.sessionShutdown();
 				expect(host.widgets.size).toBe(0);
 				expect(host.componentFactories.size).toBe(0);
-				expect(host.registeredMessageRenderers.size).toBe(0);
+				expect([...host.registeredMessageRenderers.keys()]).toEqual(["teammate-notification", "teammate-message"]);
 				// ADR 0008: the single load-time image-preview entry renderer stays
 				// registered (public API, no unregister; display-only mapping).
 				expect([...host.registeredEntryRenderers.keys()]).toEqual(["pi-style-image-preview"]);

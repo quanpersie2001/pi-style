@@ -18,6 +18,7 @@ import { getQuickEditToolConfig, quickEditTool } from "./quick-edit.js";
 import { readTool } from "./read.js";
 import { getStateElapsedMs, getToolsRenderConfig, recordExecutionEnded, stopElapsedTicker } from "./session-config.js";
 import type { BoxedToolContext, BoxedToolDefinition } from "./shared.js";
+import { agentTool, getAgentResultTool, sendMessageTool, steerTool, teamTaskTools } from "./teams.js";
 import {
 	effectiveTurnExpansion,
 	emptyTurnResult,
@@ -45,6 +46,11 @@ const REGISTRY: Readonly<Record<string, BoxedToolDefinition>> = {
 	ls: lsTool,
 	find: findTool,
 	grep: grepTool,
+	Agent: agentTool,
+	get_subagent_result: getAgentResultTool,
+	steer_subagent: steerTool,
+	send_message: sendMessageTool,
+	...teamTaskTools,
 	quick_edit: quickEditToolFor("quick_edit"),
 	substitute_edit: quickEditToolFor("substitute_edit"),
 	target_edit: quickEditToolFor("target_edit"),
@@ -60,7 +66,16 @@ export function hasBoxedRenderer(toolName: unknown): boolean {
  * is finalized. Merged mode covers errors and mutations too; legacy mode
  * retains the error/mutating exemptions. Native expansion flags always win.
  */
-function collapsedTurnFor(toolCallId: string, expanded: boolean): TurnState | undefined {
+function collapsedTurnFor(toolCallId: string, expanded: boolean, toolName: unknown): TurnState | undefined {
+	// The compact team receipts remain visible after the run-wide summary closes.
+	if (
+		toolName === "Agent" ||
+		toolName === "get_subagent_result" ||
+		toolName === "steer_subagent" ||
+		toolName === "send_message" ||
+		(typeof toolName === "string" && toolName.startsWith("team_task_"))
+	)
+		return undefined;
 	const config = getToolsRenderConfig();
 	if (expanded || !config.collapseAfterTurn) return undefined;
 	const entry = getTurnEntry(toolCallId);
@@ -97,7 +112,7 @@ export function renderBoxedToolCall(
 	noteTurnMemberRender(context.toolCallId, context.invalidate);
 	const expanded = effectiveTurnExpansion(context.toolCallId, context.expanded);
 	context = { ...context, expanded };
-	const turn = collapsedTurnFor(context.toolCallId, expanded);
+	const turn = collapsedTurnFor(context.toolCallId, expanded, toolName);
 	if (turn) {
 		if (summaryLeaderId(turn) === context.toolCallId) {
 			// The thought leader owns the sole merged row. Tools-only runs use the
@@ -117,6 +132,7 @@ export function renderBoxedToolCall(
 	const entry = getTurnEntry(context.toolCallId);
 	if (
 		entry?.turn.ended === true &&
+		collapsedTurnFor(context.toolCallId, false, toolName) !== undefined &&
 		entry.turn.forcedOpen &&
 		expanded &&
 		!hasMergedThoughtLabel(entry.turn) &&
@@ -147,7 +163,7 @@ export function renderBoxedToolResult(
 	const expanded = effectiveTurnExpansion(context.toolCallId, options.expanded);
 	options = { ...options, expanded };
 	context = { ...context, expanded };
-	const turn = options.isPartial ? undefined : collapsedTurnFor(context.toolCallId, expanded);
+	const turn = options.isPartial ? undefined : collapsedTurnFor(context.toolCallId, expanded, toolName);
 	if (turn) {
 		if (summaryLeaderId(turn) === context.toolCallId && !hasMergedThoughtLabel(turn)) return emptyTurnResult();
 		return EMPTY_BATCH_COMPONENT;

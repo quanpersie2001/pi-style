@@ -1228,7 +1228,7 @@ describe("identity-certified compatibility probe", () => {
 			await modeHost.sessionStart();
 			expect(descriptors()).toEqual(before);
 			expect(modeHost.registeredTools).toEqual([]);
-			expect(modeHost.registeredMessageRenderers.size).toBe(0);
+			expect([...modeHost.registeredMessageRenderers.keys()]).toEqual(["teammate-notification", "teammate-message"]);
 			// ADR 0008: the display-only image-preview entry renderer registers at
 			// load in every mode (persisted entries render on TUI resume); a pure
 			// type→component mapping with no session resources.
@@ -1280,7 +1280,7 @@ describe("identity-certified compatibility probe", () => {
 			const before = descriptors();
 			await modeHost.sessionStart();
 			expect(modeHost.registeredTools).toEqual([]);
-			expect(modeHost.registeredMessageRenderers.size).toBe(0);
+			expect([...modeHost.registeredMessageRenderers.keys()]).toEqual(["teammate-notification", "teammate-message"]);
 			expect([...modeHost.registeredEntryRenderers.keys()]).toEqual(["pi-style-image-preview"]);
 			expect(modeHost.activeTools).toEqual([]);
 			expect(descriptors()).toEqual(before);

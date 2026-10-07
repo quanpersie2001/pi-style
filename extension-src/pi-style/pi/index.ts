@@ -7,6 +7,7 @@ import {
 	registerImagePreviewSurface,
 	stageImagePreviewData,
 } from "../features/messages/image-preview.js";
+import { registerTeammateMessageRenderers } from "../features/messages/teammates.js";
 import {
 	attributeMessageToLatestGroup,
 	beginAgentThoughtRun,
@@ -29,6 +30,7 @@ import { registerPiStyleCommand } from "./commands.js";
 import { parseEditorColor, savedEditorColor } from "./editor-color.js";
 import { type CompatibilityTestHooks, createPiStyleSessionCoordinator } from "./session-coordinator.js";
 import { resetUsageFromSessionCache, usageFromSession } from "./session-usage.js";
+import { registerTeammateToolRenderers } from "./teammate-tool-renderers.js";
 
 /** Usage patch clears stale usage when the active branch/session has none. */
 function usagePatch(ctx: ExtensionContext): StatusSnapshot {
@@ -86,6 +88,8 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	// entries whose customType has no renderer — and once at extension load is
 	// enough (persisted entries from previous sessions render on resume).
 	registerImagePreviewSurface(pi);
+	registerTeammateMessageRenderers(pi);
+	registerTeammateToolRenderers(pi);
 	// User-prompt image previews (ADR 0008): the prompt's `images` are only
 	// available at `before_agent_start`, but appending there would place the entry
 	// above the user message because extension handlers run before the UI handles
