@@ -8,6 +8,13 @@
 - Keep parent-pinned tools unchanged in `PI_TEAMS_CHILD=1` sessions instead of automatically adding read-only tools.
 - Render literal session editor border colors as RGB rather than theme token names, fixing `/color` crashes on native Pi 1.0.4.
 
+## [0.5.3] - 2026-10-07
+
+### Features
+
+- Add session editor badges and redesign compaction cards
+- Add compact pi-teams companion UI
+
 ## [0.5.2] - 2026-10-07
 
 ### Features
