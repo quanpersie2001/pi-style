@@ -111,7 +111,7 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		// registered but inactive (kept out of the model's tool list to keep the
 		// core small). Activate them so the TUI shows them and the model can call
 		// them directly, mirroring Claude Code's glob/grep/read tool set.
-		if (pi.getFlag("pi-style-readonly-tools") === true) {
+		if (pi.getFlag("pi-style-readonly-tools") === true && process.env.PI_TEAMS_CHILD !== "1") {
 			activateReadOnlyTools(pi);
 		}
 		await coordinator.start(event, ctx);

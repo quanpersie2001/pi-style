@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG, normalizeConfig } from "../../extension-src/pi-style/domain/config-normalization.js";
 import { StyledEditor } from "../../extension-src/pi-style/features/editor/index.js";
 import { visibleWidth } from "../../extension-src/pi-style/shared/ansi.js";
+import { createFakeTheme } from "../helpers/fake-theme.js";
 
 const ESC = "\x1b";
 
@@ -239,24 +240,20 @@ describe("styled editor renderer", () => {
 		expect(plain(editor.render(80)[0] ?? "")).not.toContain("Renamed");
 	});
 
-	it("uses the primary accent by default and after clearing a session color, independent of effort", () => {
-		const fg = vi.fn((_token: string, text: string) => `primary:${text}`);
+	it("renders and clears a session hex border color with the native SDK theme", () => {
+		const theme = createFakeTheme({ colors: { accent: "#112233" } });
 		const editor = new StyledEditor(fakeTui(), fakeTheme(), fakeKeys(), {
 			config: DEFAULT_CONFIG,
 			snapshot: { thinkingLevel: "low" },
 			theme: fakeTheme(),
-			fullTheme: { fg, getColorMode: () => "truecolor" } as never,
+			fullTheme: theme,
 			onSnapshot: () => {},
 		});
-		editor.render(80);
-		expect(fg.mock.calls.every(([token]) => token === "accent")).toBe(true);
+		expect(editor.render(80)[0]).toContain("\x1b[38;2;17;34;51m");
 		editor.update({ thinkingLevel: "max", editorBorderColor: "#aabbcc" });
 		expect(editor.render(80)[0]).toContain("\x1b[38;2;170;187;204m");
-		fg.mockClear();
 		editor.update({ thinkingLevel: "max" });
-		editor.render(80);
-		expect(fg).toHaveBeenCalled();
-		expect(fg.mock.calls.every(([token]) => token === "accent")).toBe(true);
+		expect(editor.render(80)[0]).toContain("\x1b[38;2;17;34;51m");
 	});
 
 	it("uses a fixed session color instead of thinking effort, including bash and autocomplete", () => {

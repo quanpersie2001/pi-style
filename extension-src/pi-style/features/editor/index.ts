@@ -85,7 +85,7 @@ interface RenderPlan {
 
 const widthOf = visibleWidth;
 
-/** Older Pi themes lack style(); respect their truecolor/256-color mode. */
+/** Literal RGB colors are not theme tokens; respect the terminal's color mode. */
 function rgbBorder(color: string, mode: "truecolor" | "256color"): (text: string) => string {
 	const channels = [1, 3, 5].map((offset) => Number.parseInt(color.slice(offset, offset + 2), 16));
 	const [red = 0, green = 0, blue = 0] = channels;
@@ -580,8 +580,6 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	private borderColorFor(): (line: string) => string {
 		const color = this.snapshot.editorBorderColor;
 		if (color) {
-			const style = this.fullTheme?.style?.bind(this.fullTheme);
-			if (style) return (line) => style(line, { fg: color });
 			return rgbBorder(color, this.fullTheme?.getColorMode() === "256color" ? "256color" : "truecolor");
 		}
 		const fg = this.fullTheme?.fg?.bind(this.fullTheme);

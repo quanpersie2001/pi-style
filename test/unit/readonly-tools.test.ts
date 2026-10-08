@@ -44,4 +44,20 @@ describe("pi-style read-only tool activation", () => {
 		await host.sessionStart();
 		expect(host.activeTools).toEqual(["read"]);
 	});
+
+	it("preserves a specialist child's parent-owned active tool allowlist", async () => {
+		const previous = process.env.PI_TEAMS_CHILD;
+		process.env.PI_TEAMS_CHILD = "1";
+		try {
+			const host = new FakePiHost();
+			host.allTools = [tool("read"), tool("bash"), tool("edit"), tool("write"), tool("grep"), tool("find"), tool("ls")];
+			host.activeTools = ["read", "bash", "edit", "write"];
+			piStyleExtension(host.extensionApi);
+			await host.sessionStart();
+			expect(host.activeTools).toEqual(["read", "bash", "edit", "write"]);
+		} finally {
+			if (previous === undefined) delete process.env.PI_TEAMS_CHILD;
+			else process.env.PI_TEAMS_CHILD = previous;
+		}
+	});
 });

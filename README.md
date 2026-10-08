@@ -127,6 +127,8 @@ Tier C surfaces are immutable session authorizations, not persisted config:
 --pi-style-ascii
 ```
 
+In `PI_TEAMS_CHILD=1` sessions, automatic read-only-tool activation is skipped so the parent-pinned tool set stays authoritative. Editor, footer and other authorized presentation surfaces still load normally.
+
 ---
 
 ## Commands
