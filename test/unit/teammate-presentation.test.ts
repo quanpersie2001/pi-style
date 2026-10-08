@@ -105,6 +105,7 @@ describe("pi-teams tool presentation", () => {
 				agentId: "xyz",
 				maxTurns: 20,
 				thinking: "high",
+				teammateName: "effective-name",
 				color: "#00bbdd",
 			}),
 			{ expanded: false, isPartial: false },
@@ -114,6 +115,8 @@ describe("pi-teams tool presentation", () => {
 		const colored = run.component.render(100)[0] ?? "";
 		expect(colored).toContain("\u001b[");
 		expect(stripAnsi(colored)).toContain("thinking high · max 20 turns");
+		expect(stripAnsi(colored)).toContain("@effective-name");
+		expect(stripAnsi(colored)).not.toContain("@fe-fleet");
 	});
 
 	it("separates foreground, non-Agent, and later-message batches", () => {
@@ -254,12 +257,13 @@ describe("pi-teams message renderers", () => {
 		const message = renderers.get("teammate-message")?.(
 			{
 				content: "Message from @fe-fleet:\n\nFound routes",
-				details: { from: "fe-fleet", untrusted: true },
+				details: { from: "fe-fleet", color: "#00bbdd", untrusted: true },
 			} as Parameters<MessageRenderer>[0],
 			{ expanded: false } as Parameters<MessageRenderer>[1],
 			theme,
 		);
 		expect(plain(message?.render(80) ?? [])).toEqual(["✉ @fe-fleet → lead · Found routes"]);
+		expect(message?.render(80)[0]).toContain("\u001b[");
 		setToolsRenderConfig({ nerdFonts: true });
 		expect(plain(message?.render(80) ?? [])[0]).toContain("\uf086 @fe-fleet → lead");
 		const malformed = renderers.get("teammate-notification")?.(

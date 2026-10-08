@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Bug Fixes
+
+- Prefer effective teammate names from Agent result details over requested specialist identity. Apply runtime-supplied teammate color to dispatch, completion and peer-message identities without inferring colors from names.
+
 ## [0.5.2] - 2026-10-07
 
 ### Features

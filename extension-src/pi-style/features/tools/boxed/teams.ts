@@ -69,10 +69,10 @@ function simple(text: string, theme: BoxTheme): Component {
 }
 function agentDetail(args: Record<string, unknown>, theme: BoxTheme, result?: BoxedToolResult): string {
 	const data = details(result ?? {});
-	const who = short(args.name);
+	const who = short(data.teammateName) || short(args.name);
 	const description = clean(args.description, 100);
-	// Color is optional metadata from the owning runtime, never inferred from
-	// agent names. Current pi-teams publishes none; future versions may add it.
+	// Color and name are optional metadata from the owning runtime, never
+	// inferred from specialist definitions or teammate names.
 	const color = typeof data.color === "string" && isHexColor(data.color) ? data.color : undefined;
 	const parts = [who ? (color ? fgHex(theme, color, `@${who}`) : `@${who}`) : description || "Teammate"];
 	if (who && description) parts.push(description);

@@ -390,6 +390,12 @@ If another extension already owns a message/tool renderer: compose only through 
 - **GH-001:** `gh pr list/view/checks/create` and `issue list/view` render as boxless summary cards (table output or `gh --json`); `gh run list/view` render as boxless run cards, `gh run view --job=<id>` renders the job log in a boxed result (`Log · <id>` divider), and `gh run watch`/`gh api` stay raw.
 - **GH-002:** action hints (`d diff`, `c checks`, `Enter details`, `Ctrl+O raw`) are presentation only — no keybinding registration.
 
+## Pi Teams instance identity
+
+Agent receipts and `teammate-notification` messages prefer runtime `details.teammateName` and use `details.color` when supplied. Peer messages use runtime `details.from` and `details.color`. Hex colors style the identity, rather than appearing as literal metadata. Requested `name` is a pending-call fallback only; specialist names, model labels and unrelated metadata do not synthesize teammate identity or color.
+
+Pi Teams retains ownership of execution and roster state. Pi Style uses its existing public/certified tool and custom-message renderers, with native fallback; neither a second Pi Teams renderer nor a runtime dependency is required.
+
 ## Certified and fallback tests
 
 - assistant multiline prefixes at wide/narrow widths; partial/final transitions;
