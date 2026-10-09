@@ -1,15 +1,22 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.4] - 2026-10-09
 
 ### Bug Fixes
 
-- Show `@teammate` instead of a run UUID in `Get result · wait` receipts when Agent admission metadata identifies the run; rebuild the mapping from the selected session branch on restore.
-- Prefer effective teammate names from Agent result details over requested specialist identity. Apply runtime-supplied teammate color to dispatch, completion and peer-message identities without inferring colors from names.
-- Keep parent-pinned tools unchanged in `PI_TEAMS_CHILD=1` sessions instead of automatically adding read-only tools.
-- Render literal session editor border colors as RGB rather than theme token names, fixing `/color` crashes on native Pi 1.0.4.
+- *(teams)* Label Get result receipts with the admitted teammate
+- *(teams)* Color teammate references across UI
+
+### Miscellaneous Tasks
+
+- Merge remote v0.5.3 release
 
 ## [0.5.3] - 2026-10-07
+
+### Bug Fixes
+
+- *(teams)* Render effective teammate instance identity
+- *(teams)* Preserve child tool pins and literal editor colors
 
 ### Features
 
