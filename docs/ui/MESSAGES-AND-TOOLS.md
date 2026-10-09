@@ -392,7 +392,7 @@ If another extension already owns a message/tool renderer: compose only through 
 
 ## Pi Teams instance identity
 
-Agent receipts and `teammate-notification` messages prefer runtime `details.teammateName` and use `details.color` when supplied. Peer messages use runtime `details.from` and `details.color`. Hex colors style the identity, rather than appearing as literal metadata. Requested `name` is a pending-call fallback only; specialist names, model labels and unrelated metadata do not synthesize teammate identity or color.
+Agent receipts and `teammate-notification` messages prefer runtime `details.teammateName` and use `details.color` when supplied. Peer messages use runtime `details.from` and `details.color`. Hex colors style the identity, rather than appearing as literal metadata. Requested `name` is a pending-call fallback only; specialist names, model labels and unrelated metadata do not synthesize teammate identity or color. `Get result` receipts resolve their run ID to `@teammate` from Agent admission details, including while waiting and after restoring the active session branch. Unknown run IDs retain the abbreviated ID; Pi still calls the tool with the full ID so repeated assignments to one teammate remain distinct.
 
 Pi Teams retains ownership of execution and roster state. Pi Style uses its existing public/certified tool and custom-message renderers, with native fallback; neither a second Pi Teams renderer nor a runtime dependency is required.
 

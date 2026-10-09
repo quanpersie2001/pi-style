@@ -7,7 +7,7 @@
 
 ---
 
-![pi-style demo](https://raw.githubusercontent.com/quanpersie2001/pi-style/refs/heads/main/assets/demo.jpeg)
+![pi-style demo](https://raw.githubusercontent.com/quanpersie2001/pi-style/refs/heads/main/assets/demo.png)
 
 ---
 

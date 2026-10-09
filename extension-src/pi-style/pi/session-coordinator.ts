@@ -17,6 +17,7 @@ import {
 	stopAllElapsedTickers,
 	type ToolsRenderConfig,
 } from "../features/tools/boxed/session-config.js";
+import { rebuildTeammateRuns } from "../features/tools/boxed/team-run-labels.js";
 import { rebuildTurnRegistryFromEntries, resetTurnRegistry } from "../features/tools/boxed/turn-summary.js";
 import { createCompatibilityCoordinator } from "./compatibility-coordinator.js";
 import {
@@ -224,6 +225,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			// bridge; the thought rebuild then reads them while building labels.
 			rebuildTurnRegistryFromEntries(sessionEntries);
 			rebuildAgentThoughtRunsFromEntries(sessionEntries);
+			rebuildTeammateRuns(sessionEntries);
 			// Stop any 1s elapsed re-render ticker left by a tool that was still
 			// running when the session ended.
 			stopAllElapsedTickers();

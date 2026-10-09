@@ -17,6 +17,7 @@ import {
 	refreshThoughtComponentsForMessage,
 } from "../features/messages/thought-summary.js";
 import { closeActiveBatch, resetReadChunkCandidates } from "../features/tools/boxed/batch.js";
+import { rebuildTeammateRuns, resetTeammateRuns } from "../features/tools/boxed/team-run-labels.js";
 import {
 	beginAgentRun,
 	finishAgentRun,
@@ -273,6 +274,7 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 				: ctx.sessionManager.getEntries();
 		rebuildTurnRegistryFromEntries(entries);
 		rebuildAgentThoughtRunsFromEntries(entries);
+		rebuildTeammateRuns(entries);
 		refreshObservedThoughtComponents();
 		invalidateRegisteredTurnMembers();
 		requestToolPresentationRender();
@@ -302,6 +304,7 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	});
 	pi.on("session_shutdown", (_event, ctx) => {
 		resetUsageFromSessionCache(ctx.sessionManager);
+		resetTeammateRuns();
 		coordinator.shutdown();
 	});
 }

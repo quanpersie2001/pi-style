@@ -2,6 +2,10 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetAgentThoughtRuns } from "../../extension-src/pi-style/features/messages/thought-summary.js";
+import {
+	resetTeammateRuns,
+	teammateForRun,
+} from "../../extension-src/pi-style/features/tools/boxed/team-run-labels.js";
 import { getTurnEntry, resetTurnRegistry } from "../../extension-src/pi-style/features/tools/boxed/turn-summary.js";
 import piStyleExtension from "../../extension-src/pi-style/pi/index.js";
 import { FakePiHost } from "../helpers/fake-pi-host.js";
@@ -32,6 +36,7 @@ function assistant(id: string, timestamp: number): AssistantMessage {
 afterEach(() => {
 	resetTurnRegistry();
 	resetAgentThoughtRuns();
+	resetTeammateRuns();
 });
 
 describe("summary registries follow the selected session branch", () => {
@@ -79,5 +84,43 @@ describe("summary registries follow the selected session branch", () => {
 		} finally {
 			await host.sessionShutdown();
 		}
+	});
+
+	it("restores teammate labels from Agent receipts on the selected branch and forgets another branch", async () => {
+		const session = SessionManager.inMemory("/fake");
+		const root = session.appendMessage({ role: "user", content: "start", timestamp: 1 });
+		function spawn(callId: string, runId: string, name: string, timestamp: number): string {
+			session.appendMessage({
+				...assistant(callId, timestamp),
+				content: [{ type: "toolCall", id: callId, name: "Agent", arguments: { name } }],
+			});
+			return session.appendMessage({
+				role: "toolResult",
+				toolCallId: callId,
+				toolName: "Agent",
+				content: [{ type: "text", text: `{agent:${runId} started as @${name}}` }],
+				details: { agentId: runId, teammateName: name },
+				isError: false,
+				timestamp: timestamp + 1,
+			});
+		}
+		const firstLeaf = spawn("call-one", "run-one", "workflow", 2);
+		session.branch(root);
+		const secondLeaf = spawn("call-two", "run-two", "reviewer", 4);
+		const host = new FakePiHost({ mode: "print", sessionEntries: session.getEntries() });
+		Object.assign(host.extensionContext.sessionManager, { getBranch: () => session.getBranch() });
+		piStyleExtension(host.extensionApi);
+		try {
+			await host.sessionStart();
+			expect(teammateForRun("run-one")).toBeUndefined();
+			expect(teammateForRun("run-two")).toBe("reviewer");
+			session.branch(firstLeaf);
+			await host.emit("session_tree", { type: "session_tree", newLeafId: firstLeaf, oldLeafId: secondLeaf });
+			expect(teammateForRun("run-one")).toBe("workflow");
+			expect(teammateForRun("run-two")).toBeUndefined();
+		} finally {
+			await host.sessionShutdown();
+		}
+		expect(teammateForRun("run-one")).toBeUndefined();
 	});
 });

@@ -6,6 +6,7 @@ import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import { type BatchToolMeta, EMPTY_BATCH_COMPONENT, registerBatchCall, registerBatchResult } from "./batch.js";
 import { getToolsRenderConfig } from "./session-config.js";
 import type { BoxedToolDefinition, BoxedToolResult } from "./shared.js";
+import { rememberTeammateResult, rememberTeammateRun, teammateForRun } from "./team-run-labels.js";
 
 export const TEAM_TOOL_NAMES: ReadonlySet<string> = new Set([
 	"Agent",
@@ -120,8 +121,10 @@ export const agentTool: BoxedToolDefinition = {
 		const mode = modeKey(context.args);
 		// Save authoritative admission metadata on Pi's per-call renderer state,
 		// so later call re-renders cannot erase it with invocation-only arguments.
-		if (!options.isPartial && result.details && typeof result.details === "object")
+		if (!options.isPartial && result.details && typeof result.details === "object") {
 			context.state.teamAgentDetails = result.details;
+			rememberTeammateRun(result.details, context.args);
+		}
 		const { batch } = registerBatchCall(agentMeta(mode), agentDetail(context.args, theme, result), context);
 		if (!options.isPartial) {
 			const member = batch.members.find((item) => item.toolCallId === context.toolCallId);
@@ -196,16 +199,16 @@ export const steerTool = messageTool(
 // A malformed or changed record remains accessible verbatim when expanded.
 export const getAgentResultTool: BoxedToolDefinition = {
 	call(args, theme) {
-		return rows(
-			() => [
-				`${theme.fg("muted", "●")} Get result ${short(args.agent_id) || "teammate"}${args.wait === true ? " · wait" : ""}`,
-			],
-			1,
-		);
+		return rows(() => {
+			const teammate = teammateForRun(args.agent_id);
+			const label = typeof teammate === "string" ? `@${teammate}` : short(args.agent_id) || "teammate";
+			return [`${theme.fg("muted", "●")} Get result ${label}${args.wait === true ? " · wait" : ""}`];
+		}, 1);
 	},
-	result(result, options, theme) {
+	result(result, options, theme, context) {
 		if (options.isPartial) return empty;
 		const text = stripAnsi(rawText(result));
+		rememberTeammateResult(context.args.agent_id, text);
 		if (options.expanded) return rows(() => text.split("\n"), 50);
 		const status = /^Type:.*\| Status: ([a-z_]+)/m.exec(text)?.[1];
 		const teammate = /^Teammate: (@[^\s]+)/m.exec(text)?.[1];

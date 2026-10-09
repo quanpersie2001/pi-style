@@ -5,6 +5,11 @@ import { closeActiveBatch, resetBatchRegistry } from "../../extension-src/pi-sty
 import { renderBoxedToolCall, renderBoxedToolResult } from "../../extension-src/pi-style/features/tools/boxed/index.js";
 import { setToolsRenderConfig } from "../../extension-src/pi-style/features/tools/boxed/session-config.js";
 import type { BoxedToolContext } from "../../extension-src/pi-style/features/tools/boxed/shared.js";
+import {
+	rebuildTeammateRuns,
+	resetTeammateRuns,
+	teammateForRun,
+} from "../../extension-src/pi-style/features/tools/boxed/team-run-labels.js";
 import { registerTeammateToolRenderers } from "../../extension-src/pi-style/pi/teammate-tool-renderers.js";
 import { stripAnsi } from "../../extension-src/pi-style/shared/ansi.js";
 import { createFakeTheme } from "../helpers/fake-theme.js";
@@ -35,6 +40,7 @@ function call(name: string, id: string, args: Record<string, unknown>) {
 afterEach(() => {
 	closeActiveBatch();
 	resetBatchRegistry();
+	resetTeammateRuns();
 	setToolsRenderConfig({ nerdFonts: false, collapseAfterTurn: false });
 });
 
@@ -155,6 +161,110 @@ describe("pi-teams tool presentation", () => {
 			run.ctx,
 		);
 		expect(plain(foreground.render(80))).toEqual(["└─ Review complete"]);
+	});
+
+	it("shows the admitted teammate name while waiting, keeping run IDs separate across assignments", () => {
+		const first = call("Agent", "spawn-one", { name: "workflow", run_in_background: true });
+		const waiting = call("get_subagent_result", "wait-one", { agent_id: "run-one", wait: true });
+		expect(plain(waiting.component.render(100))[0]).toBe("● Get result run-one · wait");
+		renderBoxedToolResult(
+			"Agent",
+			result("{agent:run-one started as @workflow}", {
+				agentId: "run-one",
+				teammateName: "workflow",
+				background: true,
+			}),
+			{ expanded: false, isPartial: false },
+			theme,
+			first.ctx,
+		);
+		expect(plain(waiting.component.render(100))[0]).toBe("● Get result @workflow · wait");
+		const second = call("Agent", "spawn-two", { name: "workflow", run_in_background: true });
+		renderBoxedToolResult(
+			"Agent",
+			result("{agent:run-two started as @workflow}", {
+				agentId: "run-two",
+				teammateName: "workflow",
+				background: true,
+			}),
+			{ expanded: false, isPartial: false },
+			theme,
+			second.ctx,
+		);
+		expect(
+			plain(call("get_subagent_result", "wait-two", { agent_id: "run-two", wait: true }).component.render(100))[0],
+		).toBe("● Get result @workflow · wait");
+		expect(teammateForRun("run-one")).toBe("workflow");
+		expect(teammateForRun("run-two")).toBe("workflow");
+		expect(
+			plain(
+				call("get_subagent_result", "wait-unknown", { agent_id: "run-unknown", wait: true }).component.render(100),
+			)[0],
+		).toBe("● Get result run-unknown · wait");
+	});
+
+	it("learns a teammate from a completed result when the spawn receipt is unavailable", () => {
+		const waiting = call("get_subagent_result", "late", { agent_id: "run-old", wait: true });
+		renderBoxedToolResult(
+			"get_subagent_result",
+			result("Type: explore | Status: completed\nTeammate: @reviewer\n\nDone"),
+			{ expanded: false, isPartial: false },
+			theme,
+			waiting.ctx,
+		);
+		expect(plain(waiting.component.render(100))[0]).toBe("● Get result @reviewer · wait");
+	});
+
+	it("restores only the selected branch's run-to-name mapping", () => {
+		const assistant = (id: string, name: string) => ({
+			type: "message",
+			message: { role: "assistant", content: [{ type: "toolCall", id, name: "Agent", arguments: { name } }] },
+		});
+		const receipt = (id: string, runId: string, name?: string) => ({
+			type: "message",
+			message: {
+				role: "toolResult",
+				toolName: "Agent",
+				toolCallId: id,
+				details: { agentId: runId, ...(name ? { teammateName: name } : {}) },
+			},
+		});
+		rebuildTeammateRuns([
+			assistant("one", "workflow"),
+			receipt("one", "run-one"),
+			assistant("two", "reviewer"),
+			receipt("two", "run-two", "reviewer"),
+		]);
+		expect(teammateForRun("run-one")).toBe("workflow");
+		expect(teammateForRun("run-two")).toBe("reviewer");
+		rebuildTeammateRuns([assistant("one", "workflow"), receipt("one", "run-one")]);
+		expect(teammateForRun("run-two")).toBeUndefined();
+		expect(
+			plain(call("get_subagent_result", "restored", { agent_id: "run-one", wait: true }).component.render(100))[0],
+		).toBe("● Get result @workflow · wait");
+		// Older sessions may have a formatted result but no Agent admission metadata.
+		rebuildTeammateRuns([
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "toolCall", id: "lookup", name: "get_subagent_result", arguments: { agent_id: "run-old" } },
+					],
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolName: "get_subagent_result",
+					toolCallId: "lookup",
+					content: [{ type: "text", text: "Type: explore | Status: completed\nTeammate: @reviewer" }],
+				},
+			},
+		]);
+		expect(teammateForRun("run-one")).toBeUndefined();
+		expect(teammateForRun("run-old")).toBe("reviewer");
 	});
 
 	it("sends messages with one confirmation and preserves errors", () => {
