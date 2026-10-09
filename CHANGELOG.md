@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.5] - 2026-10-09
+
+### Bug Fixes
+
+- Preserve compact tool styles when expanding run summaries
+
+### Features
+
+- Expose detached styled editor for child views
+
 ## [0.5.4] - 2026-10-09
 
 ### Bug Fixes
