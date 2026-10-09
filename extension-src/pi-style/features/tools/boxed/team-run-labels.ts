@@ -1,6 +1,10 @@
 // Presentation-only lookup: Pi's saved Agent tool results bind each run ID to
-// its teammate name. Never resolve an assignment by name or read pi-teams state.
+// its teammate name and optional admitted color. Never resolve an assignment by
+// name or read pi-teams state.
+import { isHexColor } from "../../../shared/ansi.js";
+
 const teammateByRunId = new Map<string, string>();
+const colorByRunId = new Map<string, string>();
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -17,13 +21,21 @@ export function rememberTeammateRun(details: unknown, args?: Record<string, unkn
 	const data = record(details);
 	const id = runId(data?.agentId);
 	const teammate = name(data?.teammateName) ?? name(args?.name);
-	if (id && teammate) teammateByRunId.set(id, teammate);
+	if (id && teammate) {
+		if (teammateByRunId.get(id) !== teammate) colorByRunId.delete(id);
+		teammateByRunId.set(id, teammate);
+	}
+	// Colors are authoritative only when published by the owning runtime.
+	if (id && teammate && typeof data?.color === "string" && isHexColor(data.color)) colorByRunId.set(id, data.color);
 }
 
 export function rememberTeammateResult(agentId: unknown, text: string): void {
 	const teammate = /^Teammate: @([A-Za-z0-9][A-Za-z0-9._-]{0,63})(?=\s|$)/m.exec(text)?.[1];
 	const id = runId(agentId);
-	if (id && teammate) teammateByRunId.set(id, teammate);
+	if (id && teammate) {
+		if (teammateByRunId.get(id) !== teammate) colorByRunId.delete(id);
+		teammateByRunId.set(id, teammate);
+	}
 }
 
 export function teammateForRun(agentId: unknown): string | undefined {
@@ -31,8 +43,14 @@ export function teammateForRun(agentId: unknown): string | undefined {
 	return id ? teammateByRunId.get(id) : undefined;
 }
 
+export function teammateColorForRun(agentId: unknown): string | undefined {
+	const id = runId(agentId);
+	return id ? colorByRunId.get(id) : undefined;
+}
+
 export function resetTeammateRuns(): void {
 	teammateByRunId.clear();
+	colorByRunId.clear();
 }
 
 /** Rebuild from the selected session branch, not the full file: forks and

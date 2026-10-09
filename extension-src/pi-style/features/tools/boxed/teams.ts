@@ -6,7 +6,7 @@ import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import { type BatchToolMeta, EMPTY_BATCH_COMPONENT, registerBatchCall, registerBatchResult } from "./batch.js";
 import { getToolsRenderConfig } from "./session-config.js";
 import type { BoxedToolDefinition, BoxedToolResult } from "./shared.js";
-import { rememberTeammateResult, rememberTeammateRun, teammateForRun } from "./team-run-labels.js";
+import { rememberTeammateResult, rememberTeammateRun, teammateColorForRun, teammateForRun } from "./team-run-labels.js";
 
 export const TEAM_TOOL_NAMES: ReadonlySet<string> = new Set([
 	"Agent",
@@ -53,6 +53,10 @@ const modeKey = (args: Record<string, unknown>): "background" | "foreground" | "
 	args.run_in_background === true ? "background" : args.run_in_background === false ? "foreground" : "unspecified";
 const plural = (n: number): string => (n === 1 ? "teammate" : "teammates");
 const glyph = (): string => (getToolsRenderConfig().nerdFonts ? "\uf086" : "✉");
+// An absent pi-teams color gets the theme's generic accent, not an invented
+// teammate-specific color. Keep the ANSI span limited to the @reference.
+const styledTeammate = (theme: BoxTheme, label: string, color?: unknown): string =>
+	typeof color === "string" && isHexColor(color) ? fgHex(theme, color, label) : theme.fg("accent", label);
 
 function rows(lines: () => string[], max = 8): Component {
 	return {
@@ -74,8 +78,7 @@ function agentDetail(args: Record<string, unknown>, theme: BoxTheme, result?: Bo
 	const description = clean(args.description, 100);
 	// Color and name are optional metadata from the owning runtime, never
 	// inferred from specialist definitions or teammate names.
-	const color = typeof data.color === "string" && isHexColor(data.color) ? data.color : undefined;
-	const parts = [who ? (color ? fgHex(theme, color, `@${who}`) : `@${who}`) : description || "Teammate"];
+	const parts = [who ? styledTeammate(theme, `@${who}`, data.color) : description || "Teammate"];
 	if (who && description) parts.push(description);
 	// Only the admitted model is authoritative; an invocation model can fall back.
 	if (typeof data.model === "string") parts.push(clean(data.model, 120).split("/").at(-1)?.slice(0, 48) ?? "");
@@ -158,9 +161,13 @@ export const agentTool: BoxedToolDefinition = {
 	},
 };
 
-function teammateLabel(args: Record<string, unknown>, key: string): string {
+function teammateLabel(args: Record<string, unknown>, key: string, theme: BoxTheme): string {
 	const value = short(args[key]);
-	return value ? (key === "target" && value === "lead" ? "lead" : `@${value}`) : "teammate";
+	return value
+		? key === "target" && value === "lead"
+			? "lead"
+			: styledTeammate(theme, `@${value}`, key === "agent_id" ? teammateColorForRun(args[key]) : undefined)
+		: "teammate";
 }
 function messageTool(
 	make: (args: Record<string, unknown>, theme: BoxTheme) => string,
@@ -184,13 +191,13 @@ function messageTool(
 
 export const sendMessageTool = messageTool(
 	(args, theme) =>
-		`${theme.fg("muted", glyph())} Message → ${teammateLabel(args, "target")} · “${clean(args.message, 100)}”`,
+		`${theme.fg("muted", glyph())} Message → ${teammateLabel(args, "target", theme)} · “${clean(args.message, 100)}”`,
 	/^Message queued for @/,
 	"queued",
 );
 export const steerTool = messageTool(
 	(args, theme) =>
-		`${theme.fg("muted", glyph())} Steer ${teammateLabel(args, "agent_id")} · “${clean(args.message, 100)}”`,
+		`${theme.fg("muted", glyph())} Steer ${teammateLabel(args, "agent_id", theme)} · “${clean(args.message, 100)}”`,
 	/^Steering accepted/,
 	"accepted",
 );
@@ -202,19 +209,37 @@ export const getAgentResultTool: BoxedToolDefinition = {
 		return rows(() => {
 			const teammate = teammateForRun(args.agent_id);
 			const label = typeof teammate === "string" ? `@${teammate}` : short(args.agent_id) || "teammate";
-			return [`${theme.fg("muted", "●")} Get result ${label}${args.wait === true ? " · wait" : ""}`];
+			const styledLabel = teammate ? styledTeammate(theme, label, teammateColorForRun(args.agent_id)) : label;
+			return [`${theme.fg("muted", "●")} Get result ${styledLabel}${args.wait === true ? " · wait" : ""}`];
 		}, 1);
 	},
 	result(result, options, theme, context) {
 		if (options.isPartial) return empty;
 		const text = stripAnsi(rawText(result));
+		const admitted = teammateForRun(context.args.agent_id);
 		rememberTeammateResult(context.args.agent_id, text);
-		if (options.expanded) return rows(() => text.split("\n"), 50);
 		const status = /^Type:.*\| Status: ([a-z_]+)/m.exec(text)?.[1];
-		const teammate = /^Teammate: (@[^\s]+)/m.exec(text)?.[1];
-		const summary = [teammate, status].filter(Boolean).join(" · ");
+		const teammate = /^Teammate: (@[A-Za-z0-9][A-Za-z0-9._-]{0,63})(?=\s|$)/m.exec(text)?.[1];
+		const color = teammate === `@${admitted}` ? teammateColorForRun(context.args.agent_id) : undefined;
+		if (options.expanded)
+			return rows(
+				() =>
+					text.split("\n").map((line) => {
+						const prefix = `Teammate: ${teammate}`;
+						return teammate && line.startsWith(prefix)
+							? `Teammate: ${styledTeammate(theme, teammate, color)}${line.slice(prefix.length)}`
+							: line;
+					}),
+				50,
+			);
 		const body = text.split("\n\n").slice(1).join(" ").trim();
-		return rows(() => [theme.fg("dim", `└─ ${summary}${summary && body ? " · " : ""}${clean(body || text, 160)}`)], 1);
+		const suffix = `${status ? `${teammate ? " · " : ""}${status}` : ""}${(teammate || status) && body ? " · " : ""}${clean(body || text, 160)}`;
+		return rows(
+			() => [
+				`${theme.fg("dim", "└─ ")}${teammate ? styledTeammate(theme, teammate, color) : ""}${theme.fg("dim", suffix)}`,
+			],
+			1,
+		);
 	},
 };
 
@@ -235,9 +260,10 @@ function parseTask(text: string): Task | Task[] | undefined {
 	}
 	return undefined;
 }
-function taskSummary(task: Task): string {
+function taskSummary(task: Task, theme: BoxTheme): string {
 	const parts = [clean(task.title, 90), clean(task.status, 30)];
-	if (typeof task.owner === "string") parts.push(`@${short(task.owner)}`);
+	const owner = short(task.owner);
+	if (owner) parts.push(styledTeammate(theme, `@${owner}`));
 	if (Array.isArray(task.blockedBy) && task.blockedBy.length) parts.push(`blocked by ${task.blockedBy.length} tasks`);
 	return parts.filter(Boolean).join(" · ");
 }
@@ -263,13 +289,13 @@ function taskTool(verb: string, label: (args: Record<string, unknown>) => string
 					() => [
 						...parsed
 							.slice(0, max)
-							.map((task, index) => `${index === parsed.length - 1 ? "└─" : "├─"} ${taskSummary(task)}`),
+							.map((task, index) => `${index === parsed.length - 1 ? "└─" : "├─"} ${taskSummary(task, theme)}`),
 						...(max < parsed.length ? [`   … ${parsed.length - max} more · Ctrl+O to expand`] : []),
 					],
 					52,
 				);
 			}
-			return rows(() => [theme.fg("dim", `└─ ${taskSummary(parsed)}`)], 1);
+			return rows(() => [`${theme.fg("dim", "└─ ")}${taskSummary(parsed, theme)}`], 1);
 		},
 	};
 }

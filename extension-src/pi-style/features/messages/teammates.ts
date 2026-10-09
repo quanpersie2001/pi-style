@@ -16,6 +16,14 @@ const clean = (value: unknown, max = 280): string =>
 				.slice(0, max)
 		: "";
 
+// If the runtime omits a teammate color, highlight the reference with the
+// theme's generic accent instead of fabricating an identity-specific color.
+const styledTeammate = (
+	theme: { fg(color: string, text: string): string; getColorMode?(): string },
+	label: string,
+	color: unknown,
+): string => (typeof color === "string" && isHexColor(color) ? fgHex(theme, color, label) : theme.fg("accent", label));
+
 export function registerTeammateMessageRenderers(pi: ExtensionAPI): void {
 	pi.registerMessageRenderer("teammate-notification", (message, options, theme): Component => {
 		const data =
@@ -36,9 +44,8 @@ export function registerTeammateMessageRenderers(pi: ExtensionAPI): void {
 			invalidate() {},
 			render(width) {
 				if (width < 8) return [];
-				const nameColor = typeof data.color === "string" && isHexColor(data.color) ? data.color : undefined;
 				const statusColor = data.outcome === "completed" ? "success" : data.outcome === "failed" ? "error" : "dim";
-				const head = `${theme.fg(statusColor, "●")} Teammate ${nameColor && who ? fgHex(theme, nameColor, subject) : theme.fg("text", subject)} ${outcome}`;
+				const head = `${theme.fg(statusColor, "●")} Teammate ${who ? styledTeammate(theme, subject, data.color) : theme.fg("text", subject)} ${outcome}`;
 				const secondary = [preview, path].filter(Boolean).join(" · ");
 				const output = [head, ...(secondary ? [theme.fg("dim", `  └─ ${secondary}`)] : [])];
 				if (options.expanded && content)
@@ -57,7 +64,6 @@ export function registerTeammateMessageRenderers(pi: ExtensionAPI): void {
 		const data =
 			message.details && typeof message.details === "object" ? (message.details as Record<string, unknown>) : {};
 		const from = clean(data.from, 64) || "teammate";
-		const senderColor = typeof data.color === "string" && isHexColor(data.color) ? data.color : undefined;
 		// The mailbox payload already identifies its sender in the first line.
 		const body = typeof message.content === "string" ? message.content.replace(/^Message from @[^\n]+:\s*/, "") : "";
 		const content = clean(body, options.expanded ? 2000 : 220);
@@ -66,9 +72,8 @@ export function registerTeammateMessageRenderers(pi: ExtensionAPI): void {
 			render(width) {
 				if (width < 8) return [];
 				const label = getToolsRenderConfig().nerdFonts ? "\uf086" : "✉";
-				const sender = `@${from} → lead`;
-				const styledSender = senderColor ? fgHex(theme, senderColor, sender) : theme.fg("text", sender);
-				return [`${theme.fg("muted", label)} ${styledSender} · ${theme.fg("dim", content)}`].map((line) =>
+				const sender = `${styledTeammate(theme, `@${from}`, data.color)} → lead`;
+				return [`${theme.fg("muted", label)} ${sender} · ${theme.fg("dim", content)}`].map((line) =>
 					safeTruncateToWidth(line, width),
 				);
 			},

@@ -8,6 +8,7 @@ import type { BoxedToolContext } from "../../extension-src/pi-style/features/too
 import {
 	rebuildTeammateRuns,
 	resetTeammateRuns,
+	teammateColorForRun,
 	teammateForRun,
 } from "../../extension-src/pi-style/features/tools/boxed/team-run-labels.js";
 import { registerTeammateToolRenderers } from "../../extension-src/pi-style/pi/teammate-tool-renderers.js";
@@ -33,9 +34,9 @@ function context(id: string, args: Record<string, unknown>): BoxedToolContext {
 		isError: false,
 	};
 }
-function call(name: string, id: string, args: Record<string, unknown>) {
+function call(name: string, id: string, args: Record<string, unknown>, palette = theme) {
 	const ctx = context(id, args);
-	return { ctx, component: renderBoxedToolCall(name, args, theme, ctx) };
+	return { ctx, component: renderBoxedToolCall(name, args, palette, ctx) };
 }
 afterEach(() => {
 	closeActiveBatch();
@@ -203,6 +204,74 @@ describe("pi-teams tool presentation", () => {
 		).toBe("● Get result run-unknown · wait");
 	});
 
+	it("colors only @references in result receipts using the admitted color or theme accent", () => {
+		const palette = createFakeTheme({ colors: { accent: "#4466aa" } });
+		const waiting = call("get_subagent_result", "wait", { agent_id: "run-review", wait: true }, palette);
+		const spawn = call("Agent", "spawn", { name: "arch-review", run_in_background: true }, palette);
+		const accent = "\x1b[38;2;68;102;170m@arch-review\x1b[39m";
+		expect(spawn.component.render(100)[0]).toContain(accent);
+		expect(stripAnsi(waiting.component.render(100)[0] ?? "")).toContain("Get result run-review");
+		renderBoxedToolResult(
+			"Agent",
+			result("{agent:run-review started}", {
+				agentId: "run-review",
+				teammateName: "arch-review",
+				color: "#00bbdd",
+				background: true,
+			}),
+			{ expanded: false, isPartial: false },
+			palette,
+			spawn.ctx,
+		);
+		const identity = "\x1b[38;2;0;187;221m@arch-review\x1b[39m";
+		expect(spawn.component.render(100)[0]).toContain(identity);
+		expect(waiting.component.render(100)[0]).toContain(`${identity} · wait`);
+		const receipt =
+			renderBoxedToolResult(
+				"get_subagent_result",
+				result("Type: review | Status: completed\nTeammate: @arch-review\n\n## Status: partial"),
+				{ expanded: false, isPartial: false },
+				palette,
+				waiting.ctx,
+			).render(100)[0] ?? "";
+		expect(receipt).toContain(`${identity}`);
+		expect(stripAnsi(receipt)).toBe("└─ @arch-review · completed · ## Status: partial");
+		expect(receipt).not.toContain("\x1b[38;2;0;187;221m · completed");
+		const expanded = renderBoxedToolResult(
+			"get_subagent_result",
+			result("Type: review | Status: completed\nTeammate: @arch-review\n\nDone @arbitrary"),
+			{ expanded: true, isPartial: false },
+			palette,
+			{ ...waiting.ctx, expanded: true },
+		).render(100);
+		expect(expanded[1]).toBe(`Teammate: ${identity}`);
+		expect(expanded.at(-1)).not.toContain("\x1b[38;2;0;187;221m");
+		expect(teammateColorForRun("run-review")).toBe("#00bbdd");
+		const mismatched =
+			renderBoxedToolResult(
+				"get_subagent_result",
+				result("Type: review | Status: completed\nTeammate: @other-review\n\nDone"),
+				{ expanded: false, isPartial: false },
+				palette,
+				waiting.ctx,
+			).render(100)[0] ?? "";
+		expect(mismatched).toContain("\x1b[38;2;68;102;170m@other-review\x1b[39m");
+		expect(teammateColorForRun("run-review")).toBeUndefined();
+
+		const unknown = call("get_subagent_result", "unknown", { agent_id: "run-unknown", wait: true }, palette);
+		expect(unknown.component.render(100)[0]).not.toContain("\x1b[38;2;0;187;221m");
+		const fallback =
+			renderBoxedToolResult(
+				"get_subagent_result",
+				result("Type: review | Status: completed\nTeammate: @docs-review\n\nDone"),
+				{ expanded: false, isPartial: false },
+				palette,
+				unknown.ctx,
+			).render(100)[0] ?? "";
+		expect(fallback).toContain("\x1b[38;2;68;102;170m@docs-review\x1b[39m");
+		expect(unknown.component.render(100)[0]).toContain("\x1b[38;2;68;102;170m@docs-review\x1b[39m");
+	});
+
 	it("learns a teammate from a completed result when the spawn receipt is unavailable", () => {
 		const waiting = call("get_subagent_result", "late", { agent_id: "run-old", wait: true });
 		renderBoxedToolResult(
@@ -220,25 +289,27 @@ describe("pi-teams tool presentation", () => {
 			type: "message",
 			message: { role: "assistant", content: [{ type: "toolCall", id, name: "Agent", arguments: { name } }] },
 		});
-		const receipt = (id: string, runId: string, name?: string) => ({
+		const receipt = (id: string, runId: string, name?: string, color?: string) => ({
 			type: "message",
 			message: {
 				role: "toolResult",
 				toolName: "Agent",
 				toolCallId: id,
-				details: { agentId: runId, ...(name ? { teammateName: name } : {}) },
+				details: { agentId: runId, ...(name ? { teammateName: name } : {}), ...(color ? { color } : {}) },
 			},
 		});
 		rebuildTeammateRuns([
 			assistant("one", "workflow"),
 			receipt("one", "run-one"),
 			assistant("two", "reviewer"),
-			receipt("two", "run-two", "reviewer"),
+			receipt("two", "run-two", "reviewer", "#00bbdd"),
 		]);
 		expect(teammateForRun("run-one")).toBe("workflow");
 		expect(teammateForRun("run-two")).toBe("reviewer");
+		expect(teammateColorForRun("run-two")).toBe("#00bbdd");
 		rebuildTeammateRuns([assistant("one", "workflow"), receipt("one", "run-one")]);
 		expect(teammateForRun("run-two")).toBeUndefined();
+		expect(teammateColorForRun("run-two")).toBeUndefined();
 		expect(
 			plain(call("get_subagent_result", "restored", { agent_id: "run-one", wait: true }).component.render(100))[0],
 		).toBe("● Get result @workflow · wait");
@@ -268,8 +339,10 @@ describe("pi-teams tool presentation", () => {
 	});
 
 	it("sends messages with one confirmation and preserves errors", () => {
-		const mail = call("send_message", "mail", { target: "reviewer", message: "Check the diff" });
+		const palette = createFakeTheme({ colors: { accent: "#4466aa" } });
+		const mail = call("send_message", "mail", { target: "reviewer", message: "Check the diff" }, palette);
 		expect(plain(mail.component.render(90))[0]).toContain("✉ Message → @reviewer · “Check the diff”");
+		expect(mail.component.render(90)[0]).toContain("\x1b[38;2;68;102;170m@reviewer\x1b[39m");
 		renderBoxedToolResult(
 			"send_message",
 			result("Message queued for @reviewer."),
@@ -278,7 +351,8 @@ describe("pi-teams tool presentation", () => {
 			mail.ctx,
 		);
 		expect(plain(mail.component.render(90))[0]).toContain(" · queued");
-		const steer = call("steer_subagent", "steer", { agent_id: "run-1", message: "Focus on API" });
+		const steer = call("steer_subagent", "steer", { agent_id: "run-1", message: "Focus on API" }, palette);
+		expect(steer.component.render(90)[0]).toContain("\x1b[38;2;68;102;170m@run-1\x1b[39m");
 		const error = renderBoxedToolResult(
 			"steer_subagent",
 			result("Agent cannot be steered"),
@@ -307,6 +381,24 @@ describe("pi-teams tool presentation", () => {
 		expect(plain(list.component.render(80))[0]).toBe("● Team tasks · 6 tasks");
 		expect(plain(view.render(80))).toHaveLength(5);
 		expect(plain(view.render(80)).join(" ")).toContain("2 more");
+		const palette = createFakeTheme({ colors: { accent: "#4466aa" } });
+		const owned = { title: "Review APIs", status: "pending", owner: "arch-review" };
+		const ownedList = renderBoxedToolResult(
+			"team_task_list",
+			result(JSON.stringify([owned])),
+			{ expanded: false, isPartial: false },
+			palette,
+			context("owned-list", {}),
+		);
+		expect(ownedList.render(80)[0]).toContain("\x1b[38;2;68;102;170m@arch-review\x1b[39m");
+		const ownedTask = renderBoxedToolResult(
+			"team_task_get",
+			result(JSON.stringify(owned)),
+			{ expanded: false, isPartial: false },
+			palette,
+			context("owned", {}),
+		);
+		expect(ownedTask.render(80)[0]).toContain("\x1b[38;2;68;102;170m@arch-review\x1b[39m");
 		const fallback = renderBoxedToolResult(
 			"team_task_get",
 			result("Unknown task"),
@@ -346,6 +438,7 @@ describe("public pi-teams tool renderer resolver (Pi 1.0.4)", () => {
 
 describe("pi-teams message renderers", () => {
 	it("renders notification and untrusted mailbox without duplicate sender header", () => {
+		const palette = createFakeTheme({ colors: { accent: "#4466aa" } });
 		const renderers = new Map<string, MessageRenderer>();
 		registerTeammateMessageRenderers({
 			registerMessageRenderer: (type: string, renderer: MessageRenderer) => {
@@ -358,22 +451,32 @@ describe("pi-teams message renderers", () => {
 				details: { teammateName: "fe-fleet", outcome: "completed", resultFile: "/tmp/result.md" },
 			} as Parameters<MessageRenderer>[0],
 			{ expanded: false } as Parameters<MessageRenderer>[1],
-			theme,
+			palette,
 		);
 		expect(plain(notice?.render(100) ?? [])).toEqual([
 			"● Teammate @fe-fleet finished",
 			"  └─ Found files · /tmp/result.md",
 		]);
+		expect(notice?.render(100)[0]).toContain("\x1b[38;2;68;102;170m@fe-fleet\x1b[39m finished");
 		const message = renderers.get("teammate-message")?.(
 			{
 				content: "Message from @fe-fleet:\n\nFound routes",
 				details: { from: "fe-fleet", color: "#00bbdd", untrusted: true },
 			} as Parameters<MessageRenderer>[0],
 			{ expanded: false } as Parameters<MessageRenderer>[1],
-			theme,
+			palette,
 		);
 		expect(plain(message?.render(80) ?? [])).toEqual(["✉ @fe-fleet → lead · Found routes"]);
-		expect(message?.render(80)[0]).toContain("\u001b[");
+		expect(message?.render(80)[0]).toContain("\x1b[38;2;0;187;221m@fe-fleet\x1b[39m → lead");
+		const noColor = renderers.get("teammate-message")?.(
+			{
+				content: "Message from @docs-review:\n\nUpdate",
+				details: { from: "docs-review", color: "not-a-color" },
+			} as Parameters<MessageRenderer>[0],
+			{ expanded: false } as Parameters<MessageRenderer>[1],
+			palette,
+		);
+		expect(noColor?.render(100)[0]).toContain("\x1b[38;2;68;102;170m@docs-review\x1b[39m → lead");
 		setToolsRenderConfig({ nerdFonts: true });
 		expect(plain(message?.render(80) ?? [])[0]).toContain("\uf086 @fe-fleet → lead");
 		const malformed = renderers.get("teammate-notification")?.(
