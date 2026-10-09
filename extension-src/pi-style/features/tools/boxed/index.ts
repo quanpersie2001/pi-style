@@ -111,7 +111,11 @@ export function renderBoxedToolCall(
 	// longer releases these callbacks).
 	noteTurnMemberRender(context.toolCallId, context.invalidate);
 	const expanded = effectiveTurnExpansion(context.toolCallId, context.expanded);
-	context = { ...context, expanded };
+	const entry = getTurnEntry(context.toolCallId);
+	// Opening a run reveals its tools; it does not request every tool's full
+	// output. In particular, read/ls/find must keep their inline/batch panels:
+	// their expanded result renderer is a standalone *bottom half* of a box.
+	context = { ...context, expanded: expanded && !entry?.turn.forcedOpen };
 	const turn = collapsedTurnFor(context.toolCallId, expanded, toolName);
 	if (turn) {
 		if (summaryLeaderId(turn) === context.toolCallId) {
@@ -129,7 +133,6 @@ export function renderBoxedToolCall(
 	// so the turn can be closed again; every member renders its normal block.
 	// A merged thought leader already supplies the close affordance, so never
 	// reintroduce a second tool-summary row beneath it.
-	const entry = getTurnEntry(context.toolCallId);
 	if (
 		entry?.turn.ended === true &&
 		collapsedTurnFor(context.toolCallId, false, toolName) !== undefined &&
@@ -161,8 +164,9 @@ export function renderBoxedToolResult(
 		noteTurnMemberElapsed(context.toolCallId, getStateElapsedMs(context.state));
 	}
 	const expanded = effectiveTurnExpansion(context.toolCallId, options.expanded);
-	options = { ...options, expanded };
-	context = { ...context, expanded };
+	const detailExpanded = expanded && !getTurnEntry(context.toolCallId)?.turn.forcedOpen;
+	options = { ...options, expanded: detailExpanded };
+	context = { ...context, expanded: detailExpanded };
 	const turn = options.isPartial ? undefined : collapsedTurnFor(context.toolCallId, expanded, toolName);
 	if (turn) {
 		if (summaryLeaderId(turn) === context.toolCallId && !hasMergedThoughtLabel(turn)) return emptyTurnResult();

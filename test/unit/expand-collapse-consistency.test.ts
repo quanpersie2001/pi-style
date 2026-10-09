@@ -165,6 +165,17 @@ describe("turn-summary click expansion (behavior consistency)", () => {
 		// The leader keeps its toggle row on top so the turn can close again.
 		expect(visible[0]).toContain("Read 4 files");
 
+		// Opening the turn is not equivalent to Ctrl+O on every member: read
+		// stays a boxless batch, and its result does not draw a partial frame.
+		expect(visible.join("\n")).toContain("Read (4)");
+		expect(
+			components
+				.slice(0, 4)
+				.flatMap((component) => component.render(100))
+				.join("\n"),
+		).not.toContain("Response");
+		expect(visible.join("\n")).not.toContain("ok r1");
+
 		// Click the toggle row again: back to the one-line summary.
 		const toggleRow = leader.callRendererComponent as { handleMouse?: (event: never) => unknown };
 		expect(toggleRow.handleMouse?.(click(0))).toEqual({ handled: true });
@@ -239,6 +250,11 @@ describe("turn-summary click expansion (behavior consistency)", () => {
 		const expanded = render().join("\n");
 		expect(expanded).toContain("a.ts");
 		expect(expanded).toContain("b.ts");
+		// Run disclosure retains the native batch/inline read presentation,
+		// rather than showing an inline call above a half-box result.
+		expect(expanded).toContain("Read (2)");
+		expect(expanded).not.toContain("Response");
+		expect(expanded).not.toContain("╰");
 
 		// Native Ctrl+O OFF is authoritative even after an aggregate click.
 		// A stale run-open fallback cannot strand visible blocks.
@@ -476,6 +492,9 @@ describe("merged thought-label click opens the run's tools (bridge)", () => {
 		const expandedText = visibleLines(components.flatMap((c) => c.render(100))).join("\n");
 		expect(expandedText).toContain("a.ts");
 		expect(expandedText).toContain("b.ts");
+		expect(expandedText).toContain("Read (2)");
+		expect(expandedText).not.toContain("Response");
+		expect(expandedText).not.toContain("╰");
 
 		// Click again: tools close together with the thinking.
 		const regionAfter = container.children.find((child) => typeof child.handleMouse === "function");

@@ -197,10 +197,12 @@ describe("one coherent merged run disclosure (real native components)", () => {
 			// ANY cumulative label owns the whole-run disclosure — click the last.
 			clickSummary(assistants[2]);
 			for (let round = 0; round < 3; round++) expect(rendered(assistants[round])).toContain(`private_thought_${round}`);
-			for (const [index, comp] of allTools.entries()) {
-				const id = ["r0a", "r0b", "b0", "r1a", "r1b", "b1", "r2a", "r2b", "b2"][index];
-				expect(rendered(comp), `expanded member ${id}`).toContain(`payload_${id}`);
-			}
+			// A run click restores the compact presentation: six contiguous read
+			// chunks stay on their one inline row, not six half-framed results.
+			expect(rendered(allTools[0])).toContain("Read large.ts:1-12 · 6 chunks");
+			for (const index of [1, 3, 4, 6, 7]) expect(allTools[index]?.render(160)).toEqual([]);
+			for (const [index, id] of ["b0", "b1", "b2"].entries())
+				expect(rendered(allTools[index * 3 + 2])).toContain(`payload_${id}`);
 			expect(allTools.map((comp) => rendered(comp)).join("\n")).not.toMatch(/➔ Read \d+ files/);
 			clickSummary(assistants[2]);
 			expectHidden(allTools);
@@ -209,6 +211,30 @@ describe("one coherent merged run disclosure (real native components)", () => {
 				expect(rendered(assistants[round])).toContain(`visible_progress_${round}`);
 			}
 		}
+	});
+
+	it("keeps read, list, find and grep in their compact styles after a run click", () => {
+		const msg = message([
+			{ type: "thinking", thinking: "inspect files" },
+			call("read", "read", { path: "a.ts" }),
+			call("list", "ls", { path: "." }),
+			call("find", "find", { pattern: "*.ts" }),
+			call("grep", "grep", { pattern: "needle" }),
+		]);
+		const comp = assistant(msg);
+		const blocks = tools(msg).components;
+		finish();
+		expectHidden(blocks);
+		clickSummary(comp);
+		const transcript = blocks.map((block) => rendered(block)).join("\n");
+		expect(transcript).toContain("Read a.ts");
+		expect(transcript).toContain("List");
+		expect(transcript).toContain("Find");
+		expect(transcript).toContain("Grep:");
+		expect(transcript).not.toContain("Response");
+		expect(transcript).not.toContain("╰");
+		clickSummary(comp);
+		expectHidden(blocks);
 	});
 
 	it("collapses errors and mutations into the one stats row; opening reveals all of them", () => {
@@ -245,7 +271,8 @@ describe("one coherent merged run disclosure (real native components)", () => {
 		const blocks = tools(msg).components;
 		finish();
 		clickSummary(comp);
-		for (const block of blocks) expect(block.render(160).length).toBeGreaterThan(0);
+		expect(rendered(blocks[0])).toContain("Read (2)");
+		expect(blocks[1]?.render(160)).toEqual([]);
 		// Pi's global Ctrl+O calls the same public setter on every component.
 		for (const block of blocks) block.setExpanded(false);
 		expectHidden(blocks);
@@ -260,7 +287,8 @@ describe("one coherent merged run disclosure (real native components)", () => {
 		expectHidden(blocks);
 		expect(rendered(comp)).not.toContain("reasoning");
 		clickSummary(comp);
-		for (const block of blocks) expect(block.render(160).length).toBeGreaterThan(0);
+		expect(rendered(blocks[0])).toContain("Read (2)");
+		expect(blocks[1]?.render(160)).toEqual([]);
 		clickSummary(comp);
 		expectHidden(blocks);
 	});
@@ -385,7 +413,8 @@ describe("attribution and replay", () => {
 		clickSummary(comp);
 		expect(current?.forcedOpen).toBe(true);
 		expect(previous?.forcedOpen).toBe(false);
-		for (const block of blocks) expect(block.render(160).length).toBeGreaterThan(0);
+		expect(rendered(blocks[0])).toContain("before.ts");
+		expect(rendered(blocks[2])).toContain("payload_after");
 		clickSummary(comp);
 		expectHidden(blocks);
 	});

@@ -137,6 +137,19 @@ const expansionByCallId = new Map<string, MemberExpansion>();
 
 export function noteTurnMemberExpansion(toolCallId: string, expansion: MemberExpansion): void {
 	expansionByCallId.set(toolCallId, expansion);
+	const turn = memberByCallId.get(toolCallId)?.turn;
+	// Pi's global Ctrl+O can close a click-opened run without going through our
+	// disclosure handler. Once every native member is closed, release the run's
+	// compact-view override so a subsequent Ctrl+O opens full tool output again.
+	if (
+		turn?.forcedOpen &&
+		!expansion.isExpanded() &&
+		turn.members.every((member) => {
+			const control = expansionByCallId.get(member.toolCallId);
+			return control !== undefined && !control.isExpanded();
+		})
+	)
+		turn.forcedOpen = false;
 }
 
 export function effectiveTurnExpansion(toolCallId: string, expanded: boolean): boolean {
