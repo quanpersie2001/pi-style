@@ -28,6 +28,7 @@ import {
 } from "./compatibility-probe.js";
 import { createPiConfigFilePort, defaultStoragePaths } from "./config-host.js";
 import { createConfigSourceAdapter, readSessionAuthorization } from "./config-session.js";
+import { registerDetachedEditor } from "./detached-editor.js";
 import { buildOperationalState } from "./operational-state.js";
 import { collectToolDetails } from "./startup-resources.js";
 
@@ -63,6 +64,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 	let terminalInputUnsubscribe: (() => void) | undefined;
 	let sessionTheme: unknown;
 	let sessionUi: import("@earendil-works/pi-coding-agent").ExtensionUIContext | undefined;
+	let detachedEditor: ReturnType<typeof registerDetachedEditor> | undefined;
 	const source = createConfigSourceAdapter(
 		pi,
 		filePort,
@@ -162,6 +164,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 		(config) => {
 			productGate = app.productPolicy.corePatchGate;
 			if (!active) return;
+			detachedEditor?.configure(config);
 			// Apply render-scoped tool config live so `/pi-style set tools.*` takes
 			// effect immediately (line budgets, dimOutput, open-tree glyph, …).
 			applyToolsRenderConfig(config);
@@ -201,6 +204,8 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 					return;
 				}
 			}
+			detachedEditor?.dispose();
+			detachedEditor = undefined;
 			if (app.runtime.current) app.sessionShutdown();
 			cwd = ctx.cwd ?? process.cwd();
 			tuiSession = ctx.mode === "tui";
@@ -290,9 +295,12 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 					return { consume: true };
 				});
 			}
+			if (ctx.mode === "tui" && ctx.ui) detachedEditor = registerDetachedEditor(() => app.config);
 			syncOperational(app.config);
 		},
 		shutdown(): void {
+			detachedEditor?.dispose();
+			detachedEditor = undefined;
 			active = false;
 			tuiSession = false;
 			terminalInputUnsubscribe?.();

@@ -52,6 +52,7 @@ interface EditorOptions {
 	/** Full Pi theme for primary accent and concrete session color. */
 	fullTheme?: EditorHost["theme"];
 	onSnapshot: (snapshot: StatusSnapshot) => void;
+	onDispose?: () => void;
 	/** Clipboard image paste surface (ADR 0009): instant `[Image #N] ` markers
 	 *  at keystroke time, artifact-path fallback, atomic marker backspace.
 	 *  Undefined keeps native behavior entirely. */
@@ -186,6 +187,7 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	private readonly piTheme: PiEditorTheme;
 	private readonly fullTheme: EditorOptions["fullTheme"];
 	private readonly onSnapshot: (snapshot: StatusSnapshot) => void;
+	private readonly onDispose: (() => void) | undefined;
 	private semantic: ResolvedTheme;
 	/** Set when config changes; invalidate() then rebuilds the (otherwise stable) semantic theme. */
 	private semanticDirty = false;
@@ -205,6 +207,7 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		this.piTheme = theme;
 		this.fullTheme = options.fullTheme;
 		this.onSnapshot = options.onSnapshot;
+		this.onDispose = options.onDispose;
 		this.clipboardImagePaste = options.clipboardImagePaste;
 		this.editorKeybindings = keybindings as unknown as { matches(data: string, keybinding: string): boolean };
 		this.semantic = semanticTheme(theme, options.config);
@@ -366,6 +369,7 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	dispose(): void {
 		if (this.disposed) return;
 		this.disposed = true;
+		this.onDispose?.();
 		this.invalidate();
 	}
 

@@ -153,6 +153,24 @@ Ordinary mutations are session-only; persistence requires an explicit `global` o
 
 ---
 
+## Detached editor integration (optional)
+
+In a TUI session, other extensions can use `globalThis[Symbol.for("@quandev104/pi-style:detached-editor")]` as an optional provider:
+
+```ts
+const provider = (globalThis as Record<symbol, { create?: Function }>)[
+  Symbol.for("@quandev104/pi-style:detached-editor")
+];
+const editor = provider?.create?.(tui, theme, keybindings, {
+  sessionName: "Child session",
+  editorBorderColor: "#123456",
+});
+// Fall back to Pi's native editor when no provider/editor is available.
+// Call editor?.dispose() when the detached overlay closes.
+```
+
+`create` accepts the full Pi `Theme` passed into `ctx.ui.custom` callbacks (not the smaller editor theme), and returns a standalone `StyledEditor` or `undefined` when styling is disabled. Its draft and identity are independent of Main; neither Main's snapshot nor clipboard image registry is inherited. Current pi-style config and the supplied theme are used at creation; config changes update live detached editors. Session shutdown unregisters the provider and stops config updates, restoring any previous symbol value; already-created editors remain usable until their overlay disposes them. No Pi editor component is installed or replaced by this API.
+
 ## Compatibility
 
 - Public Pi APIs (widgets, editor, header, footer bridge) are preferred and enabled by default.
