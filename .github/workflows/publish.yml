@@ -13,6 +13,7 @@ on:
           - major
           - alpha
           - beta
+          - republish
 
 permissions:
   contents: write
@@ -45,6 +46,13 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           set -e
 
+          # Retry publishing the current version without another bump or tag.
+          if [ "${{ inputs.version }}" = "republish" ]; then
+            VERSION=$(node -p 'require("./package.json").version')
+            echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # Bump version in package.json only (no commit/tag yet)
           if [ "${{ inputs.version }}" = "alpha" ]; then
             npm version prerelease --preid=alpha --no-git-tag-version
@@ -67,10 +75,11 @@ jobs:
           git push --follow-tags
 
       - name: Generate release notes
+        if: inputs.version != 'republish'
         id: notes
         run: |
           CURRENT_TAG="v${{ steps.bump.outputs.VERSION }}"
-          PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]' | sed -n '2p')
+          PREVIOUS_TAG=$(git tag --sort=-version:refname | rg '^v[0-9]' | sed -n '2p')
 
           if [ -z "$PREVIOUS_TAG" ]; then
             echo "BODY=Initial release." >> "$GITHUB_OUTPUT"
@@ -97,6 +106,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
+        if: inputs.version != 'republish'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.bump.outputs.VERSION }}
