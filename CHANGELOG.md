@@ -1,16 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.14] - 2026-11-02
 
-### Fixed
+### Bug Fixes
 
-- Support Pi 1.4 and 1.5, with development dependencies on 1.5 and re-certified modular/CLI patch identities.
-- Adapt thinking summaries to omitted hidden blocks without replacing native cached Markdown.
-- Forward native custom-renderer options, including injected keybinding helpers.
-- Refresh theme-derived colors and extras on theme switch or same-file reload.
-- Preserve existing image attachments during clipboard transforms and native paste shortcut precedence.
-- Leave thinking-level cycling to Pi's configured, model-aware keybinding action.
-- Include standalone usage entries in session token and cost totals.
+- *(compat)* Support Pi 1.4 and 1.5 runtime contracts
 
 ## [0.5.13] - 2026-10-20
 
