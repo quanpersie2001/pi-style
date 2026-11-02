@@ -55,19 +55,16 @@ export function parseThinkingRuns(message: unknown, streaming: boolean): Thinkin
 			}
 			continue;
 		}
-		if (block.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
-			hasVisibleText = true;
-			if (openRun >= 0) {
-				complete[openRun] = true;
-				closeRun();
-			}
-			if (lastRun >= 0) breakAfter[lastRun] = true;
-			pendingTextBoundary = true;
-			continue;
-		}
-		if (block.type === "toolCall" && openRun >= 0) {
+		// Native run indices advance at every non-thinking block, even text
+		// that renders nothing. Only substantive text splits aggregate segments.
+		if (openRun >= 0) {
 			complete[openRun] = true;
 			closeRun();
+		}
+		if (block.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
+			hasVisibleText = true;
+			if (lastRun >= 0) breakAfter[lastRun] = true;
+			pendingTextBoundary = true;
 		}
 	}
 	if (openRun >= 0 && (!streaming || stopReason)) {

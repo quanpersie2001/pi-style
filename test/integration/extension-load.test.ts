@@ -630,16 +630,17 @@ describe("pi-style extension lifecycle foundation", () => {
 		await host.sessionShutdown();
 	});
 
-	it("consumes the thinking-cycle key and re-issues it without Pi's status toast", async () => {
+	it("leaves thinking cycling to native configured, model-aware handling", async () => {
 		const host = new FakePiHost();
 		piStyleExtension(host.extensionApi);
 		await host.sessionStart();
-		// Startup dismissal (compact default) plus the thinking-cycle key share the raw input hook.
-		expect(host.terminalInputSubscriptions).toBeGreaterThanOrEqual(1);
-		const before = host.thinkingLevel;
-		const consumed = host.emitTerminalInput("\x1b[Z"); // shift+tab
-		expect(consumed).toBe(true);
-		expect(host.thinkingLevel).not.toBe(before);
+		const setThinkingLevel = vi.spyOn(host.extensionApi, "setThinkingLevel");
+		// A model capped at high must remain free to wrap via Pi's native action.
+		host.thinkingLevel = "high";
+		expect(host.emitTerminalInput("\x1b[Z")).toBe(false); // default shift+tab
+		expect(host.emitTerminalInput("\x1b[27;5;116~")).toBe(false); // possible remapped key
+		expect(setThinkingLevel).not.toHaveBeenCalled();
+		expect(host.thinkingLevel).toBe("high");
 		expect(host.emitTerminalInput("a")).toBe(false);
 		await host.sessionShutdown();
 		expect(host.terminalInputSubscriptions).toBe(0);

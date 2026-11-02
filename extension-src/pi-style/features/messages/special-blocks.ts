@@ -335,47 +335,45 @@ function attachCustomMessageBlock(instance: MessageBlockInstance, block: unknown
 	return true;
 }
 
-function patchCustomMessage(instance: MessageBlockInstance, _original: () => void, theme: BoxTheme): boolean {
+function patchCustomMessage(instance: MessageBlockInstance, original: () => void, theme: BoxTheme): boolean {
+	// Let the host supply renderer options (including its runtime-local keybinding
+	// helpers). Intercept only the returned component, not the options contract.
+	const renderer = instance.customRenderer;
+	let rendered: Component | undefined;
+	if (typeof renderer === "function") {
+		instance.customRenderer = function (this: unknown, ...args: unknown[]) {
+			const component = Reflect.apply(renderer, this, args);
+			if (!component || typeof component.render !== "function") return undefined;
+			rendered = renderBoxedMessageBlock(theme, {
+				kind: "Custom",
+				title: typeof instance.message?.customType === "string" ? instance.message.customType : "Custom",
+				body: (width) => component.render(width),
+				icon: "⊟",
+				hasDivider: "auto",
+				cache: false,
+			});
+			return rendered;
+		};
+		try {
+			original();
+		} finally {
+			instance.customRenderer = renderer;
+		}
+	}
+	// Remove native's temporary direct attachment before reparenting the shell
+	// into the Box that owns customMessageBg and its padding fill.
 	// Remove previous content component
 	if (instance.customComponent) {
 		instance.removeChild(instance.customComponent);
 		instance.customComponent = undefined;
 	}
 	if (instance.box) instance.removeChild(instance.box);
+	if (rendered) return attachCustomMessageBlock(instance, rendered);
 
 	// The boxed shell owns its boundary; the native customMessageBg fill stays.
 
 	const rawCustomType = instance.message?.customType;
 	const customType = typeof rawCustomType === "string" ? rawCustomType : "Custom";
-
-	// Try custom renderer first, but keep the special block shell/background owned here.
-	if (typeof instance.customRenderer === "function") {
-		try {
-			// Mirror the native options bag: 1.1.0+ renderers receive the component's
-			// outputPad next to the expanded state. Hosts without the field keep Pi's
-			// native default of 1, so a renderer consuming the option sees the same
-			// pad the host would render with.
-			const component = (instance.customRenderer as (message: unknown, options: object, theme: unknown) => unknown)(
-				instance.message,
-				{ expanded: instance._expanded, outputPad: instance.outputPad ?? 1 },
-				theme,
-			);
-			if (component && typeof (component as { render?: unknown }).render === "function") {
-				const block = renderBoxedMessageBlock(theme, {
-					kind: "Custom",
-					title: customType,
-					body: (contentWidth) => (component as { render(width: number): string[] }).render(contentWidth),
-					icon: "⊟",
-					hasDivider: "auto",
-					cache: false,
-				});
-				attachCustomMessageBlock(instance, block);
-				return true;
-			}
-		} catch {
-			// Fall through to default rendering
-		}
-	}
 
 	// Default rendering: use boxed message block
 

@@ -1,7 +1,7 @@
 import type { NormalizedPiStyleConfig } from "../../domain/config-types.js";
 import { createBuiltinSegments, type SegmentContext, type StatusSnapshot } from "../../domain/status.js";
 import { renderStatus } from "../../domain/status-renderer.js";
-import { type ResolvedTheme, resolveTheme } from "../../domain/theme.js";
+import { type ResolvedTheme, resolveTheme, themeGeneration } from "../../domain/theme.js";
 import { visibleWidth } from "../../shared/ansi.js";
 
 export const PRIMARY_WIDGET_KEY = "pi-style.status.primary";
@@ -28,7 +28,7 @@ type FooterFactory = (
 /** Minimal structural view of Pi's theme, kept out of the domain layer. */
 export interface ActivePiTheme {
 	fg?: (token: string, text: string) => string;
-	colors?: Record<string, string>;
+	colors?: Readonly<Record<string, unknown>>;
 }
 
 export interface StatusLineWidgetHost {
@@ -115,26 +115,18 @@ interface ThemeAssets {
 	readonly resolved: ResolvedTheme;
 	readonly separator: string;
 }
-/** Resolved theme + separator keyed by Pi theme identity then config identity; a fresh configure() object misses naturally. */
-const themeAssetsCache = new WeakMap<ActivePiTheme, WeakMap<NormalizedPiStyleConfig, ThemeAssets>>();
+/** Assets follow the backing theme, not Pi's stable proxy. */
+const themeAssetsCache = new WeakMap<object, WeakMap<NormalizedPiStyleConfig, ThemeAssets>>();
 function themeAssetsFor(activeTheme: ActivePiTheme, config: NormalizedPiStyleConfig): ThemeAssets {
-	let byConfig = themeAssetsCache.get(activeTheme);
+	const generation = themeGeneration(activeTheme) ?? activeTheme;
+	let byConfig = themeAssetsCache.get(generation);
 	if (!byConfig) {
 		byConfig = new WeakMap();
-		themeAssetsCache.set(activeTheme, byConfig);
+		themeAssetsCache.set(generation, byConfig);
 	}
 	let assets = byConfig.get(config);
 	if (!assets) {
-		const resolved = resolveTheme(
-			activeTheme.colors || activeTheme.fg
-				? {
-						...(activeTheme.colors ? { colors: activeTheme.colors } : {}),
-						// Call through the theme instance so `this` binds correctly inside Pi's fg().
-						...(activeTheme.fg ? { fg: (color: string, text: string) => activeTheme.fg?.(color, text) ?? text } : {}),
-					}
-				: undefined,
-			config,
-		);
+		const resolved = resolveTheme(activeTheme, config);
 		assets = { resolved, separator: separatorsFor(config, resolved) };
 		byConfig.set(config, assets);
 	}
@@ -267,18 +259,17 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 			// (keystrokes, streaming chunks, tickers). Same width without an
 			// invalidate() (snapshot update / configure / footer-branch change)
 			// means the previous lines are still current; return them as-is.
-			let renderCache: { width: number; lines: string[] } | undefined;
+			let renderCache: { width: number; generation: object | undefined; lines: string[] } | undefined;
 			const component: RenderComponent = {
 				render(width) {
-					if (renderCache?.width === width) return renderCache.lines;
+					const generation = themeGeneration(currentTheme);
+					if (renderCache?.width === width && renderCache.generation === generation) return renderCache.lines;
 					const lines = render(currentTheme, width, secondary);
-					renderCache = { width, lines };
+					renderCache = { width, generation, lines };
 					return lines;
 				},
 				invalidate() {
 					renderCache = undefined;
-					// Pi supplies a fresh theme to the factory on theme replacement. Do not retain
-					// pre-rendered ANSI strings; the next render reads the current component theme.
 					primaryComponent = secondary ? primaryComponent : component;
 					secondaryComponent = secondary ? component : secondaryComponent;
 					if (tui.requestRender) tui.requestRender();

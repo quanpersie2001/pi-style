@@ -18,6 +18,7 @@ import { DisposableStore } from "../shared/disposable-store.js";
 import { CachedGitProvider, InMemoryContextProvider, InMemoryUsageProvider } from "./providers.js";
 import { RenderScheduler } from "./render-scheduler.js";
 import { createSnapshot, replaceSnapshot, type UiSnapshot } from "./snapshot.js";
+import { installThemeRefresh } from "./theme-refresh.js";
 
 /** Debounce window for coalescing git refresh spawns after invalidateGit(). */
 const GIT_INVALIDATE_DEBOUNCE_MS = 250;
@@ -117,6 +118,7 @@ export function createPiStyleRuntime(
 		...(initialContext ? { context: initialContext } : {}),
 	};
 	let currentSnapshot = createSnapshot(generation, 0, initialValues);
+	let themeRefresh: ReturnType<typeof installThemeRefresh> | undefined;
 	let statusLine: ReturnType<typeof installStatusLine> | undefined;
 	let editor: ReturnType<typeof installEditor> | undefined;
 	let startup: ReturnType<typeof installStartup> | undefined;
@@ -274,6 +276,19 @@ export function createPiStyleRuntime(
 		startup = undefined;
 		installationState = { ...installationState, startup: "disabled" };
 	};
+	const syncThemeRefresh = () => {
+		if (!host.hasUI || host.mode !== "tui" || !host.ui || !currentConfig.enabled) {
+			disposeFeature("theme refresh", themeRefresh?.dispose);
+			themeRefresh = undefined;
+		} else if (!themeRefresh) {
+			try {
+				themeRefresh = installThemeRefresh(host.ui);
+			} catch {
+				host.ui.notify?.("pi-style theme refresh unavailable", "warning");
+			}
+		}
+	};
+	syncThemeRefresh();
 	installStatus();
 	installEditorFeature();
 	installStartupFeature();
@@ -326,6 +341,7 @@ export function createPiStyleRuntime(
 			const impactPlan = diffConfig(previous, nextConfig);
 			if (impactPlan.impacts.length === 0) return;
 			currentConfig = nextConfig;
+			syncThemeRefresh();
 			const statusChanged =
 				JSON.stringify(previous.statusLine) !== JSON.stringify(nextConfig.statusLine) ||
 				previous.placement !== nextConfig.placement ||
@@ -389,6 +405,8 @@ export function createPiStyleRuntime(
 			scheduler.cancel();
 			// UI surfaces are restored synchronously so teardown is deterministic;
 			// the store then disposes the (already disposed) feature instances idempotently.
+			disposeFeature("theme refresh", themeRefresh?.dispose);
+			themeRefresh = undefined;
 			disposeStatus();
 			disposeEditor();
 			disposeStartup();

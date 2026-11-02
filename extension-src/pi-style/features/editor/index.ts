@@ -189,8 +189,6 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	private readonly onSnapshot: (snapshot: StatusSnapshot) => void;
 	private readonly onDispose: (() => void) | undefined;
 	private semantic: ResolvedTheme;
-	/** Set when config changes; invalidate() then rebuilds the (otherwise stable) semantic theme. */
-	private semanticDirty = false;
 	private disposed = false;
 	private renderPlanCache: { key: string; plan: RenderPlan } | undefined;
 	/** Scoped to one native render; never cache an animated/themed status line. */
@@ -223,15 +221,24 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	configure(config: NormalizedPiStyleConfig): void {
 		if (this.disposed) return;
 		this.config = config;
-		this.semanticDirty = true;
 		this.invalidate();
 	}
 
 	override handleInput(data: string): void {
 		if (this.disposed) return;
-		if (this.handleClipboardImagePasteKeystroke(data)) return;
 		if (this.handleAtomicMarkerBackspace(data)) return;
-		super.handleInput(data);
+		// Intercept at native image-paste dispatch, after extension shortcuts and
+		// autocomplete page bindings. Restore even when a native handler throws.
+		const nativePaste = this.onPasteImage;
+		this.onPasteImage = () => {
+			if (!this.handleClipboardImagePasteKeystroke(data)) nativePaste?.();
+		};
+		try {
+			super.handleInput(data);
+		} finally {
+			if (nativePaste) this.onPasteImage = nativePaste;
+			else delete this.onPasteImage;
+		}
 		this.onSnapshot({ ...this.snapshot });
 	}
 
@@ -325,12 +332,10 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 
 	override invalidate(): void {
 		super.invalidate();
-		// The semantic theme is derived from (piTheme, config); piTheme is fixed per
-		// instance and config changes go through configure(), so keystroke-driven
-		// invalidations reuse the cached instance instead of rebuilding it.
-		if (this.semanticDirty) {
+		// EditorTheme is a closure-based adapter, not a theme identity. Refresh its
+		// derived prefixes on host invalidation as well as configuration changes.
+		if (this.piTheme) {
 			this.semantic = semanticTheme(this.piTheme, this.config);
-			this.semanticDirty = false;
 		}
 		this.renderPlanCache = undefined;
 		this.tui.requestRender();

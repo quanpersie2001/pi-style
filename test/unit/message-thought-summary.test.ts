@@ -147,11 +147,9 @@ describe("thought summary label", () => {
 			[thinkingOnly(), true],
 			SUMMARY_SNAPSHOT,
 		);
-		// Streaming (isStreaming=true, thinking is the trailing content): the blank
-		// label row is dropped entirely — no summary row before completion.
-		expect(comp.contentContainer.children).toHaveLength(1);
-		expect(isSpacerLike(comp.contentContainer.children[0])).toBe(true);
-		expect(rendered(comp)).not.toContain("Thought");
+		// Pi 1.5 omits the blank label and padding: no summary before completion.
+		expect(comp.contentContainer.children).toHaveLength(0);
+		expect(comp.render(60)).toEqual([]);
 	});
 
 	it("rewrites the label of a first-observed-complete run without a duration (resume/history)", () => {

@@ -1,4 +1,4 @@
-import { type Component, MouseRegion, Text } from "@earendil-works/pi-tui";
+import { type Component, MouseRegion, Spacer, Text } from "@earendil-works/pi-tui";
 import { visibleWidth } from "../../shared/ansi.js";
 import type { BoxTheme } from "../../shared/box.js";
 import { formatElapsedMs } from "../../shared/elapsed.js";
@@ -956,6 +956,50 @@ function isTextComponent(child: unknown): boolean {
 	return typeof (child as { setCustomBgFn?: unknown } | undefined)?.setCustomBgFn === "function";
 }
 
+/** Pi 1.5 omits blank hidden runs entirely. Add temporary anchors in content
+ * order for the shared summary pass below; never recreate native Markdown (its
+ * slots are reused across streaming updates). Expanded and hidden runs must both
+ * advance the run index, including when visibility overrides are mixed. */
+function anchorOmittedThinking(instance: object, message: unknown, children: unknown[]): void {
+	const target = instance as {
+		markdownSlots?: unknown[];
+		hideThinkingBlock?: boolean;
+		thinkingVisibilityOverrides?: Map<number, boolean>;
+		outputPad?: number;
+	};
+	if (!Array.isArray(target.markdownSlots)) return;
+	const content = (message as { content?: unknown[] } | undefined)?.content;
+	if (!Array.isArray(content)) return;
+	let cursor = 0;
+	let run = 0;
+	for (let index = 0; index < content.length; index++) {
+		const block = content[index] as { type?: string; text?: string; thinking?: string };
+		if (block.type === "thinking") {
+			let visible = false;
+			for (; index < content.length; index++) {
+				const thinking = content[index] as typeof block;
+				if (thinking.type !== "thinking") break;
+				visible ||= Boolean(thinking.thinking?.trim());
+			}
+			index--;
+			if (!visible) continue;
+			const hidden = target.thinkingVisibilityOverrides?.get(run++) ?? target.hideThinkingBlock;
+			if (isSpacerChild(children[cursor])) cursor++;
+			if (hidden) {
+				children.splice(cursor++, 0, new MouseRegion(new Text("", target.outputPad ?? 1, 0), () => undefined));
+				if (cursor < children.length && !isSpacerChild(children[cursor])) {
+					children.splice(cursor, 0, new Spacer(1));
+				}
+			} else {
+				cursor++;
+			}
+		} else if (block.type === "text" && block.text?.trim()) {
+			if (isSpacerChild(children[cursor])) cursor++;
+			cursor++;
+		}
+	}
+}
+
 /**
  * Collapse Pi's hidden-thinking placeholder row to zero trace, and — once an
  * agent run completes — surface one clickable aggregate (`◈ N thoughts · <time>`)
@@ -969,7 +1013,9 @@ function isTextComponent(child: unknown): boolean {
  * `Text.render` cannot treat it as empty (its check is `text.trim() === ""`,
  * and trim does not strip escape sequences) and emits one full-width invisible
  * line. That invisible row plus the surrounding spacers is the "gap" left when
- * the label is hidden. This wrapper runs the native layout, then:
+ * the label is hidden. Pi 1.5 instead omits these runs entirely and reuses
+ * Markdown slots; temporary summary anchors adapt that layout without replacing
+ * native Markdown. This wrapper runs the native layout, then:
  *
  * - a run still streaming (thinking is the trailing content and the message is
  *   not finalized) keeps the zero-trace collapse: the invisible label row and
@@ -1039,6 +1085,7 @@ export function decorateMessageUpdate(
 			// Children are laid out in content order, thinking runs (hidden label or
 			// expanded Markdown, each in a MouseRegion) in run order; walking backward
 			// keeps splice/insert indices valid and assigns runs from the last.
+			anchorOmittedThinking(instance, args[0], children);
 			let runCursor = runs.count - 1;
 			let expandedRunSeen = false;
 			for (let index = children.length - 1; index >= 0; index--) {
@@ -1073,6 +1120,9 @@ export function decorateMessageUpdate(
 								mergedRunToolMessages(mergedSummary, group),
 								mergedSummary,
 							);
+						// An entirely omitted 1.5 message has no native top pad.
+						// Add it only when a summary actually becomes visible.
+						if (index === 0) children.unshift(new Spacer(1));
 						continue;
 					}
 					children.splice(index, 1);

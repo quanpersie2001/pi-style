@@ -220,7 +220,7 @@ describe("recorded identity registry vs real pi artifacts", () => {
 					// The two component surfaces 1.1.0 rebuilt (custom-message rebuild,
 					// bash execution) must still render their boxed delegates through the
 					// real host classes, and the custom renderer must receive the native
-					// options bag ({ expanded, outputPad }) the patched rebuild forwards.
+					// options bag (including injected helpers on current hosts).
 					setSpecialBlockTheme(createFakeTheme());
 					setBashExecutionTheme(createFakeTheme());
 					const seenRendererOptions: unknown[] = [];
@@ -235,7 +235,13 @@ describe("recorded identity registry vs real pi artifacts", () => {
 					expect(customLines).toContain("╭");
 					expect(customLines).toContain("mcp_tool");
 					expect(customLines).toContain("renderer:body");
-					expect(seenRendererOptions[0]).toEqual({ expanded: false, outputPad: 1 });
+					expect(seenRendererOptions[0]).toMatchObject({ expanded: false, outputPad: 1 });
+					if (version === "1.5.0") {
+						expect(seenRendererOptions[0]).toMatchObject({
+							keyText: expect.any(Function),
+							keyHint: expect.any(Function),
+						});
+					}
 					const bash = new artifact.BashExecutionComponent("echo hi", { requestRender() {} } as never);
 					bash.appendOutput("out\n");
 					bash.setComplete(0, false, undefined, undefined);

@@ -187,7 +187,7 @@ function usageContribution(entry: SessionEntry): UsageContribution {
 			sawUsage: true,
 		};
 	}
-	if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
+	if ((entry.type === "usage" || entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
 		return {
 			input: entry.usage.input,
 			output: entry.usage.output,

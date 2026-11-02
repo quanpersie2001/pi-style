@@ -7,6 +7,7 @@
 // must pass through unchanged.
 
 import { randomUUID } from "node:crypto";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	createClipboardImagePasteSurface,
@@ -19,6 +20,7 @@ import {
 	resetMessagesRenderConfig,
 	setMessagesRenderConfig,
 } from "../../extension-src/pi-style/features/messages/render-config.js";
+import piStyleExtension from "../../extension-src/pi-style/pi/index.js";
 import {
 	__regexCacheSizeForTest,
 	clipboardMarkerAtEnd,
@@ -31,6 +33,7 @@ import {
 	fillPendingImageFromPath,
 	resetPendingImageRegistry,
 } from "../../extension-src/pi-style/shared/pending-images.js";
+import { FakePiHost } from "../helpers/fake-pi-host.js";
 
 const TMP = "/tmp/test-tmp";
 const UUID = randomUUID();
@@ -323,26 +326,72 @@ describe("submit marker resolution", () => {
 });
 
 describe("input handler semantics (any submit source consumes markers)", () => {
-	/** Mirrors the pi/index.ts `input` handler logic after the fix. */
-	const inputHandler = async (event: { text: string; source: "interactive" | "rpc" | "extension" }) => {
-		if (event.source === "interactive") {
-			const trimmed = event.text.trimStart();
-			if (trimmed.startsWith("!")) {
-				const bangLength = trimmed.startsWith("!!") ? 2 : 1;
-				if (trimmed.slice(bangLength).trim() === "") return { action: "handled" as const };
-			}
+	async function inputHandler(event: {
+		text: string;
+		source: "interactive" | "rpc" | "extension";
+		images?: ImageContent[];
+	}) {
+		const host = new FakePiHost();
+		piStyleExtension(host.extensionApi);
+		const handlers = host.handlers.get("input") ?? [];
+		expect(handlers).toHaveLength(1);
+		return (await handlers[0]?.({ type: "input", ...event }, host.extensionContext)) as
+			| { action: string; text?: string; images?: ImageContent[] }
+			| undefined;
+	}
+
+	it.each(["interactive", "rpc", "extension"] as const)(
+		"preserves incoming images with resolved markers from %s",
+		async (source) => {
+			const existing: ImageContent = { type: "image", data: "existing", mimeType: "image/jpeg" };
+			const images = [existing];
+			const pending = allocatePendingImage();
+			fillPendingImageBytes(pending.index, "marker", "image/png");
+			const text = `${pending.marker}describe`;
+			expect(await inputHandler({ text, source, images })).toEqual({
+				action: "transform",
+				text,
+				images: [existing, { type: "image", data: "marker", mimeType: "image/png" }],
+			});
+			expect(images).toEqual([existing]);
+			expect(await inputHandler({ text, source, images })).toBeUndefined(); // markers are one-shot
+		},
+	);
+
+	it.each([false, true])("preserves incoming images with path conversion (marker=%s)", async (withMarker) => {
+		const { writeFile, rm } = await import("node:fs/promises");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const real = join(tmpdir(), `pi-clipboard-${randomUUID()}.png`);
+		await writeFile(real, Buffer.from("artifact"));
+		const existing: ImageContent = { type: "image", data: "existing", mimeType: "image/jpeg" };
+		const pending = withMarker ? allocatePendingImage() : undefined;
+		if (pending) fillPendingImageBytes(pending.index, "marker", "image/png");
+		const prefix = pending?.marker ?? "";
+		try {
+			expect(await inputHandler({ text: `${prefix}${real}`, source: "interactive", images: [existing] })).toEqual({
+				action: "transform",
+				text: `${prefix}${IMAGE_TOKEN}`,
+				images: [
+					existing,
+					...(withMarker ? [{ type: "image", data: "marker", mimeType: "image/png" }] : []),
+					{ type: "image", data: Buffer.from("artifact").toString("base64"), mimeType: "image/png" },
+				],
+			});
+		} finally {
+			await rm(real, { force: true });
 		}
-		const markerResult = await resolvePendingImageMarkers(event.text);
-		const pathResult = event.source === "interactive" ? await transformClipboardImages(event.text) : undefined;
-		if (markerResult || pathResult) {
-			return {
-				action: "transform" as const,
-				text: pathResult?.text ?? event.text,
-				images: [...(markerResult?.images ?? []), ...(pathResult?.images ?? [])],
-			};
-		}
-		return undefined;
-	};
+	});
+
+	it("does not transform input carrying only existing images", async () => {
+		expect(
+			await inputHandler({
+				text: "describe",
+				source: "rpc",
+				images: [{ type: "image", data: "existing", mimeType: "image/png" }],
+			}),
+		).toBeUndefined();
+	});
 
 	it("rpc submit with a pending marker attaches the image (no dangling)", async () => {
 		const surface = createClipboardImagePasteSurface({

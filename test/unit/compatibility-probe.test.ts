@@ -29,7 +29,6 @@ import {
 	probePiCompatibility,
 	retainPiCompatibilityProbe,
 	SUPPORTED_PI_VERSIONS,
-	TRUSTED_NATIVE_FINGERPRINTS,
 	targetSpecs,
 } from "../../extension-src/pi-style/pi/compatibility-probe.js";
 import {
@@ -750,7 +749,14 @@ describe("identity-certified compatibility probe", () => {
 				const ctor = Object.getOwnPropertyDescriptor(spec.target, "constructor")?.value;
 				expect(ctor?.name).toBe(spec.identityName ?? spec.method);
 				expect(ctor?.length).toBe(spec.arity ?? 0);
-				expect(fingerprint(ctor)).toBe(TRUSTED_NATIVE_FINGERPRINTS[`${spec.subtype}:${spec.method}`]);
+				expect(
+					KNOWN_NATIVE_IDENTITIES[`${spec.subtype}:${spec.method}`]?.some(
+						(identity) =>
+							identity.name === ctor?.name &&
+							identity.arity === ctor?.length &&
+							identity.fingerprint === fingerprint(ctor),
+					),
+				).toBe(true);
 				continue;
 			}
 			const descriptor = Object.getOwnPropertyDescriptor(spec.target, spec.method);

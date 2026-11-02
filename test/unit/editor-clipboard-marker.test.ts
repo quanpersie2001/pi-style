@@ -10,6 +10,7 @@
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import { normalizeConfig } from "../../extension-src/pi-style/domain/config-normalization.js";
 import { StyledEditor } from "../../extension-src/pi-style/features/editor/index.js";
@@ -293,3 +294,77 @@ describe("artifact fallback (insertTextAtCursor)", () => {
 		]);
 	});
 });
+
+describe("native clipboard dispatch precedence", () => {
+	it("lets extension shortcuts consume paste before probing the clipboard", () => {
+		let probes = 0;
+		const { surface, calls } = fakeSurface({
+			clipboardHasImage: () => {
+				probes++;
+				return true;
+			},
+		});
+		const e = editor(surface);
+		let shortcuts = 0;
+		e.onExtensionShortcut = () => {
+			shortcuts++;
+			return true;
+		};
+		e.handleInput(PASTE_KEY);
+		expect(shortcuts).toBe(1);
+		expect(probes).toBe(0);
+		expect(calls.markerFromClipboard).toBe(0);
+		expect(e.getText()).toBe("");
+	});
+
+	it("restores the native paste handler after intercepted and fallback pastes", () => {
+		let hasImage = true;
+		const { surface } = fakeSurface({ clipboardHasImage: () => hasImage });
+		const e = editor(surface);
+		let nativeCalls = 0;
+		const native = () => {
+			nativeCalls++;
+		};
+		e.onPasteImage = native;
+		e.handleInput(PASTE_KEY);
+		expect(nativeCalls).toBe(0);
+		expect(e.onPasteImage).toBe(native);
+		hasImage = false;
+		e.handleInput(PASTE_KEY);
+		expect(nativeCalls).toBe(1);
+		expect(e.onPasteImage).toBe(native);
+	});
+});
+
+// Pi 1.5 introduced native autocomplete page-key precedence.
+it.skipIf(!CustomEditor.prototype.handleInput.toString().includes("tui.select.pageDown"))(
+	"preserves native autocomplete page-key precedence over image paste",
+	() => {
+		let probes = 0;
+		const { surface, calls } = fakeSurface({
+			clipboardHasImage: () => {
+				probes++;
+				return true;
+			},
+		});
+		const e = new StyledEditor(
+			fakeTui(),
+			fakeTheme(),
+			{
+				matches: (data: string, binding: string) =>
+					data === PASTE_KEY && ["app.clipboard.pasteImage", "tui.select.pageDown"].includes(binding),
+			} as never,
+			{
+				config: normalizeConfig({}),
+				snapshot: {},
+				theme: fakeTheme(),
+				onSnapshot() {},
+				clipboardImagePaste: surface,
+			},
+		);
+		(e as unknown as { isShowingAutocomplete(): boolean }).isShowingAutocomplete = () => true;
+		e.handleInput(PASTE_KEY);
+		expect(probes).toBe(0);
+		expect(calls.markerFromClipboard).toBe(0);
+	},
+);

@@ -1208,9 +1208,7 @@ describe("special message blocks", () => {
 	it("keeps a custom renderer when provided and forwards the native options bag", () => {
 		installSpecialBlockAdapters();
 		setSpecialBlockTheme(theme);
-		// Native 1.1.0+ passes { expanded, outputPad } to custom renderers; the
-		// boxed-shell delegate must mirror that bag (component pad 3 here, Pi's
-		// native default 1 when the component carries no pad field).
+		// Forward host options, including Pi 1.5's runtime-local hint helpers.
 		const seenOptions: unknown[] = [];
 		const component = new CustomMessageComponent(
 			{ role: "custom", customType: "mcp_tool", content: "ignored", display: true, timestamp: 1 },
@@ -1225,11 +1223,20 @@ describe("special message blocks", () => {
 		expect(lines.join("\n")).toContain("╭");
 		expect(lines.join("\n")).toContain("renderer:ignored");
 		assertFit(lines, 80);
-		expect(seenOptions[0]).toEqual({ expanded: false, outputPad: 3 });
-		// The pre-1.1 host layout (no outputPad field) still yields Pi's default.
-		delete (component as { outputPad?: unknown }).outputPad;
-		component.invalidate();
-		expect(seenOptions.at(-1)).toEqual({ expanded: false, outputPad: 1 });
+		expect(seenOptions[0]).toEqual({
+			expanded: false,
+			outputPad: 3,
+			keyText: expect.any(Function),
+			keyHint: expect.any(Function),
+		});
+		component.setOutputPad(1);
+		component.setExpanded(true);
+		expect(seenOptions.at(-1)).toEqual({
+			expanded: true,
+			outputPad: 1,
+			keyText: expect.any(Function),
+			keyHint: expect.any(Function),
+		});
 	});
 });
 

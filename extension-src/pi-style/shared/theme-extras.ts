@@ -5,7 +5,7 @@
 // through the theme object, so we locate and parse the file directly.
 //
 // pi-style constraint: no filesystem I/O inside render. The cache is populated
-// by `syncThemeExtras(theme, force)` at session start and on theme change; the
+// by `setFullTheme(theme, force)` at session start and on theme change; the
 // render-facing `getThemeExtra`/`getThemePageBackground`/`getThemeVarBackground`
 // read cached values only and return "" (graceful fallback) when unavailable.
 
@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isHexColor } from "../shared/ansi.js";
+import { themeGeneration } from "./theme-generation.js";
 
 const extensionDir = dirname(fileURLToPath(import.meta.url));
 
@@ -45,7 +46,13 @@ let cachedExtras: Record<string, string | boolean> | null = null;
 let cachedVars: Record<string, string> | null = null;
 let cachedColors: Record<string, string> | null = null;
 let cachedThemeExport: Record<string, string> | null = null;
-let cachedThemeName: string | null = null;
+let cachedGeneration: object | undefined;
+let extrasRevision = 0;
+
+/** Changes whenever disk-backed assets refresh, including extras-only reloads. */
+export function getThemeExtrasRevision(): number {
+	return extrasRevision;
+}
 
 type ThemeDiscovery = {
 	extras: Record<string, string | boolean> | null;
@@ -241,19 +248,18 @@ function resolveThemeExportColor(key: string): string {
 
 /** Populate the extras cache from a theme (session start / theme change only). */
 export function setFullTheme(theme: unknown, force = false): void {
+	const generation = themeGeneration(theme);
+	if (!force && generation && generation === cachedGeneration) return;
 	const themeName = resolveThemeName(theme);
 	const sourcePath = resolveThemeSourcePath(theme);
-	if (!themeName && !sourcePath) return;
-
-	const cacheKey = sourcePath || themeName;
-	if (
-		!force &&
-		cacheKey === cachedThemeName &&
-		(cachedExtras !== null || cachedVars !== null || cachedColors !== null || cachedThemeExport !== null)
-	)
+	if (!themeName && !sourcePath) {
+		resetThemeExtrasCache();
+		cachedGeneration = generation;
 		return;
+	}
 
-	cachedThemeName = cacheKey;
+	cachedGeneration = generation;
+	extrasRevision++;
 	const result = readThemeDiscoveryFromPath(sourcePath) ?? (themeName ? discoverThemeExtras(themeName) : null);
 	cachedExtras = result?.extras ?? null;
 	cachedVars = result?.vars ?? null;
@@ -262,11 +268,12 @@ export function setFullTheme(theme: unknown, force = false): void {
 }
 
 export function resetThemeExtrasCache(): void {
+	extrasRevision++;
 	cachedExtras = null;
 	cachedVars = null;
 	cachedColors = null;
 	cachedThemeExport = null;
-	cachedThemeName = null;
+	cachedGeneration = undefined;
 }
 
 /** Resolve a theme-extra key from the cache; "" when unavailable (graceful fallback). */

@@ -191,7 +191,7 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 			return {
 				action: "transform" as const,
 				text: pathResult?.text ?? event.text,
-				images: [...(markerResult?.images ?? []), ...(pathResult?.images ?? [])],
+				images: [...(event.images ?? []), ...(markerResult?.images ?? []), ...(pathResult?.images ?? [])],
 			};
 		}
 		return undefined;

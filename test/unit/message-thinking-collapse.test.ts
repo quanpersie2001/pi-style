@@ -95,31 +95,28 @@ function isMarkdownLike(child: unknown): boolean {
 }
 
 describe("hidden-thinking label collapse", () => {
-	it("keeps the top padding for a thinking-only message while it is still streaming", () => {
+	it("keeps an omitted thinking-only message at zero lines while streaming", () => {
 		initTheme("dark", false);
 		const message = assistantMessage([{ type: "thinking", thinking: "Streaming thought." }]);
 		const comp = new AssistantMessageComponent(message, true, undefined, "", 1);
 		decorateMessageUpdate(AssistantMessageComponent.prototype.updateContent, comp, [message, true], COLLAPSE_SNAPSHOT);
-		// The streaming message is the chat's trailing block: its pad keeps the
-		// live thinking separated from the tool block above it.
-		expect(comp.contentContainer.children).toHaveLength(1);
-		expect(isSpacerLike(comp.contentContainer.children[0])).toBe(true);
+		// Pi 1.5 omits empty hidden labels and their padding even while streaming.
+		expect(comp.contentContainer.children).toHaveLength(0);
+		expect(comp.render(40)).toEqual([]);
 	});
-	it("renders an empty label as one invisible row, proving the gap the collapse removes", () => {
+	it("omits native empty labels without adding a gap before the answer", () => {
 		initTheme("dark", false);
 		const native = new AssistantMessageComponent(thinkingThenAnswer(), true, undefined, "", 1);
-		expect(native.contentContainer.children).toHaveLength(4);
+		expect(native.contentContainer.children).toHaveLength(2);
 		expect(isSpacerLike(native.contentContainer.children[0])).toBe(true);
-		expect(isTextLike(native.contentContainer.children[1])).toBe(true);
-		expect(isSpacerLike(native.contentContainer.children[2])).toBe(true);
-		expect(isMarkdownLike(native.contentContainer.children[3])).toBe(true);
-		// The empty label Text still renders one full-width line (ANSI-wrapped),
-		// so the visible layout is [blank][invisible][blank][answer].
-		expect(native.render(40)).toHaveLength(4);
-		expect(stripAnsi(native.render(40).join("\n")).split("\n")[1].trim()).toBe("");
+		expect(isMarkdownLike(native.contentContainer.children[1])).toBe(true);
+		const lines = native.render(40);
+		expect(lines).toHaveLength(2);
+		expect(stripAnsi(lines[0]).trim()).toBe("");
+		expect(stripAnsi(lines[1])).toContain("Final answer.");
 	});
 
-	it("drops the invisible label row and its trailing spacer, keeping the shared top padding", () => {
+	it("preserves native omission and shared top padding", () => {
 		initTheme("dark", false);
 		const comp = new AssistantMessageComponent(thinkingThenAnswer(), true, undefined, "", 1);
 		decorateMessageUpdate(
@@ -152,12 +149,15 @@ describe("hidden-thinking label collapse", () => {
 	it("leaves the layout untouched when collapse is disabled in the snapshot", () => {
 		initTheme("dark", false);
 		const comp = new AssistantMessageComponent(thinkingThenAnswer(), true, undefined, "", 1);
+		const nativeChildren = [...comp.contentContainer.children];
+		const nativeLines = comp.render(40);
 		decorateMessageUpdate(AssistantMessageComponent.prototype.updateContent, comp, [thinkingThenAnswer()], {
 			assistantPrefix: "│ ",
 			assistantEnabled: true,
 			collapseHiddenThinking: false,
 		});
-		expect(comp.contentContainer.children).toHaveLength(4);
+		expect(comp.contentContainer.children).toEqual(nativeChildren);
+		expect(comp.render(40)).toEqual(nativeLines);
 	});
 
 	it("leaves the layout untouched while the thinking block is expanded (hideThinkingBlock off)", () => {

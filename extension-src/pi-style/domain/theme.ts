@@ -1,3 +1,7 @@
+import { themeGeneration } from "../shared/theme-generation.js";
+
+export { themeGeneration } from "../shared/theme-generation.js";
+
 import type { NormalizedPiStyleConfig } from "./config-types.js";
 
 export type GlyphMode = "unicode" | "ascii";
@@ -42,7 +46,7 @@ export type SemanticToken =
 export interface ActiveTheme {
 	fg?: (color: string, text: string) => string;
 	bg?: (color: string, text: string) => string;
-	colors?: Record<string, string>;
+	colors?: Readonly<Record<string, unknown>>;
 }
 
 export interface ResolvedTheme {
@@ -211,7 +215,13 @@ export function resolveTheme(
 	// Lazy per-instance prefix memo: repeated apply(token, ...) calls stop
 	// re-running colorPrefixFor (and Pi's active.fg()) for the same token.
 	const prefixes = new Map<SemanticToken, string>();
+	let generation = themeGeneration(active);
 	const color = (token: SemanticToken): string => {
+		const current = themeGeneration(active);
+		if (generation !== current) {
+			generation = current;
+			prefixes.clear();
+		}
 		const cached = prefixes.get(token);
 		if (cached !== undefined) return cached;
 		const prefix = colorPrefixFor(active, config, noColor, token);

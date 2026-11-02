@@ -1,3 +1,4 @@
+import { themeGeneration } from "./theme-generation.js";
 // Boxed tool-call/result rendering primitives.
 //
 // Two deliberate design points:
@@ -27,7 +28,7 @@ import {
 	safeVisibleWidth,
 	safeWrapTextWithAnsi,
 } from "./render-budget.js";
-import { getThemeExtra } from "./theme-extras.js";
+import { getThemeExtra, getThemeExtrasRevision } from "./theme-extras.js";
 
 /** Minimal structural view of Pi's Theme as used by the boxed renderers. */
 export interface BoxTheme {
@@ -57,14 +58,16 @@ export function applyBgTint(theme: BoxTheme, bgName: string, lines: string[]): s
 	}
 }
 
-const THEME_CACHE_KEYS = new WeakMap<object, number>();
+const THEME_CACHE_KEYS = new WeakMap<object, { revision: number; key: number }>();
 let nextThemeCacheKey = 1;
 
 export function themeCacheKey(theme: object): number {
-	const cached = THEME_CACHE_KEYS.get(theme);
-	if (cached !== undefined) return cached;
+	const generation = themeGeneration(theme) ?? theme;
+	const revision = getThemeExtrasRevision();
+	const cached = THEME_CACHE_KEYS.get(generation);
+	if (cached?.revision === revision) return cached.key;
 	const created = nextThemeCacheKey++;
-	THEME_CACHE_KEYS.set(theme, created);
+	THEME_CACHE_KEYS.set(generation, { revision, key: created });
 	return created;
 }
 

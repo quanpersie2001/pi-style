@@ -54,6 +54,19 @@ function branchSummary(id: string, entry: Record<string, unknown>): SessionEntry
 	} as SessionEntry;
 }
 
+function standaloneUsage(id: string, values: Parameters<typeof usage>[0]): SessionEntry {
+	return {
+		type: "usage",
+		id,
+		parentId: null,
+		timestamp: "t",
+		kind: "cache_warm",
+		provider: "test",
+		model: "test",
+		usage: usage(values),
+	} as SessionEntry;
+}
+
 class MutableSession {
 	entries: SessionEntry[];
 	constructor(entries: SessionEntry[]) {
@@ -84,6 +97,40 @@ describe("session usage aggregation", () => {
 			subscriptionMode: "unknown",
 			streaming: false,
 		});
+	});
+
+	it("includes standalone usage in mixed totals and incremental appends without double counting", () => {
+		const session = new MutableSession([
+			assistant("a", { usage: usage({ input: 1, output: 2, cost: 0.25 }) }),
+			standaloneUsage("warm", { input: 10, output: 3, cacheRead: 4, cacheWrite: 5, cost: 0.5 }),
+		]);
+		const expected = {
+			inputTokens: 11,
+			outputTokens: 5,
+			cacheReadTokens: 4,
+			cacheWriteTokens: 5,
+			cost: 0.75,
+			subscriptionMode: "unknown",
+			streaming: false,
+		};
+		expect(usageFromSession(session)).toEqual(expected);
+		expect(usageFromSession(session)).toEqual(expected);
+		session.entries.push(standaloneUsage("warm2", { cacheWrite: 7, cost: 0.125 }));
+		expect(usageFromSession(session)).toEqual({ ...expected, cacheWriteTokens: 12, cost: 0.875 });
+		expect(getUsageFromSessionCacheStats(session)).toMatchObject({ scannedEntries: 3, rebuilds: 1, cacheHits: 1 });
+	});
+
+	it("refreshes standalone usage tails and resets their contributions at session boundaries", () => {
+		const session = new MutableSession([standaloneUsage("warm", { input: 10, cost: 0.5 })]);
+		expect(usageFromSession(session)?.inputTokens).toBe(10);
+		session.entries[0] = standaloneUsage("warm", { cacheWrite: 6, cost: 0.25 });
+		expect(usageFromSession(session)).toMatchObject({ inputTokens: 0, cacheWriteTokens: 6, cost: 0.25 });
+		expect(getUsageFromSessionCacheStats(session)).toMatchObject({ scannedEntries: 2, tailRefreshes: 1 });
+		resetUsageFromSessionCache(session);
+		session.entries = [standaloneUsage("new", { cost: 0.125 })];
+		expect(usageFromSession(session)).toMatchObject({ inputTokens: 0, cacheWriteTokens: 0, cost: 0.125 });
+		session.entries = [];
+		expect(usageFromSession(session)).toBeUndefined();
 	});
 
 	it("returns undefined when no entry carries usage", () => {
