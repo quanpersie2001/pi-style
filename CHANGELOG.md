@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.16] - 2026-11-12
+
+### Bug Fixes
+
+- *(ui)* Keep status rows adjacent to editor above agents
+
 ## [0.5.15] - 2026-11-12
 
 ### Bug Fixes
