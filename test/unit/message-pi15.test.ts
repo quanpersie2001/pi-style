@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
 import { Markdown, MouseRegion, Spacer } from "@earendil-works/pi-tui";
@@ -89,6 +90,7 @@ it("forwards the native renderer options verbatim, including injected helpers", 
 const runtime =
 	process.env.PI_STYLE_TEST_RUNTIME_ROOT ??
 	fileURLToPath(new URL("../../node_modules/@earendil-works/pi-coding-agent", import.meta.url));
+const runtimeVersion = JSON.parse(readFileSync(`${runtime}/package.json`, "utf8")).version as string;
 describe("installed Pi 1.5 artifact certification", () => {
 	it.each(["index.js", "bundle/index.js"])(
 		"decorates native omitted runs and preserves Markdown reuse in %s",
@@ -219,6 +221,64 @@ describe("installed Pi 1.5 artifact certification", () => {
 		expect(component.box.children).toHaveLength(1);
 		expect(component.customRenderer).toBe(renderer);
 	});
+	it.each([
+		["index.js", "source"],
+		["index.js", ""],
+		["bundle/index.js", "source"],
+		["bundle/index.js", ""],
+	])("preserves special-block Markdown transforms in %s for %j", async (artifact, source) => {
+		const host = await import(pathToFileURL(`${runtime}/dist/${artifact}`).href);
+		host.initTheme("dark", false);
+		setSpecialBlockTheme(theme);
+		for (const [subtype, className, messageType, content] of [
+			[
+				"native-compaction-message",
+				"CompactionSummaryMessageComponent",
+				"summary",
+				{ summary: source, tokensBefore: 100 },
+			],
+			["native-branch-message", "BranchSummaryMessageComponent", "summary", { summary: source }],
+			["native-skill-message", "SkillInvocationMessageComponent", "custom", { name: "fixture", content: source }],
+			["native-custom-message", "CustomMessageComponent", "custom", { customType: "fixture", content: source }],
+		] as const) {
+			const seen: { markdown: string; context: Record<string, unknown> }[] = [];
+			const transformers = [
+				(markdown: string, context: Record<string, unknown>) => {
+					seen.push({ markdown, context });
+					return "first";
+				},
+				() => {
+					throw new Error("fixture transformer failure");
+				},
+				() => undefined,
+				(markdown: string) => `${markdown} transformed diagram`,
+			];
+			const args = [content, host.getMarkdownTheme(), 1, transformers, "entry-id", "2026-11-10T00:00:00Z"];
+			if (subtype === "native-custom-message") args.splice(1, 0, undefined);
+			const component = new host[className](...args);
+			component.expanded = true;
+			const method = subtype === "native-custom-message" ? "rebuild" : "updateDisplay";
+			seen.length = 0;
+			renderSpecialMessageBlock(subtype, host[className].prototype[method], component, []);
+			for (const width of [80, 40]) {
+				const output = component.render(width).join("\n");
+				expect(output).toContain("first transformed diagram");
+				expect(output).not.toContain("source");
+				const last = seen.at(-1);
+				expect(last?.markdown).toBe(source);
+				expect(last?.context).toEqual({
+					messageType,
+					isStreaming: false,
+					messageId: "entry-id",
+					timestamp: "2026-11-10T00:00:00Z",
+					availableWidth: expect.any(Number),
+				});
+				expect(last?.context.availableWidth).toBeGreaterThan(0);
+				expect(last?.context.availableWidth).toBeLessThan(width);
+			}
+			expect(new Set(seen.map(({ context }) => context.availableWidth)).size).toBe(2);
+		}
+	});
 	it.each(["index.js", "bundle/index.js"])("matches every surface in %s", async (artifact) => {
 		const host = await import(pathToFileURL(`${runtime}/dist/${artifact}`).href);
 		const classes = [
@@ -242,7 +302,7 @@ describe("installed Pi 1.5 artifact certification", () => {
 			expect(
 				KNOWN_NATIVE_IDENTITIES[`${spec.subtype}:${spec.method}`]?.some(
 					(identity) =>
-						identity.versions.includes("1.5.0") &&
+						identity.versions.includes(runtimeVersion) &&
 						identity.name === method.name &&
 						identity.arity === method.length &&
 						identity.fingerprint === fingerprint(method),
@@ -252,6 +312,6 @@ describe("installed Pi 1.5 artifact certification", () => {
 				true,
 			);
 		}
-		expect(SUPPORTED_PI_VERSIONS).toContain("1.5.0");
+		expect(SUPPORTED_PI_VERSIONS).toContain(runtimeVersion);
 	});
 });

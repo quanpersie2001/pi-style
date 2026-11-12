@@ -178,7 +178,7 @@ describe("recorded identity registry vs real pi artifacts", () => {
 			}
 		}
 		expect(failures.join("\n")).toBe("");
-	});
+	}, 15_000);
 
 	it("installs, renders compact read paths and restores patches on actual modular and bundled hosts", async () => {
 		const { readFileSync } = await import("node:fs");
@@ -236,7 +236,7 @@ describe("recorded identity registry vs real pi artifacts", () => {
 					expect(customLines).toContain("mcp_tool");
 					expect(customLines).toContain("renderer:body");
 					expect(seenRendererOptions[0]).toMatchObject({ expanded: false, outputPad: 1 });
-					if (version === "1.5.0") {
+					if (["1.5.0", "1.5.2"].includes(version)) {
 						expect(seenRendererOptions[0]).toMatchObject({
 							keyText: expect.any(Function),
 							keyHint: expect.any(Function),

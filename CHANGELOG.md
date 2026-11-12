@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+- *(tools)* Render default-shell built-ins through public callbacks, retaining the certified native expansion/shell bridge and legacy fallback
+
+### Performance
+
+- Retain streaming coalescing while removing the extra finalized native-render cache; reuse native Markdown and finished decoration caches
+
+### Bug Fixes
+
+- *(compat)* Support Pi 1.5.2 runtime contracts and preserve Markdown transformers in boxed summary, skill, and custom messages
+
+### Testing
+
+- Cover native large-paste transfer and multi-overlay cleanup with the styled editor
+- Separate repeatable Pi 1.5.2 streaming benchmarks from deterministic CI rendering assertions
+
 ## [0.5.14] - 2026-11-02
 
 ### Bug Fixes

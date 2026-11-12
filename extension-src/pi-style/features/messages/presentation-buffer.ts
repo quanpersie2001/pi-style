@@ -11,10 +11,8 @@ type Message = { content: { type: string }[]; stopReason?: string };
 export class AssistantPresentationBuffer {
 	enabled = false;
 	private readonly pending = new Map<object, Call>();
-	private cache = new WeakMap<object, { width: unknown; lines: string[] }>();
 
 	update(instance: object, args: unknown[], call: Call): unknown {
-		this.cache.delete(instance);
 		const state = instance as AssistantState;
 		const message = args[0] as Message | undefined;
 		// Only explicit streaming updates are deferred. Internal invalidate/theme/
@@ -42,17 +40,9 @@ export class AssistantPresentationBuffer {
 		return undefined;
 	}
 
-	render(instance: object, width: unknown, call: Call): unknown {
+	render(instance: object, _width: unknown, call: Call): unknown {
 		this.flush(instance);
-		if (!this.enabled || (instance as AssistantState).isStreaming !== false) return call();
-		const cached = this.cache.get(instance);
-		if (cached && cached.width === width) return [...cached.lines];
-		const result = call();
-		if (Array.isArray(result) && result.length <= 4096 && result.every((line) => typeof line === "string")) {
-			// One width per component, weak ownership: history never accumulates widths.
-			this.cache.set(instance, { width, lines: [...result] });
-		}
-		return result;
+		return call();
 	}
 
 	flush(instance: object): void {
@@ -71,7 +61,6 @@ export class AssistantPresentationBuffer {
 			this.flushAll();
 		} finally {
 			this.pending.clear();
-			this.cache = new WeakMap();
 		}
 	}
 }

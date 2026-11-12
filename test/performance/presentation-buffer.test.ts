@@ -77,7 +77,7 @@ describe("frame-aligned assistant presentation", () => {
 		expect(f.rebuilds).toBe(10);
 	});
 
-	it("caches finished native renders, copies lines and invalidates on width and updates", () => {
+	it("delegates every finished render with fresh output across width and content changes", () => {
 		const f = fixture();
 		f.update("finished", false);
 		let renders = 0;
@@ -88,15 +88,44 @@ describe("frame-aligned assistant presentation", () => {
 			}) as string[];
 		render(80)[0] = "mutated by caller";
 		expect(render(80)).toEqual(["finished"]);
-		expect(renders).toBe(1);
-		render(60);
 		expect(renders).toBe(2);
+		expect(render(60)).toEqual(["finished"]);
+		expect(renders).toBe(3);
 		f.update("new theme", false);
 		expect(render(60)).toEqual(["new theme"]);
-		expect(renders).toBe(3);
+		expect(renders).toBe(4);
 	});
 
-	it("never caches streaming renders and clears pending work on a throwing rebuild", () => {
+	it("bounds pending ownership to 128 components, evicts the oldest latest update and disposes the rest", () => {
+		const buffer = new AssistantPresentationBuffer();
+		buffer.enabled = true;
+		const instances = Array.from({ length: 130 }, () => ({ lastMessage: {}, contentContainer: {} }));
+		const calls: string[] = [];
+		const update = (index: number, text: string) =>
+			buffer.update(instances[index], [{ content: [{ type: "text", text }] }, true], () => {
+				calls.push(`${index}:${text}`);
+			});
+		for (let i = 0; i < 128; i++) {
+			update(i, "superseded");
+			update(i, "latest");
+		}
+		expect(calls).toEqual([]);
+		update(128, "latest");
+		expect(calls).toEqual(["0:latest"]);
+		buffer.render(instances[0], 80, () => []);
+		expect(calls).toEqual(["0:latest"]); // Eviction released the pending closure.
+		update(129, "latest");
+		expect(calls).toEqual(["0:latest", "1:latest"]);
+		buffer.dispose();
+		expect(calls).toEqual(instances.map((_, i) => `${i}:latest`));
+		buffer.flushAll();
+		expect(calls).toHaveLength(130); // Disposal released every remaining owner exactly once.
+		update(0, "after disposal");
+		expect(calls.at(-1)).toBe("0:after disposal");
+		expect(calls).toHaveLength(131);
+	});
+
+	it("delegates streaming renders and clears pending work on a throwing rebuild", () => {
 		const f = fixture();
 		f.update("stream", true);
 		let renders = 0;

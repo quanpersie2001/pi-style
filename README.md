@@ -184,7 +184,7 @@ const editor = provider?.create?.(tui, theme, keybindings, {
 ## Compatibility
 
 - Public Pi APIs (widgets, editor, header, footer bridge) are preferred and enabled by default.
-- Tier C core patches (message prefixes, special blocks, tool selectors) are identity-certified per surface against recorded fingerprints (Pi `0.83.0`–`0.85.1`, `0.99.1`–`0.99.2`, `1.0.0`, `1.1.0`, `1.2.0`–`1.5.0` observed; Pi ≥`0.84.3` loads the CLI from a minified bundled runtime, so every surface also records the bundled identities; `0.85.1` rebundles with renamed minified parameters; `1.0.0` retains the `0.99.2` identities; `1.1.0` re-records three layout surfaces and `1.2.0` only `handleEvent`, carrying the rest forward; `1.3.0`–`1.4.0` preserve all `1.2.0` identities; `1.5.0` re-certifies assistant layout, inline composition, custom renderers, and bundled event handling while preserving native Markdown reuse and injected keybinding helpers — every surface re-verified in both families), isolated, reversible, and flag/config gated; any surface whose runtime identity is not recorded falls back natively on its own.
+- Tier C core patches (message prefixes, special blocks, tool selectors) are identity-certified per surface against recorded fingerprints (Pi `0.83.0`–`0.85.1`, `0.99.1`–`0.99.2`, `1.0.0`, `1.1.0`, `1.2.0`–`1.5.0`, `1.5.2` observed; Pi ≥`0.84.3` loads the CLI from a minified bundled runtime, so every surface also records the bundled identities; `0.85.1` rebundles with renamed minified parameters; `1.0.0` retains the `0.99.2` identities; `1.1.0` re-records three layout surfaces and `1.2.0` only `handleEvent`, carrying the rest forward; `1.3.0`–`1.4.0` preserve all `1.2.0` identities; `1.5.0` re-certifies assistant layout, inline composition, custom renderers, and bundled event handling while preserving native Markdown reuse and injected keybinding helpers ; `1.5.2` re-certifies summary/custom Markdown transforms, inline routing, and event handling — every surface re-verified in both families), isolated, reversible, and flag/config gated; any surface whose runtime identity is not recorded falls back natively on its own.
 - No render-time I/O: filesystem, Git, settings, and session data flow through cached providers into immutable snapshots.
 - Terminal-global background synchronization is unsupported/off for technical v1; explicit cell backgrounds and Pi theme APIs remain supported.
 - Terminal multiplexers gate kitty graphics: in herdr, previews (and Pi's own tool-result images) require `experimental.kitty_graphics = true` in `~/.config/herdr/config.toml` plus a server restart; tmux disables images upstream.
@@ -241,20 +241,22 @@ Current test suite: 917 tests across 48 files.
 ### Automatic render optimization
 
 Assistant presentation updates are automatically buffered until Pi's next render
-frame, and finished native renders are cached. There is no separate optimization
+frame. Finished rendering delegates to Pi's native Markdown caches; there is no separate optimization
 toggle. Existing Tier C core/assistant authorization flags and per-method
 fingerprint certification are still required; both `render` and `updateContent`
 must be installed successfully. Unsupported surfaces retain native behavior.
 
 Pi still owns messages, history, input and repaint scheduling. Completion,
 abort/error and thinking/theme invalidation rebuild immediately; pending deltas
-flush before rendering or patch cleanup. Finished-render caching retains only one
-width per component (up to 4,096 lines), invalidates on content/visibility/theme
-updates, and never caches streaming output. No additional repaint throttle or
+flush before rendering or patch cleanup. The extra finalized native-render cache
+has been removed; pi-style keeps only its decoration cache, while native Markdown
+owns content rendering. No additional repaint throttle or
 streaming timer is installed on top of Pi's native scheduler.
 
 Verification: `npm test -- test/performance/presentation-buffer*.test.ts --silent=false --disableConsoleIntercept`
-(native rebuild counts and deterministic lifecycle contracts), and
+(native rebuild counts and deterministic lifecycle contracts),
+`npx vitest bench --run test/performance/presentation-buffer.bench.ts`
+([decorated mixed-content measurements](docs/benchmarks/pi-1.5.2-streaming.md)), and
 `npm test -- test/performance/message-render-benchmark.test.ts` (synthetic
 message-decoration timing, not interactive terminal latency). Chat virtualization
 is **not implemented**: this release preserves Pi's complete component tree and

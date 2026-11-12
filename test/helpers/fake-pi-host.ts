@@ -4,6 +4,8 @@ import type {
 	ExtensionEvent,
 	ExtensionUIContext,
 	Theme,
+	ToolRendererResolver,
+	ToolRenderers,
 	WorkingIndicatorOptions,
 } from "@earendil-works/pi-coding-agent";
 import type { GitCommandRunner } from "../../extension-src/pi-style/domain/providers.js";
@@ -18,6 +20,7 @@ export interface FakePiCapabilities {
 	customFooter: boolean;
 	workingIndicator: boolean;
 	widgets: boolean;
+	toolRenderers: boolean;
 }
 
 export interface FakePiHostOptions {
@@ -49,6 +52,7 @@ const defaultCapabilities: FakePiCapabilities = {
 	customFooter: true,
 	workingIndicator: true,
 	widgets: true,
+	toolRenderers: true,
 };
 
 export class FakePiHost {
@@ -57,6 +61,16 @@ export class FakePiHost {
 	readonly handlers = new Map<string, Handler[]>();
 	readonly commands = new Map<string, unknown>();
 	readonly registeredTools: unknown[] = [];
+	readonly registeredToolRenderers: ToolRendererResolver[] = [];
+
+	resolveToolRenderers(name: string, fallback: () => ToolRenderers | undefined): ToolRenderers | undefined {
+		let next = fallback;
+		for (const resolver of [...this.registeredToolRenderers].reverse()) {
+			const downstream = next;
+			next = () => resolver(name, downstream);
+		}
+		return next();
+	}
 	readonly registeredFlags = new Map<string, unknown>();
 	readonly registeredMessageRenderers = new Map<string, unknown>();
 	readonly registeredEntryRenderers = new Map<string, unknown>();
@@ -172,6 +186,13 @@ export class FakePiHost {
 
 	private createApi(): ExtensionAPI {
 		const partial: Partial<ExtensionAPI> = {
+			...(this.capabilities.toolRenderers
+				? {
+						registerToolRenderer: (resolver: ToolRendererResolver) => {
+							this.registeredToolRenderers.push(resolver);
+						},
+					}
+				: {}),
 			on: (event, handler) => {
 				const list = this.handlers.get(event) ?? [];
 				list.push(handler as unknown as Handler);

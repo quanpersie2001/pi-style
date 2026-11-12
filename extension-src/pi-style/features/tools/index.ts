@@ -1,7 +1,31 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { EMPTY_BATCH_COMPONENT } from "./boxed/batch.js";
-import { renderBoxedToolCall, renderBoxedToolResult } from "./boxed/index.js";
+import { renderBoxedToolCall as boxedCall, renderBoxedToolResult as boxedResult } from "./boxed/index.js";
+import { stopAllElapsedTickers } from "./boxed/session-config.js";
 import { noteTurnMemberExpansion } from "./boxed/turn-summary.js";
+import { publicToolRendererBridge } from "./public-renderers.js";
+
+// Retained legacy selectors still render history between sessions, but must not
+// restart elapsed timers after shutdown (including incomplete historical calls).
+let presentationLive = true;
+export function setToolPresentationLive(live: boolean): void {
+	presentationLive = live;
+	if (!live) stopAllElapsedTickers();
+}
+function renderBoxedToolCall(...args: Parameters<typeof boxedCall>) {
+	try {
+		return boxedCall(...args);
+	} finally {
+		if (!presentationLive) stopAllElapsedTickers();
+	}
+}
+function renderBoxedToolResult(...args: Parameters<typeof boxedResult>) {
+	try {
+		return boxedResult(...args);
+	} finally {
+		if (!presentationLive) stopAllElapsedTickers();
+	}
+}
 
 /** Capture the public native setter and its most recent render-context flag.
  * No private expanded field, prototype patch, or second disclosure state. */
@@ -407,7 +431,33 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 		laterOwner: 0,
 		generation: ++ownerGeneration,
 	};
+	// Native updateDisplay restores horizontal padding/fill, but not paddingY.
+	const containers = new Map<{ paddingY?: number }, number | undefined>();
+	const containerFor = (instance: object) => {
+		const host = instance as {
+			getRenderShell?(): string;
+			contentBox?: { paddingY?: number };
+			selfRenderContainer?: { paddingY?: number };
+		};
+		return host.getRenderShell?.() === "self" ? host.selfRenderContainer : host.contentBox;
+	};
+	const restoreContainer = (container: { paddingY?: number } | undefined) => {
+		if (!container || !containers.has(container)) return;
+		const paddingY = containers.get(container);
+		if (paddingY === undefined) delete container.paddingY;
+		else container.paddingY = paddingY;
+		containers.delete(container);
+	};
+	const restoreContainers = () => {
+		for (const container of containers.keys()) restoreContainer(container);
+	};
+	const neutralize = (instance: object) => {
+		const container = containerFor(instance);
+		if (container && !containers.has(container)) containers.set(container, container.paddingY);
+		neutralizeToolContainerBackground(instance);
+	};
 	const dispose = () => {
+		restoreContainers();
 		if (state.archive)
 			return {
 				restored: state.restored,
@@ -431,7 +481,29 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 		decorateToolRendererSelection(subtype: RendererSubtype, original: unknown, instance: object, args: unknown[]) {
 			if (typeof original !== "function") return undefined;
 			capturedToolUi = (instance as { ui?: { requestRender?: (force?: boolean) => void } }).ui ?? capturedToolUi;
-			const renderer = Reflect.apply(original, instance, args);
+			let renderer = Reflect.apply(original, instance, args);
+			const bridge = publicToolRendererBridge(renderer);
+			if (bridge) {
+				const selected = renderer;
+				renderer = function (this: unknown, ...rendererArgs: unknown[]) {
+					const valid = subtype === "tool-call-renderer" ? validCallArgs(rendererArgs) : validResultArgs(rendererArgs);
+					const restoreShell = () => restoreContainer(containerFor(instance));
+					if (!valid) {
+						restoreShell();
+						return Reflect.apply(selected, this, rendererArgs);
+					}
+					const boxed = state.snapshot.style === "compact-box" && bridge.active();
+					if (boxed) noteNativeExpansion(instance, rendererArgs.at(-1));
+					else restoreShell();
+					const component = bridge.invoke(this, rendererArgs, boxed, restoreShell);
+					if (boxed) {
+						neutralize(instance);
+						if (component === EMPTY_BATCH_COMPONENT) hideBatchMember(instance);
+					}
+					return component;
+				};
+				if (state.snapshot.style === "compact-box") return renderer;
+			}
 			if (state.snapshot.style === "compact-box") {
 				const toolName = (instance as { toolName?: unknown }).toolName;
 				// Tools without a native renderCall/renderResult (e.g. extension tools
@@ -448,7 +520,7 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 								theme as never,
 								context as never,
 							);
-							neutralizeToolContainerBackground(instance);
+							neutralize(instance);
 							// Same batch-member contract as the native-renderer path: a
 							// collapsed turn member (or quiet batch member) returns the
 							// singleton and must be hidden, or Pi leaves a stray native
@@ -465,7 +537,7 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 							theme as never,
 							context as never,
 						);
-						neutralizeToolContainerBackground(instance);
+						neutralize(instance);
 						if (component === EMPTY_BATCH_COMPONENT) hideBatchMember(instance);
 						return component;
 					};
@@ -498,7 +570,7 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 										context as never,
 									);
 								})();
-					neutralizeToolContainerBackground(instance);
+					neutralize(instance);
 					if (component === EMPTY_BATCH_COMPONENT) hideBatchMember(instance);
 					return component;
 				};

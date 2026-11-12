@@ -299,6 +299,7 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		rebuildTeammateRuns(entries);
 		refreshObservedThoughtComponents();
 		invalidateRegisteredTurnMembers();
+		coordinator.invalidateTools();
 		requestToolPresentationRender();
 		const saved = savedEditorColor(
 			typeof ctx.sessionManager.getBranch === "function"

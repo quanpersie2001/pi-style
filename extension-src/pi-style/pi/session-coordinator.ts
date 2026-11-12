@@ -17,7 +17,12 @@ import {
 	type ToolsRenderConfig,
 } from "../features/tools/boxed/session-config.js";
 import { rebuildTeammateRuns } from "../features/tools/boxed/team-run-labels.js";
-import { rebuildTurnRegistryFromEntries, resetTurnRegistry } from "../features/tools/boxed/turn-summary.js";
+import {
+	getTurnEntry,
+	rebuildTurnRegistryFromEntries,
+	resetTurnRegistry,
+} from "../features/tools/boxed/turn-summary.js";
+import { requestToolPresentationRender, setToolPresentationLive } from "../features/tools/index.js";
 import { createCompatibilityCoordinator } from "./compatibility-coordinator.js";
 import {
 	type CompatibilityCleanupResult,
@@ -30,6 +35,7 @@ import { createConfigSourceAdapter, readSessionAuthorization } from "./config-se
 import { registerDetachedEditor } from "./detached-editor.js";
 import { buildOperationalState } from "./operational-state.js";
 import { collectToolDetails } from "./startup-resources.js";
+import { registerPublicToolRenderers } from "./tool-renderers.js";
 
 export type CompatibilityTestHooks = {
 	dispose?: (report: CompatibilityProbeReport) => CompatibilityCleanupResult;
@@ -53,6 +59,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 				return { stdout: result.stdout, stderr: result.stderr, code: result.code };
 			},
 		} satisfies import("../domain/providers.js").GitCommandRunner);
+	const publicTools = registerPublicToolRenderers(pi);
 	let cwd = process.cwd();
 	let active = false;
 	let tuiSession = false;
@@ -71,6 +78,29 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 	// start() re-reads and re-captures at every session_start.
 	let authorization = readSessionAuthorization(pi);
 	let productGate: "omitted" | "allow" | "deny" = "omitted";
+	const syncPublicTools = (config: import("../domain/config-types.js").NormalizedPiStyleConfig) => {
+		setToolPresentationLive(
+			active &&
+				tuiSession &&
+				authorization.core &&
+				authorization.tools &&
+				productGate !== "deny" &&
+				config.enabled &&
+				config.tools.enabled,
+		);
+		publicTools.configure(
+			active &&
+				tuiSession &&
+				authorization.core &&
+				authorization.tools &&
+				productGate !== "deny" &&
+				config.enabled &&
+				config.tools.enabled &&
+				config.tools.style === "compact-box",
+		);
+		publicTools.invalidate();
+		requestToolPresentationRender();
+	};
 	const syncOperational = (config: import("../domain/config-types.js").NormalizedPiStyleConfig) => {
 		app.setOperationalState(
 			buildOperationalState(
@@ -79,6 +109,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 				compatibility,
 				app.runtime.current?.installationState,
 				app.productPolicy.corePatchGate,
+				publicTools.registered,
 			),
 		);
 	};
@@ -165,6 +196,8 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			// effect immediately (line budgets, dimOutput, open-tree glyph, …).
 			applyToolsRenderConfig(config);
 			applyMessagesConfig(config);
+			publicTools.configure(false);
+			stopAllElapsedTickers();
 			if (compatibility.report) {
 				const cleanup = compatibility.dispose();
 				if (!cleanup.complete) {
@@ -173,16 +206,23 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 				}
 			}
 			compatibility.install(config, tuiSession, productGate);
+			syncPublicTools(config);
 			syncOperational(config);
 		},
 	);
 
 	return {
 		app,
+		invalidateTools: () => {
+			publicTools.prune((id) => getTurnEntry(id) !== undefined);
+			stopAllElapsedTickers();
+			publicTools.invalidate();
+		},
 		async start(event: { reason: string }, ctx: ExtensionContext): Promise<void> {
 			// Authorization is session-bound: Pi applies extension flag values only after
 			// extension modules finish loading, so flags must be read here (session_start),
 			// never at coordinator creation time.
+			publicTools.configure(false);
 			authorization = readSessionAuthorization(pi);
 			compatibility.captureAuthorization(
 				authorization.core,
@@ -278,9 +318,15 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			);
 			// Leave thinking cycling to Pi: it honors configured keys and model-supported levels.
 			if (ctx.mode === "tui" && ctx.ui) detachedEditor = registerDetachedEditor(() => app.config);
+			syncPublicTools(app.config);
 			syncOperational(app.config);
 		},
 		shutdown(): void {
+			// Retained selectors still cover legacy render-before-bind rows.
+			publicTools.configure(false);
+			setToolPresentationLive(false);
+			// Restore shells without re-entering streaming downstream renderers.
+			publicTools.clear();
 			detachedEditor?.dispose();
 			detachedEditor = undefined;
 			active = false;

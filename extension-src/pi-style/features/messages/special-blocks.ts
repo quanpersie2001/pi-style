@@ -6,7 +6,7 @@
 // identity on shutdown. The delegate receives the native method and falls back
 // to it whenever the theme or component shape is unavailable.
 
-import { keyText } from "@earendil-works/pi-coding-agent";
+import { keyText, type MarkdownTransformContext, type MarkdownTransformer } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { Markdown, type MarkdownTheme, MouseRegion, sliceByColumn } from "@earendil-works/pi-tui";
 import { bgHexAnsi, isHexColor, stripAnsi, truncateAnsi, visibleWidth, wrapAnsiBackground } from "../../shared/ansi.js";
@@ -65,6 +65,9 @@ interface MessageBlockInstance {
 	setExpanded?(expanded: boolean): unknown;
 	setBgFn?(bgFn?: (text: string) => string): void;
 	markdownTheme?: unknown;
+	markdownTransformers?: readonly MarkdownTransformer[];
+	messageId?: string;
+	timestamp?: string;
 	box?: { clear(): void; addChild(child: unknown): void };
 	customComponent?: unknown;
 	customRenderer?: unknown;
@@ -90,10 +93,36 @@ function createMarkdownBody(
 	text: string,
 	markdownTheme: MarkdownTheme | undefined,
 	theme: BoxTheme,
+	instance: MessageBlockInstance,
+	messageType: MarkdownTransformContext["messageType"],
 ): (contentWidth: number) => string[] {
-	const md = new Markdown(text || "", 0, 0, markdownTheme as MarkdownTheme, {
-		color: (t: string) => theme.fg("customMessageText", t),
-	});
+	const md = new Markdown(
+		text || "",
+		0,
+		0,
+		markdownTheme as MarkdownTheme,
+		{ color: (t: string) => theme.fg("customMessageText", t) },
+		{
+			transform(markdown, availableWidth) {
+				const context: MarkdownTransformContext = {
+					messageType,
+					isStreaming: false,
+					availableWidth,
+					...(instance.messageId === undefined ? {} : { messageId: instance.messageId }),
+					...(instance.timestamp === undefined ? {} : { timestamp: instance.timestamp }),
+				};
+				for (const transformer of instance.markdownTransformers ?? []) {
+					try {
+						const transformed = transformer(markdown, context);
+						if (typeof transformed === "string") markdown = transformed;
+					} catch {
+						// Match native dispatch: a failed transformer does not block the rest.
+					}
+				}
+				return markdown;
+			},
+		},
+	);
 	return (contentWidth: number) => md.render(contentWidth);
 }
 
@@ -157,8 +186,8 @@ function patchCompaction(instance: MessageBlockInstance, _original: () => void, 
 
 	const preview = compactionPreview(summary);
 	const body =
-		expanded && summary && markdownTheme
-			? createMarkdownBody(summary, markdownTheme, theme)
+		expanded && markdownTheme
+			? createMarkdownBody(summary, markdownTheme, theme, instance, "summary")
 			: (width: number) => (preview ? [theme.fg("customMessageText", truncateAnsi(preview, width, "…"))] : []);
 
 	const tokenStr = Number(tokensBefore).toLocaleString();
@@ -193,7 +222,8 @@ function patchSkill(instance: MessageBlockInstance, _original: () => void, theme
 	const content = typeof instance.skillBlock?.content === "string" ? instance.skillBlock.content : "";
 	const markdownTheme = instance.markdownTheme as MarkdownTheme | undefined;
 
-	const body = expanded && content && markdownTheme ? createMarkdownBody(content, markdownTheme, theme) : () => [];
+	const body =
+		expanded && markdownTheme ? createMarkdownBody(content, markdownTheme, theme, instance, "custom") : () => [];
 	const block: Component = {
 		invalidate() {},
 		render(width) {
@@ -310,7 +340,8 @@ function patchBranch(instance: MessageBlockInstance, _original: () => void, them
 	const summary = typeof instance.message?.summary === "string" ? instance.message.summary : "";
 	const markdownTheme = instance.markdownTheme as MarkdownTheme | undefined;
 
-	const body = expanded && summary && markdownTheme ? createMarkdownBody(summary, markdownTheme, theme) : () => [];
+	const body =
+		expanded && markdownTheme ? createMarkdownBody(summary, markdownTheme, theme, instance, "summary") : () => [];
 
 	const block = renderBoxedMessageBlock(theme, {
 		kind: "Branch",
@@ -396,7 +427,7 @@ function patchCustomMessage(instance: MessageBlockInstance, original: () => void
 
 	const markdownTheme = instance.markdownTheme as MarkdownTheme | undefined;
 
-	const body = text && markdownTheme ? createMarkdownBody(text, markdownTheme, theme) : () => [];
+	const body = markdownTheme ? createMarkdownBody(text, markdownTheme, theme, instance, "custom") : () => [];
 
 	const block = renderBoxedMessageBlock(theme, {
 		kind: "Custom",

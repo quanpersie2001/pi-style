@@ -86,6 +86,10 @@ Integration tests use a bounded fake host recording: registered handlers and com
 - print/json modes create no terminal components;
 - previous editor/footer matrices: none, composable, preferred, forced, preserved-later-owner.
 
+### Native editor and overlay regressions
+
+`test/integration/native-ui-lifecycle.test.ts` uses Pi's real editor, TUI overlay stack, and `InteractiveMode` prototype methods on a structural host. It verifies expanded large-paste text across native/pi-style editor swaps and inline custom UI, plus cleanup of multiple extension overlays (including hidden overlays) without removing Pi-owned overlays. These are native behavior contracts, not pi-style workarounds. The test does not run a terminal input loop or full reload/session-switch orchestration; those remain manual checks.
+
 ## Compatibility and patch coverage
 
 For every Tier C patch: supported shape installs once; repeated install is idempotent; unsupported shape disables only the feature; restore succeeds while the wrapper is active; restore never overwrites a later replacement; streaming/partial render stays correct; native fallback remains available; doctor reports active/fallback state.
@@ -107,6 +111,14 @@ For every Tier C patch: supported shape installs once; repeated install is idemp
 - Git refreshes are deduplicated and bounded.
 
 Performance regressions fail CI only after stable baselines exist; before that, record measurements and alert thresholds.
+
+The explicit Pi 1.5.2 assistant-buffer benchmark runs separately from CI:
+
+```sh
+npx vitest bench --run test/performance/presentation-buffer.bench.ts
+```
+
+It compares real modular and bundled native components with buffering enabled/disabled, asserts output parity and deterministic update/render counts, and reports timings without timing-based failures. See [measurements and limitations](benchmarks/pi-1.5.2-streaming.md); reduced rebuild counts alone are not an elapsed-time speedup claim.
 
 ## Manual terminal matrix
 

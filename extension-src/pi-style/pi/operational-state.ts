@@ -8,10 +8,12 @@ export function buildOperationalState(
 	compatibility: CompatibilityCoordinator,
 	installationState?: RuntimeInstallationState,
 	productCorePatchGate?: string,
+	publicToolRenderers = false,
 ): Readonly<Record<string, unknown>> {
 	return {
 		compatibility: {
 			...compatibility.state(config),
+			toolRendererRoute: publicToolRenderers ? "hybrid/public visuals + legacy bridge" : "legacy",
 			configuredByProduct: config.messages.enabled || config.tools.enabled,
 		},
 		installations: installationState ?? {
