@@ -67,6 +67,8 @@ pi-style.status.secondary    belowEditor, only when it has visible content
 pi-style.startup             aboveEditor fallback for header
 ```
 
+When pi-teams is present, status mounts notify its optional session-owned `@quandev104/pi-teams:agent-widget-order` bridge. The roster owner reinserts only its own widget so below-editor order stays editor → status → Agents across load order and status reconfiguration; primary `above` placement is unchanged. pi-style never owns or clears this bridge.
+
 Widget factories receive the current Pi theme. Components cache only output derived from the current theme generation and snapshot revision; `invalidate()` clears those caches.
 
 ## Editor composition

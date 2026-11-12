@@ -7,9 +7,9 @@ import { visibleWidth } from "../../shared/ansi.js";
 export const PRIMARY_WIDGET_KEY = "pi-style.status.primary";
 export const SECONDARY_WIDGET_KEY = "pi-style.status.secondary";
 
-// Optional main-UI bridge: consumers notify after inserting a below-editor
-// widget. Only the active installation may reinsert its own status rows.
-const ORDER_KEY = Symbol.for("@quandev104/pi-style:status-widget-order");
+// Optional main-UI bridge: the roster owner can move its own widget after
+// newly mounted status rows without exposing either extension's host.
+const ORDER_KEY = Symbol.for("@quandev104/pi-teams:agent-widget-order");
 const globals = globalThis as Record<symbol, unknown>;
 const FOOTER_OWNER_KEY = "pi-style.footer";
 
@@ -329,36 +329,23 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 			return component;
 		};
 	const claim = (key: string) => owners.set(key, { token, generation: options.generation });
-	const orderingBridge = {
-		reflow(): void {
-			if (!isCurrent() || globals[ORDER_KEY] !== orderingBridge) return;
-			if (!config.enabled || !config.statusLine.enabled) return;
-			for (const [key, secondary] of [
-				[PRIMARY_WIDGET_KEY, false],
-				[SECONDARY_WIDGET_KEY, true],
-			] as const) {
-				if (!secondary && placementFor(config) !== "belowEditor") continue;
-				if (owners.get(key)?.token !== token) continue;
-				safeWidget(options.host, key, factory(secondary), "belowEditor");
-			}
-		},
-	};
-	const releaseOrdering = () => {
-		if (globals[ORDER_KEY] === orderingBridge) delete globals[ORDER_KEY];
-	};
 	const mount = () => {
 		if (!isCurrent()) return;
 		if (!config.enabled || !config.statusLine.enabled) {
 			clear(PRIMARY_WIDGET_KEY);
 			clear(SECONDARY_WIDGET_KEY);
 			clearFooter();
-			releaseOrdering();
 			return;
 		}
-		globals[ORDER_KEY] = orderingBridge;
 		if (safeWidget(options.host, PRIMARY_WIDGET_KEY, factory(false), placementFor(config))) claim(PRIMARY_WIDGET_KEY);
 		if (safeWidget(options.host, SECONDARY_WIDGET_KEY, factory(true), "belowEditor")) claim(SECONDARY_WIDGET_KEY);
 		mountFooter();
+		try {
+			const ordering = globals[ORDER_KEY] as { reflow?: () => void } | undefined;
+			ordering?.reflow?.();
+		} catch {
+			// Optional roster presentation must not prevent status installation.
+		}
 	};
 	function clear(key: string): void {
 		const current = owners.get(key);
@@ -396,7 +383,6 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 		dispose() {
 			if (disposed) return;
 			disposed = true;
-			releaseOrdering();
 			clear(PRIMARY_WIDGET_KEY);
 			clear(SECONDARY_WIDGET_KEY);
 			clearFooter();
