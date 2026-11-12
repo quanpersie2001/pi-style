@@ -317,7 +317,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 				},
 			);
 			// Leave thinking cycling to Pi: it honors configured keys and model-supported levels.
-			if (ctx.mode === "tui" && ctx.ui) detachedEditor = registerDetachedEditor(() => app.config);
+			if (ctx.mode === "tui" && ctx.ui) detachedEditor = registerDetachedEditor(() => app.config, { gitRunner });
 			syncPublicTools(app.config);
 			syncOperational(app.config);
 		},

@@ -1,5 +1,5 @@
 // Real public resolution and production extension/coordinator, both native artifacts.
-import type { ToolRendererResolver } from "@earendil-works/pi-coding-agent";
+import type { ToolRendererResolver, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakePiHost } from "../helpers/fake-pi-host.js";
 
@@ -129,6 +129,106 @@ for (const entry of ["dist/index.js", "dist/bundle/index.js"]) {
 				restore: () => host.sessionShutdown(),
 			};
 		}
+
+		it("keeps exact detached callbacks outside certified Main decorators, including same-id rows", async () => {
+			const h = await setup();
+			await h.start();
+			try {
+				const key = Symbol.for("pi-style.detached-tool-renderers.v1");
+				const ports = globalThis as unknown as Record<symbol, { resolve(name: string): ToolRenderers }>;
+				const port = ports[key];
+				const main = [h.make("read", "shared"), h.make("read", "main-second")];
+				const before = visible(main);
+				expect(before.join("\n")).toContain("Read (2)");
+				const tickers = h.tickers.__getElapsedTickerDebugState();
+				const detached = port.resolve("read");
+				const child = new h.pi.ToolExecutionComponent(
+					"read",
+					"shared",
+					{ path: "/child/secret.ts" },
+					{ showImages: false },
+					detached,
+					{ requestRender() {} },
+					"/child",
+				);
+				expect(child.getCallRenderer()).toBe(detached.renderCall);
+				expect(child.getResultRenderer()).toBe(detached.renderResult);
+				child.markExecutionStarted();
+				child.updateResult({ content: [{ type: "text", text: "child-only-output" }], isError: false }, true);
+				expect(visible([child]).join("\n")).toContain("child-only-output");
+				expect(visible(main)).toEqual(before);
+				expect(child.rendererState).toEqual({});
+				expect(h.tickers.__getElapsedTickerDebugState()).toEqual(tickers);
+				expect(turns.getTurnEntry("shared")).toBeUndefined();
+				const lone = new h.pi.ToolExecutionComponent(
+					"read",
+					"child-only",
+					{ path: "/child/lone.ts" },
+					{},
+					detached,
+					{ requestRender() {} },
+					"/child",
+				);
+				lone.markExecutionStarted();
+				expect(turns.getTurnEntry("child-only")).toBeUndefined();
+				expect(h.tickers.__getElapsedTickerDebugState()).toEqual(tickers);
+				const writing = new h.pi.ToolExecutionComponent(
+					"write",
+					"child-write",
+					{ path: "/child/new.ts", content: "new" },
+					{},
+					port.resolve("write"),
+					{ requestRender() {} },
+					"/child",
+				);
+				writing.markExecutionStarted();
+				expect(h.tickers.__getElapsedTickerDebugState()).toEqual(tickers);
+				expect(visible(main)).toEqual(before);
+				turns.registerTurnFromMessage(
+					{
+						role: "assistant",
+						content: [{ type: "toolCall", name: "read", id: "shared", arguments: { path: "shared.ts" } }],
+						stopReason: "toolUse",
+						timestamp: 1,
+					} as never,
+					[{ toolCallId: "shared", ...result }],
+				);
+				const run = turns.finishAgentRun();
+				if (!run) throw new Error("missing Main turn");
+				turns.invalidateTurnMembers(run);
+				main[0].render(100);
+				expect(
+					main[0].handleMouse({
+						type: "click",
+						button: "left",
+						x: 0,
+						y: 1,
+						width: 100,
+						height: 100,
+						originX: 0,
+						originY: 0,
+					}),
+				).toMatchObject({ handled: true });
+				expect(main[0].expanded).toBe(true);
+				expect(child.expanded).toBe(false);
+				const images = await import("@earendil-works/pi-tui");
+				const caps = images.getCapabilities();
+				try {
+					images.setCapabilities({ ...caps, images: null });
+					child.setShowImages(true);
+					child.updateResult({ content: [{ type: "image", data: "AAAA", mimeType: "image/png" }], isError: false });
+					expect(visible([child]).join("\n")).toContain("[image: image/png]");
+				} finally {
+					images.setCapabilities(caps);
+				}
+				await h.restore();
+				await h.start();
+				expect(ports[key]).toBe(port);
+				expect(port.resolve("read")).toBeDefined();
+			} finally {
+				await h.restore();
+			}
+		});
 
 		it("six eligible default-shell names resolve publicly; native self shells and bash remain legacy", async () => {
 			const h = await setup();

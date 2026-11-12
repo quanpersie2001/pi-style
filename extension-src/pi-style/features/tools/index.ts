@@ -3,7 +3,7 @@ import { EMPTY_BATCH_COMPONENT } from "./boxed/batch.js";
 import { renderBoxedToolCall as boxedCall, renderBoxedToolResult as boxedResult } from "./boxed/index.js";
 import { stopAllElapsedTickers } from "./boxed/session-config.js";
 import { noteTurnMemberExpansion } from "./boxed/turn-summary.js";
-import { publicToolRendererBridge } from "./public-renderers.js";
+import { isDetachedToolRenderer, publicToolRendererBridge } from "./public-renderers.js";
 
 // Retained legacy selectors still render history between sessions, but must not
 // restart elapsed timers after shutdown (including incomplete historical calls).
@@ -480,8 +480,11 @@ export function createToolDecorationOwner(snapshot: Partial<ToolDecorationSnapsh
 	return Object.freeze({
 		decorateToolRendererSelection(subtype: RendererSubtype, original: unknown, instance: object, args: unknown[]) {
 			if (typeof original !== "function") return undefined;
-			capturedToolUi = (instance as { ui?: { requestRender?: (force?: boolean) => void } }).ui ?? capturedToolUi;
 			let renderer = Reflect.apply(original, instance, args);
+			// Exact public detached callbacks own a self shell and row-local state.
+			// Never feed them through Main's selector decoration or UI capture.
+			if (isDetachedToolRenderer(renderer)) return renderer;
+			capturedToolUi = (instance as { ui?: { requestRender?: (force?: boolean) => void } }).ui ?? capturedToolUi;
 			const bridge = publicToolRendererBridge(renderer);
 			if (bridge) {
 				const selected = renderer;

@@ -7,6 +7,12 @@ import { visibleWidth } from "../../shared/ansi.js";
 export const PRIMARY_WIDGET_KEY = "pi-style.status.primary";
 export const SECONDARY_WIDGET_KEY = "pi-style.status.secondary";
 
+// Optional main-UI bridge: consumers notify after inserting a below-editor
+// widget. Only the active installation may reinsert its own status rows.
+const ORDER_KEY = Symbol.for("@quandev104/pi-style:status-widget-order");
+const globals = globalThis as Record<symbol, unknown>;
+const FOOTER_OWNER_KEY = "pi-style.footer";
+
 type WidgetPlacement = "aboveEditor" | "belowEditor";
 type RenderComponent = { render(width: number): string[]; invalidate(): void; dispose?(): void };
 type WidgetFactory = (tui: { requestRender?: () => void }, theme: ActivePiTheme) => RenderComponent;
@@ -67,6 +73,7 @@ interface Ownership {
 
 const ownership = new WeakMap<object, Map<string, Ownership>>();
 const activeInstallations = new WeakMap<object, Map<number, StatusLineInstallation>>();
+const activeOwners = new WeakMap<object, symbol>();
 
 function ownerMap(host: object): Map<string, Ownership> {
 	let map = ownership.get(host);
@@ -133,20 +140,7 @@ function themeAssetsFor(activeTheme: ActivePiTheme, config: NormalizedPiStyleCon
 	return assets;
 }
 
-export function installStatusLine(options: StatusLineInstallOptions): StatusLineInstallation {
-	const existing = installationMap(options.host).get(options.generation);
-	if (existing) return existing;
-	const token = Symbol("pi-style.status-line");
-	const owners = ownerMap(options.host);
-	let config = options.config;
-	let snapshot: StatusSnapshot = options.initialSnapshot;
-	let disposed = false;
-	let primaryComponent: RenderComponent | undefined;
-	let secondaryComponent: RenderComponent | undefined;
-	let footerData: FooterDataProviderView | undefined;
-	let footerOwner = false;
-	let footerUnsubscribe: (() => void) | undefined;
-	let clearedOnStartup = false;
+function statusSegments(config: NormalizedPiStyleConfig) {
 	const segments = new Map(createBuiltinSegments());
 	for (const item of config.statusLine.customItems) {
 		if (!item.id || !item.statusKey) continue;
@@ -164,10 +158,20 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 		});
 	}
 
-	const render = (activeTheme: ActivePiTheme, width: number, secondary: boolean): string[] => {
-		if (width <= 0 || !config.enabled || !config.statusLine.enabled) return [];
-		const { resolved, separator } = themeAssetsFor(activeTheme, config);
-		const result = renderStatus(config.statusLine.layout, effectiveSnapshot(snapshot), width, {
+	return segments;
+}
+
+export function renderStatusLine(
+	config: NormalizedPiStyleConfig,
+	snapshot: StatusSnapshot,
+	activeTheme: ActivePiTheme,
+	width: number,
+	segments = statusSegments(config),
+): string[] {
+	if (width <= 0 || !config.enabled || !config.statusLine.enabled) return [];
+	const { resolved, separator } = themeAssetsFor(activeTheme, config);
+	return [
+		...renderStatus(config.statusLine.layout, snapshot, width, {
 			separator,
 			segments,
 			theme: resolved,
@@ -175,8 +179,37 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 				...Object.fromEntries(config.statusLine.disabledSegments.map((id) => [id, { disabled: true }])),
 				context_bar: { width: config.statusLine.contextBarWidth },
 			},
-		});
-		const lines = secondary ? result.lines.slice(1) : result.lines.slice(0, 1);
+		}).lines,
+	];
+}
+
+export function installStatusLine(options: StatusLineInstallOptions): StatusLineInstallation {
+	const existing = installationMap(options.host).get(options.generation);
+	if (existing) return existing;
+	const token = Symbol("pi-style.status-line");
+	activeOwners.set(options.host, token);
+	const isCurrent = () => !disposed && activeOwners.get(options.host) === token && options.isCurrent?.() !== false;
+	const owners = ownerMap(options.host);
+	let config = options.config;
+	let snapshot: StatusSnapshot = options.initialSnapshot;
+	let disposed = false;
+	let primaryComponent: RenderComponent | undefined;
+	let secondaryComponent: RenderComponent | undefined;
+	let footerData: FooterDataProviderView | undefined;
+	let footerOwner = false;
+	let footerUnsubscribe: (() => void) | undefined;
+	let clearedOnStartup = false;
+	let segments = statusSegments(config);
+
+	const render = (
+		activeTheme: ActivePiTheme,
+		width: number,
+		secondary: boolean,
+		statuses: ReadonlyMap<string, string> | undefined,
+	): string[] => {
+		if (width <= 0 || !config.enabled || !config.statusLine.enabled) return [];
+		const result = renderStatusLine(config, effectiveSnapshot(snapshot, statuses), activeTheme, width, segments);
+		const lines = secondary ? result.slice(1) : result.slice(0, 1);
 		const rendered = lines.filter((line) => visibleWidth(line) <= width);
 		if (!secondary && rendered.length > 0 && config.statusLine.bottomMargin > 0) {
 			// Blank rows below the primary row keep the status line off the terminal edge.
@@ -185,15 +218,17 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 		return rendered;
 	};
 	/** Merge authoritative native footer data (branch + extension statuses) into the snapshot. */
-	const effectiveSnapshot = (input: StatusSnapshot): StatusSnapshot => {
-		if (!footerData) return input;
-		const statuses = footerData.getExtensionStatuses();
-		const extensionStatuses = statuses.size > 0 ? [...statuses].map(([key, value]) => ({ key, value })) : undefined;
+	const effectiveSnapshot = (
+		input: StatusSnapshot,
+		statuses: ReadonlyMap<string, string> | undefined,
+	): StatusSnapshot => {
+		if (!footerData || !statuses) return input;
+		const extensionStatuses = [...statuses].map(([key, value]) => ({ key, value }));
 		const branch = footerData.getGitBranch();
 		const git = branch && input.git ? { ...input.git, branch } : input.git;
 		return {
 			...input,
-			...(extensionStatuses ? { extensionStatuses } : {}),
+			extensionStatuses,
 			...(git ? { git } : {}),
 		};
 	};
@@ -229,7 +264,7 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 		};
 	};
 	const mountFooter = (): void => {
-		if (disposed || options.isCurrent?.() === false) return;
+		if (!isCurrent()) return;
 		if (!config.enabled || !config.statusLine.enabled) {
 			clearFooter();
 			return;
@@ -237,6 +272,7 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 		try {
 			options.host.setFooter(footerFactory);
 			footerOwner = true;
+			owners.set(FOOTER_OWNER_KEY, { token, generation: options.generation });
 		} catch {
 			footerOwner = false;
 		}
@@ -245,6 +281,8 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 		if (!footerOwner) return;
 		footerOwner = false;
 		releaseFooterData();
+		if (owners.get(FOOTER_OWNER_KEY)?.token !== token) return;
+		owners.delete(FOOTER_OWNER_KEY);
 		try {
 			options.host.setFooter(undefined);
 		} catch {
@@ -258,14 +296,24 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 			// Per-component render cache: Pi repaints widgets on every frame
 			// (keystrokes, streaming chunks, tickers). Same width without an
 			// invalidate() (snapshot update / configure / footer-branch change)
-			// means the previous lines are still current; return them as-is.
-			let renderCache: { width: number; generation: object | undefined; lines: string[] } | undefined;
+			// can reuse lines only while native statuses also remain unchanged.
+			let renderCache:
+				| { width: number; generation: object | undefined; statuses: [string, string][] | undefined; lines: string[] }
+				| undefined;
 			const component: RenderComponent = {
 				render(width) {
 					const generation = themeGeneration(currentTheme);
-					if (renderCache?.width === width && renderCache.generation === generation) return renderCache.lines;
-					const lines = render(currentTheme, width, secondary);
-					renderCache = { width, generation, lines };
+					const statuses = footerData?.getExtensionStatuses();
+					const statusesMatch = statuses
+						? renderCache?.statuses !== undefined &&
+							renderCache.statuses.length === statuses.size &&
+							renderCache.statuses.every(([key, value]) => statuses.get(key) === value)
+						: renderCache?.statuses === undefined;
+					if (renderCache?.width === width && renderCache.generation === generation && statusesMatch) {
+						return renderCache.lines;
+					}
+					const lines = render(currentTheme, width, secondary, statuses);
+					renderCache = { width, generation, statuses: statuses ? [...statuses] : undefined, lines };
 					return lines;
 				},
 				invalidate() {
@@ -281,14 +329,33 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 			return component;
 		};
 	const claim = (key: string) => owners.set(key, { token, generation: options.generation });
+	const orderingBridge = {
+		reflow(): void {
+			if (!isCurrent() || globals[ORDER_KEY] !== orderingBridge) return;
+			if (!config.enabled || !config.statusLine.enabled) return;
+			for (const [key, secondary] of [
+				[PRIMARY_WIDGET_KEY, false],
+				[SECONDARY_WIDGET_KEY, true],
+			] as const) {
+				if (!secondary && placementFor(config) !== "belowEditor") continue;
+				if (owners.get(key)?.token !== token) continue;
+				safeWidget(options.host, key, factory(secondary), "belowEditor");
+			}
+		},
+	};
+	const releaseOrdering = () => {
+		if (globals[ORDER_KEY] === orderingBridge) delete globals[ORDER_KEY];
+	};
 	const mount = () => {
-		if (disposed || options.isCurrent?.() === false) return;
+		if (!isCurrent()) return;
 		if (!config.enabled || !config.statusLine.enabled) {
 			clear(PRIMARY_WIDGET_KEY);
 			clear(SECONDARY_WIDGET_KEY);
 			clearFooter();
+			releaseOrdering();
 			return;
 		}
+		globals[ORDER_KEY] = orderingBridge;
 		if (safeWidget(options.host, PRIMARY_WIDGET_KEY, factory(false), placementFor(config))) claim(PRIMARY_WIDGET_KEY);
 		if (safeWidget(options.host, SECONDARY_WIDGET_KEY, factory(true), "belowEditor")) claim(SECONDARY_WIDGET_KEY);
 		mountFooter();
@@ -303,16 +370,17 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 		primaryKey: PRIMARY_WIDGET_KEY,
 		secondaryKey: SECONDARY_WIDGET_KEY,
 		update(next) {
-			if (disposed || options.isCurrent?.() === false) return;
+			if (!isCurrent()) return;
 			snapshot = next;
 			primaryComponent?.invalidate();
 			secondaryComponent?.invalidate();
 		},
 		configure(next) {
-			if (disposed || options.isCurrent?.() === false) return;
+			if (!isCurrent()) return;
 			const placementChanged = placementFor(next) !== placementFor(config);
 			const enabledChanged = next.enabled !== config.enabled || next.statusLine.enabled !== config.statusLine.enabled;
 			config = next;
+			segments = statusSegments(config);
 			if (placementChanged || enabledChanged) {
 				clear(PRIMARY_WIDGET_KEY);
 				clear(SECONDARY_WIDGET_KEY);
@@ -328,10 +396,12 @@ export function installStatusLine(options: StatusLineInstallOptions): StatusLine
 		dispose() {
 			if (disposed) return;
 			disposed = true;
+			releaseOrdering();
 			clear(PRIMARY_WIDGET_KEY);
 			clear(SECONDARY_WIDGET_KEY);
 			clearFooter();
 			installationMap(options.host).delete(options.generation);
+			if (activeOwners.get(options.host) === token) activeOwners.delete(options.host);
 		},
 	};
 	installationMap(options.host).set(options.generation, installation);
