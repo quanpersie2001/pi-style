@@ -50,26 +50,32 @@ describe("pi-style extension lifecycle foundation", () => {
 	});
 
 	it.each([
-		{ preset: "default", flag: false, mode: "unicode", glyph: "●" },
-		{ preset: "default", flag: true, mode: "ascii", glyph: "*" },
-		{ preset: "ascii", flag: false, mode: "ascii", glyph: "*" },
-	])("uses $mode tool glyphs for preset=$preset and ASCII flag=$flag", async ({ preset, flag, mode, glyph }) => {
-		const original = { ...getToolsRenderConfig() };
-		const host = new FakePiHost({ flags: { "pi-style-ascii": flag } });
-		const settings = injectedSettings({ preset });
-		const coordinator = createPiStyleSessionCoordinator(host.extensionApi, {
-			filePort: settings.port,
-			paths: settings.paths,
-		});
-		try {
-			await coordinator.start({ reason: "startup" }, host.extensionContext);
-			expect(getToolsRenderConfig().glyphMode).toBe(mode);
-			expect(teamEventGlyph("settled")).toBe(glyph);
-		} finally {
-			coordinator.shutdown();
-			setToolsRenderConfig(original);
-		}
-	});
+		{ preset: "default", flag: false, mode: "unicode", glyph: "●", override: undefined },
+		{ preset: "default", flag: true, mode: "ascii", glyph: "*", override: undefined },
+		{ preset: "ascii", flag: false, mode: "ascii", glyph: "*", override: undefined },
+		{ preset: "default", flag: false, mode: "unicode", glyph: "●", override: "custom" },
+		{ preset: "default", flag: true, mode: "ascii", glyph: "*", override: "custom" },
+	])(
+		"uses $mode tool glyphs for preset=$preset and ASCII flag=$flag",
+		async ({ preset, flag, mode, glyph, override }) => {
+			const original = { ...getToolsRenderConfig() };
+			const host = new FakePiHost({ flags: { "pi-style-ascii": flag } });
+			const settings = injectedSettings({ preset, theme: { glyphs: override ? { toolHeader: override } : {} } });
+			const coordinator = createPiStyleSessionCoordinator(host.extensionApi, {
+				filePort: settings.port,
+				paths: settings.paths,
+			});
+			try {
+				await coordinator.start({ reason: "startup" }, host.extensionContext);
+				expect(getToolsRenderConfig().glyphMode).toBe(mode);
+				expect(getToolsRenderConfig().toolHeaderGlyph).toBe(override ?? (mode === "ascii" ? ">" : "●"));
+				expect(teamEventGlyph("settled")).toBe(glyph);
+			} finally {
+				coordinator.shutdown();
+				setToolsRenderConfig(original);
+			}
+		},
+	);
 
 	it.each(["--disable-pi-style", "--disable-pi-style=false"])(
 		"registers only the disable flag with no side effects for %s",
@@ -209,7 +215,7 @@ describe("pi-style extension lifecycle foundation", () => {
 		await host.emit("message_start", { type: "message_start", message: { role: "assistant", content: [] } });
 		const next = dispatchCall("read", { path: "c.ts" }, theme as never, boxed("r3", "c.ts"));
 		const joined = stripAnsi(next.render(80).join(""));
-		expect(joined).toContain("➔ Read ◌ c.ts"); // lone call: own inline line, not the previous batch
+		expect(joined).toContain("● Read ◌ c.ts"); // lone call: own inline line, not the previous batch
 		expect(joined).not.toContain("Read (2)");
 		resetBatchRegistry();
 	});

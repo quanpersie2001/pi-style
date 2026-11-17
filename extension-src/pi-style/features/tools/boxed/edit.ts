@@ -28,7 +28,7 @@ import {
 	clearDiffHeaderStats,
 	diffHeaderStatsSuffix,
 	displayPath,
-	getRenderCacheKey,
+	getStateRenderCacheKey,
 	memoizedStateComponent,
 	noteBoxedCallState,
 	noteBoxedResultPhase,
@@ -124,16 +124,27 @@ export const editTool: BoxedToolDefinition = {
 		const argPath = String(context?.args?.path ?? context?.args?.file_path ?? "");
 		const sourcePath = details?.path ?? (argPath || extractEditedPath(message));
 		const expanded = options.expanded;
-		// Stats feed the header slot and the cache key (cheap line scan — unlike
-		// the row/component construction below, which must not run on hits).
-		const stats = countDiffStats(diff);
+		// Keep the header current without rescanning an unchanged finalized diff.
+		const cachedStats = context.state.__piStyleEditDiffStats as
+			| { diff: string; stats: ReturnType<typeof countDiffStats> }
+			| undefined;
+		const stats = cachedStats?.diff === diff ? cachedStats.stats : countDiffStats(diff);
+		if (cachedStats?.diff !== diff) context.state.__piStyleEditDiffStats = { diff, stats };
 		noteDiffHeaderStats(context, stats);
 		const footer = editDiffFooter(theme, result, context);
 
 		return memoizedStateComponent(
 			context.state,
 			"__piStyleEditDiffResult",
-			getRenderCacheKey("edit-diff-result", theme, Boolean(expanded), diff, sourcePath ?? "", footer),
+			getStateRenderCacheKey(
+				"edit-diff-result",
+				theme,
+				context.state,
+				Boolean(expanded),
+				diff,
+				sourcePath ?? "",
+				footer,
+			),
 			() => {
 				// Expensive construction (buildSplitRows + AdaptiveDiffComponent,
 				// ~0.4ms for a 160-row diff) runs only on cache misses, never per

@@ -208,7 +208,7 @@ describe("boxed tool renderers", () => {
 		const call = dispatchCall("read", { path: "/fake/src/index.ts" }, theme, ctx);
 		for (const width of [40, 80, 120]) {
 			const lines = call.render(width);
-			expect(lines[0]).toContain("➔ Read");
+			expect(lines[0]).toContain("● Read");
 			expect(lines[0]).toContain("index.ts");
 			expect(lines[0]).not.toContain("(1)");
 			expect(lines.join("\n")).not.toContain("╭");
@@ -492,7 +492,7 @@ describe("boxed tool renderers", () => {
 			const ctx = context({ args: { key: "value" } });
 			const call = dispatchCall(toolName, { key: "value" }, theme, ctx).render(80);
 			expect(call.join("\n")).toContain("╭");
-			expect(call.join("\n")).toContain("➔");
+			expect(call.join("\n")).toContain("●");
 			assertFit(call, 80);
 			const result = dispatchResult(
 				toolName,
@@ -569,7 +569,7 @@ describe("bash execution states", () => {
 			isPartial: true,
 		});
 		const text = stripAnsi(dispatchCall("bash", { command: "echo hi", timeout: 30 }, theme, ctx).render(80).join("\n"));
-		expect(text).toContain("➔ Bash");
+		expect(text).toContain("● Bash");
 		expect(text).not.toContain("✓");
 		expect(text).not.toContain("◌");
 		expect(text).toContain("Waiting for output");
@@ -889,7 +889,7 @@ describe("boxed tool decoration owner", () => {
 		const ERROR_RED = "\x1b[38;2;255;0;0m";
 
 		// Failed call box: the top border carries the error color around the
-		// already error-colored `➔ Name ✗` title.
+		// already error-colored `● Name ✗` title.
 		const call = dispatchCall(
 			"bash",
 			{ command: "tsc" },
@@ -898,7 +898,7 @@ describe("boxed tool decoration owner", () => {
 		);
 		const callLines = call.render(80);
 		expect(callLines[0]).toContain(ERROR_RED);
-		expect(stripAnsi(callLines[0])).toContain("➔ Bash ✗");
+		expect(stripAnsi(callLines[0])).toContain("● Bash ✗");
 
 		// Failed result: every frame line (divider, body side bars, bottom
 		// border) renders in the error color; content colors stay untouched.
@@ -964,7 +964,7 @@ describe("boxed tool decoration owner", () => {
 			context(),
 		);
 		const lines = component.render(80);
-		expect(lines[0]).toContain("➔ Read");
+		expect(lines[0]).toContain("● Read");
 		expect(lines[0]).toContain("a.ts");
 		expect(lines[0]).not.toContain("(1)");
 		expect(lines.join("\n")).not.toContain("╭");
@@ -1248,11 +1248,11 @@ describe("renderBoxedToolCall/renderBoxedToolResult direct primitives", () => {
 		const ok = renderBoxedToolCall(rich, "Tool", ["detail"], {}).render(40)[0];
 		const err = renderBoxedToolCall(rich, "Tool", ["detail"], { isError: true }).render(40)[0];
 		// Success: the tool keeps its identity color and only the ✓ is success-colored.
-		expect(ok ?? "").toContain("\x1b[38;2;255;204;102m➔ Tool");
+		expect(ok ?? "").toContain("\x1b[38;2;255;204;102m● Tool");
 		expect(ok ?? "").toContain("\x1b[38;2;34;221;68m✓");
 		expect(ok ?? "").not.toContain("\x1b[38;2;255;68;68m");
-		// Error: the whole "➔ Tool ✗" span is wrapped in the error color.
-		expect(err ?? "").toContain("\x1b[38;2;255;68;68m➔ Tool ✗");
+		// Error: the whole "● Tool ✗" span is wrapped in the error color.
+		expect(err ?? "").toContain("\x1b[38;2;255;68;68m● Tool ✗");
 	});
 
 	it("keeps every border glyph dim-styled around embedded labels", () => {

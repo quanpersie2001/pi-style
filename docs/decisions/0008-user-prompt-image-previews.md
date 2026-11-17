@@ -13,6 +13,20 @@ Two verified facts about image handling in Pi 0.84 shape this decision:
 
 pi-style's mission is presentation, and "attached image renders nowhere" is a presentation gap on a surface pi-style already owns contracts for (`MSG-006`: images and native rich content remain usable — currently they remain usable for the model and invisible to the user). This ADR absorbs the presentation half of image-paste. ~~The input half (clipboard reading, marker queue, input transform, shortcuts) is explicitly **not** absorbed~~ (superseded by ADR 0009: pi-style now owns clipboard image input too; it is a different domain, owned by input extensions, and duplicating it would create conflicts for no gain).
 
+## Performance amendment (Pi 1.5.2)
+
+The side-by-side layout below is superseded by stacked previews, one native image anchor per line. Pi 1.5.2 recognizes only the first image in a combined line for fullscreen upload reuse and clipping; later grid images retain their full payload on placement redraws. PNG encoding caches now survive host invalidation/rebuild unless the protocol, cell dimensions or requested width change. The display-only entry channel, labels, width caps and Ctrl+O behavior are unchanged. See [performance findings](../benchmarks/render-hotpaths.md).
+
+## Approved asynchronous thumbnail amendment
+
+Prompt previews now validate and prepare still images off the UI thread, with at most 960×960 backing pixels and the original dimensions retained in labels. Ctrl+O changes the cell-width cap to 60 but does not upload the full-resolution original. Display-only resampling may lose detail (Pi can select JPEG before PNG normalization); the user approved this tradeoff. Original model attachments, CustomEntry payloads and session schema remain unchanged. No generated thumbnail is persisted.
+
+A session-owned serial preparation queue and bounded derived-artifact LRU serve live entry components. Rendering only reads lightweight state, bounded header prefixes and ready PNGs; pending/failed/unsupported work displays sanitized metadata, never the large original. There is no unvalidated small-image fast path: even readable PNG headers do not establish canonical base64, intact pixels or still-image content. Eviction clears native components and encoding references; it does not repeatedly re-prepare history until a lifecycle reset.
+
+The Pi adapter uses an extension-owned worker calling only the host's public `resizeImage`/`convertToPng` exports. This contains their synchronous fallback. It resolves the actual host's public manifest entry (including managed/jiti-alias installations), with ordinary public import resolution as fallback. Missing APIs, codecs or workers degrade to metadata; no private decoder import, global transcoder or native patch is installed. A dedicated zero-line public widget owns repaint independently of editor/status/core patches. OFF/session/actual-tree-leaf replacement cancels work and ignores stale completion; unbound persisted entries hydrate after TUI bind. Valid disabled entries keep a zero-content live component because Pi drops undefined CustomEntries at transcript admission; Pi's native one-line spacer remains while OFF. This supersedes the original exact-zero-height OFF expectation below without using a native spacing patch.
+
+This applies only to prompt preview CustomEntries. Native tool-result image children, regular-mode upload lifetime and duplicate original persistence still belong to Pi. See [bounds, tests and measurements](../benchmarks/render-hotpaths.md).
+
 ## Decision
 
 Add one display-only surface: **inline previews for user-prompt images via CustomEntry**.

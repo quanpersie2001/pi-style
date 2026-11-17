@@ -14,7 +14,7 @@
 
 import type { Component } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
-import { type BoxTheme, dimLine, getTextOutput, shortenPath } from "../../../shared/box.js";
+import { type BoxTheme, dimLine, getTextOutput, getToolHeaderGlyph, shortenPath } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import {
 	type GrepMatch,
@@ -92,7 +92,7 @@ function bold(theme: BoxTheme, text: string): string {
 /** `Grep: <pattern> <N> matches · <M> files · in <path>` (done) /
  *  `Grep: <pattern> · in <path>` (pending). */
 function formatGrepHeader(theme: BoxTheme, state: GrepPanelState): string {
-	const label = bold(theme, "Grep:");
+	const label = bold(theme, `${getToolHeaderGlyph()} Grep:`);
 	const patternPart = state.pattern ? ` ${theme.fg("text", state.pattern)}` : "";
 	const pathPart = state.pathLabel ? theme.fg("dim", ` · in ${state.pathLabel}`) : "";
 	if (state.isError) {
@@ -150,7 +150,7 @@ function renderGrepPanel(theme: BoxTheme, toolCallId: string, expanded: boolean)
 	return {
 		invalidate() {},
 		render(width: number): string[] {
-			if (!state) return [safeTruncateToWidth(bold(theme, "Grep:"), Math.max(1, width), "…")];
+			if (!state) return [safeTruncateToWidth(bold(theme, `${getToolHeaderGlyph()} Grep:`), Math.max(1, width), "…")];
 			return renderGrepPanelLines(theme, state, width, expanded);
 		},
 		handleMouse(event) {

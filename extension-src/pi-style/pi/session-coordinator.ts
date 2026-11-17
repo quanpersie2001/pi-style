@@ -33,6 +33,7 @@ import {
 import { createPiConfigFilePort, defaultStoragePaths } from "./config-host.js";
 import { createConfigSourceAdapter, readSessionAuthorization } from "./config-session.js";
 import { registerDetachedEditor } from "./detached-editor.js";
+import { createImagePreviewRuntime } from "./image-preview-runtime.js";
 import { buildOperationalState } from "./operational-state.js";
 import { collectToolDetails } from "./startup-resources.js";
 import { registerPublicToolRenderers } from "./tool-renderers.js";
@@ -43,6 +44,8 @@ export type CompatibilityTestHooks = {
 	paths?: (cwd: string) => { globalPath: string; projectPath: string };
 	/** Test-only capability seam; Pi's ExtensionContext does not provide a Git runner. */
 	gitRunner?: import("../domain/providers.js").GitCommandRunner;
+	/** Test-only deferred/worker processor seam; attachments are never rewritten. */
+	previewProcessor?: import("../features/messages/image-preview-types.js").PreviewImageProcessor;
 };
 
 export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: CompatibilityTestHooks = {}) {
@@ -60,6 +63,8 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			},
 		} satisfies import("../domain/providers.js").GitCommandRunner);
 	const publicTools = registerPublicToolRenderers(pi);
+	const imagePreviews = createImagePreviewRuntime(pi, hooks.previewProcessor);
+	let startGeneration = 0;
 	let cwd = process.cwd();
 	let active = false;
 	let tuiSession = false;
@@ -119,6 +124,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 		setToolsRenderConfig({
 			...config.tools,
 			batchOpenGlyph: theme.glyph("batchOpen"),
+			toolHeaderGlyph: config.theme.glyphs.toolHeader ?? (authorization.ascii ? ">" : theme.glyph("toolHeader")),
 			nerdFonts: false,
 			glyphMode: authorization.ascii ? "ascii" : theme.mode,
 			// The thought leader owns the single run row; tools-only runs use the
@@ -155,10 +161,11 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 		// 0009): the leaves gate their respective sides (preview: stage+render;
 		// clipboard: input transform) and size the preview images.
 		setMessagesRenderConfig({
-			showImagePreviews: config.messages.showImagePreviews,
+			showImagePreviews: config.enabled && config.messages.showImagePreviews,
 			clipboardImages: config.messages.clipboardImages,
 			previewMaxWidth: config.messages.previewMaxWidth,
 		});
+		imagePreviews.configure(sessionUi, active && tuiSession && config.enabled && config.messages.showImagePreviews);
 	};
 	/**
 	 * Auto-apply the configured pi-style theme (default "titanium") once per TUI
@@ -213,12 +220,15 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 
 	return {
 		app,
+		resetImagePreviews: () => imagePreviews.reset(),
 		invalidateTools: () => {
 			publicTools.prune((id) => getTurnEntry(id) !== undefined);
 			stopAllElapsedTickers();
 			publicTools.invalidate();
 		},
 		async start(event: { reason: string }, ctx: ExtensionContext): Promise<void> {
+			const generation = ++startGeneration;
+			imagePreviews.stop();
 			// Authorization is session-bound: Pi applies extension flag values only after
 			// extension modules finish loading, so flags must be read here (session_start),
 			// never at coordinator creation time.
@@ -272,6 +282,7 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			stopAllElapsedTickers();
 			active = false;
 			await app.reload();
+			if (generation !== startGeneration) return;
 			productGate = app.productPolicy.corePatchGate;
 			active = true;
 			compatibility.install(app.config, ctx.mode === "tui", productGate);
@@ -322,6 +333,8 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 			syncOperational(app.config);
 		},
 		shutdown(): void {
+			startGeneration++;
+			imagePreviews.stop();
 			// Retained selectors still cover legacy render-before-bind rows.
 			publicTools.configure(false);
 			setToolPresentationLive(false);

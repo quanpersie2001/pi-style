@@ -4,6 +4,7 @@
 // Kept out of the render path (no filesystem/config reads during render).
 
 import { GLYPHS, type GlyphMode } from "../../../domain/theme.js";
+import { setToolHeaderGlyph } from "../../../shared/box.js";
 
 export interface ToolsRenderConfig {
 	maxCollapsedLines: number;
@@ -12,6 +13,8 @@ export interface ToolsRenderConfig {
 	showElapsed: boolean;
 	/** Open-tree glyph for the done batch header (Unicode `●`, ASCII `v`). */
 	batchOpenGlyph: string;
+	/** Decorative standalone tool header marker, resolved with user overrides. */
+	toolHeaderGlyph: string;
 	/** @deprecated Accepted for compatibility; always false. */
 	nerdFonts: boolean;
 	/** Explicit glyph mode shared with the resolved session theme. */
@@ -37,6 +40,7 @@ let sessionToolsConfig: ToolsRenderConfig = {
 	dimOutput: false,
 	showElapsed: true,
 	batchOpenGlyph: "●",
+	toolHeaderGlyph: "●",
 	nerdFonts: false,
 	glyphMode: "unicode",
 	collapseAfterTurn: true,
@@ -48,6 +52,7 @@ let sessionToolsConfig: ToolsRenderConfig = {
 
 export function setToolsRenderConfig(config: Partial<ToolsRenderConfig>): void {
 	sessionToolsConfig = { ...sessionToolsConfig, ...config, nerdFonts: false };
+	setToolHeaderGlyph(sessionToolsConfig.toolHeaderGlyph);
 }
 
 export function getToolsRenderConfig(): ToolsRenderConfig {
@@ -80,6 +85,7 @@ export function getToolsRenderCacheSignature(): string {
 		sessionToolsConfig.dimOutput ? 1 : 0,
 		sessionToolsConfig.showElapsed ? 1 : 0,
 		sessionToolsConfig.batchOpenGlyph,
+		sessionToolsConfig.toolHeaderGlyph,
 		sessionToolsConfig.glyphMode,
 		sessionToolsConfig.collapseAfterTurn ? 1 : 0,
 		sessionToolsConfig.collapseMutatingTools ? 1 : 0,

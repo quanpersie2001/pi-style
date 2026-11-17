@@ -20,6 +20,7 @@ import {
 	boxLine,
 	boxWidth,
 	formatBoxedRunningStatus,
+	getToolHeaderGlyph,
 	themeCacheKey,
 } from "../../shared/box.js";
 import { getThemeExtra } from "../../shared/theme-extras.js";
@@ -63,14 +64,14 @@ function boldOf(theme: BoxTheme): (text: string) => string {
 	return typeof theme?.bold === "function" ? theme.bold : (text: string) => text;
 }
 
-/** `➔ Bash ◌/✓/✗` — the same title language as the boxed bash tool call. */
+/** `● Bash ◌/✓/✗` — the same title language as the boxed bash tool call. */
 function bashBoxTitle(theme: BoxTheme, host: BashExecutionInstance): string {
 	const name = "Bash";
 	const bold = boldOf(theme);
-	const prefix = theme.fg(bashTitleColor(theme), `➔ ${name}`);
+	const prefix = theme.fg(bashTitleColor(theme), `${getToolHeaderGlyph()} ${name}`);
 	if (host.status === "running") return bold(`${prefix} ${theme.fg("text", "◌")}`);
-	if (host.status === "cancelled") return bold(theme.fg("warning", `➔ ${name} ✗`));
-	if (host.status === "error") return bold(theme.fg("error", `➔ ${name} ✗`));
+	if (host.status === "cancelled") return bold(theme.fg("warning", `${getToolHeaderGlyph()} ${name} ✗`));
+	if (host.status === "error") return bold(theme.fg("error", `${getToolHeaderGlyph()} ${name} ✗`));
 	return bold(`${prefix} ${theme.fg("success", "✓")}`);
 }
 
@@ -100,7 +101,7 @@ export function renderBashExecutionBox(instance: unknown, args: unknown[]): stri
 	try {
 		if (host.piStyleStart === undefined) host.piStyleStart = Date.now();
 		const renderedWidth = boxWidth(width);
-		const cacheKey = `${themeCacheKey(theme)}|${width}|${host.status}|${host.exitCode ?? ""}|${host.command}`;
+		const cacheKey = `${themeCacheKey(theme)}|${getToolHeaderGlyph()}|${width}|${host.status}|${host.exitCode ?? ""}|${host.command}`;
 		if (host.status !== "running" && host.piStyleRenderCache?.key === cacheKey) return host.piStyleRenderCache.lines;
 		const inner = boxInnerWidth(renderedWidth);
 		// The box owns its status tint (box ⇒ background) and, on failure, its

@@ -27,7 +27,7 @@ import { parseSimpleBashCommand } from "./command-shape.js";
 import { pluralForm, TREE_INDENT } from "./output-tree.js";
 import { compactToolPath, TOOL_PATH_MAX_WIDTH } from "./path.js";
 import { getStateElapsedMs } from "./session-config.js";
-import { type BoxedToolContext, getRenderCacheKey, memoizedStateComponent } from "./shared.js";
+import { type BoxedToolContext, getStateRenderCacheKey, memoizedStateComponent } from "./shared.js";
 
 // ── Classification ──────────────────────────────────────────────────────────
 
@@ -1919,9 +1919,10 @@ export function renderGitDiffResult(
 	return memoizedStateComponent(
 		context.state,
 		"__piStyleGitDiffResult",
-		getRenderCacheKey(
+		getStateRenderCacheKey(
 			"git-diff-result",
 			theme,
+			context.state,
 			String(parsed.show),
 			String(expanded),
 			parsed.files.length,

@@ -18,27 +18,17 @@
 // before the streaming component, or appended at the chat tail).
 //
 // Layout: `#N · WxH` label rows tie each image to its `[Image #N]` marker;
-// multiple images render side-by-side on kitty-capable terminals (kitty
-// graphics sequences are zero-width, so line zipping composes them), stacked
-// elsewhere. Width is capped by `messages.previewMaxWidth` (default 30);
-// Kitty slots use the actual rendered image width to avoid portrait-image gaps;
-// strongly height-mismatched images stack instead of leaving empty rows. Pi's
-// global expansion (Ctrl+O) lifts the cap for a closer look.
+// multiple images stack with one image anchor per line: Pi's fullscreen
+// placement/cropping metadata recognizes only the first image on each line.
+// Width is capped by `messages.previewMaxWidth` (default 30); Pi's global
+// expansion (Ctrl+O) lifts the cap for a closer look.
 //
 // Fail-closed rules: unknown/malformed entry data renders zero lines (never
 // an error box, never base64 leakage); a theme without fg disables the
 // surface; the config leaf gates both the stage and the render side.
 
-import {
-	type CellDimensions,
-	type Component,
-	getCapabilities,
-	getCellDimensions,
-	getImageDimensions,
-	Image,
-	type ImageDimensions,
-} from "@earendil-works/pi-tui";
-import { visibleWidth } from "../../shared/ansi.js";
+import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
+import { type ImagePreviewPreparation, previewDimensions, previewMetadata } from "./image-preview-preparation.js";
 import { getMessagesRenderConfig } from "./render-config.js";
 
 /** Session-entry customType for user-prompt image previews. */
@@ -50,12 +40,6 @@ export const IMAGE_PREVIEW_EXPANDED_MAX_WIDTH_CELLS = 60;
 /** Hard bounds for the `messages.previewMaxWidth` leaf. */
 export const IMAGE_PREVIEW_MIN_WIDTH_CELLS = 8;
 export const IMAGE_PREVIEW_MAX_WIDTH_CELLS = 60;
-
-/** Grid layout constants (kitty side-by-side). */
-const GRID_GAP = 2;
-const GRID_MIN_COLUMN = 14;
-const GRID_MAX_HEIGHT_RATIO = 1.5;
-const FALLBACK_IMAGE_DIMENSIONS: ImageDimensions = { widthPx: 800, heightPx: 600 };
 
 /** Persisted entry payload: base64 data + mime type per attached image. */
 export interface ImagePreviewImage {
@@ -114,222 +98,50 @@ function previewImagesFromEntryData(data: unknown): readonly ImagePreviewImage[]
 
 type FgColor = (color: string, text: string) => string;
 
-/** `#N` label for entry position N (1-based — matches `[Image #N]` markers).
- *  Dimensions arrive pre-parsed (parseImageDimensions) — no decode here. */
-function imageLabel(theme: { fg: FgColor }, index: number, dims?: ImageDimensions): string {
-	const dimsPart = dims ? ` · ${dims.widthPx}×${dims.heightPx}` : "";
-	return theme.fg("dim", `#${index}${dimsPart}`);
-}
-
-/** Test hook: counts parseImageDimensions invocations (entry-reuse contract). */
-export const __dimensionParsesForTest = { count: 0 };
-
-/** Parse image dimensions from a base64 PREFIX first — 256 chars (a whole
- *  number of base64 blocks, ~192 bytes) covers the PNG/GIF/WebP headers and
- *  the usual early JPEG SOF marker. Only when the prefix fails (rare — a
- *  late JPEG SOF) do we decode the full payload. Avoids decoding a ~1.3MB
- *  screenshot just to read ~24 header bytes on every rebuild. */
-function parseImageDimensions(image: ImagePreviewImage): ImageDimensions | undefined {
-	__dimensionParsesForTest.count++;
-	const fromPrefix = getImageDimensions(image.data.slice(0, 256), image.mimeType);
-	return fromPrefix ?? getImageDimensions(image.data, image.mimeType) ?? undefined;
-}
-
-/** Per-entry render artifacts (components, labels). */
-interface PreviewCache {
-	readonly images: readonly ImagePreviewImage[];
-	readonly dimensions: readonly (ImageDimensions | undefined)[];
-	readonly components: Image[];
-	readonly labels: string[];
-}
-
-/** The host's CustomEntryComponent re-invokes the renderer on every resize,
- *  Ctrl+O toggle, and cell-size response — always with the SAME entry object
- *  (rebuild() passes this.entry). Keying on that object lets Image components
- *  keep their internal line caches and kitty image ids (no re-chunking, no id
- *  churn) and labels their parsed dimensions across rebuilds. */
-const previewCache = new WeakMap<object, PreviewCache>();
-
-/**
- * Entry renderer for `pi-style-image-preview` entries. Returns undefined
- * (zero-line render) when the surface is disabled, the entry data is
- * malformed, or the theme lacks fg — never throws, never leaks base64 into a
- * rendered line (the pi-tui Image fallback vocabulary is mime + dimensions).
- */
-export function renderImagePreviewEntry(entry: unknown, options: unknown, theme: unknown): Component | undefined {
-	if (!getMessagesRenderConfig().showImagePreviews) return undefined;
+/** Live components retain sources only, never native artifacts or encoded output. */
+export function renderImagePreviewEntry(
+	entry: unknown,
+	options: unknown,
+	theme: unknown,
+	preparation?: ImagePreviewPreparation,
+): Component | undefined {
+	// Pi omits CustomEntries whose renderer returns undefined at admission.
+	// Keep valid disabled entries mounted so ON can hydrate them later. Their
+	// content is zero lines while OFF; Pi retains its own one-line spacer.
 	const images = previewImagesFromEntryData((entry as { data?: unknown } | null | undefined)?.data);
 	if (!images) return undefined;
 	const fg = (theme as { fg?: FgColor } | null | undefined)?.fg;
 	if (typeof fg !== "function") return undefined;
 	const expanded = (options as { expanded?: boolean } | null | undefined)?.expanded === true;
-	try {
-		const themed = { fg: fg.bind(theme) } as { fg: FgColor };
-		let cached = previewCache.get(entry as object);
-		if (!cached) {
-			const dims = images.map(parseImageDimensions);
-			const components = images.map(
-				(image, index) =>
-					new Image(
-						image.data,
-						image.mimeType,
-						{ fallbackColor: (text: string) => themed.fg("toolOutput", text) },
-						{},
-						dims[index],
-					),
-			);
-			const labels = images.map((_image, index) => imageLabel(themed, index + 1, dims[index]));
-			cached = { images, dimensions: dims, components, labels };
-			previewCache.set(entry as object, cached);
-		}
-		const { components, dimensions, labels } = cached;
-		// Memoized output: render passes tick on every streaming update; the
-		// same width/expansion/config/capability key returns the SAME array
-		// reference, skipping the grid re-zip and the host's per-line diff.
-		let memo: { key: string; lines: string[] } | undefined;
-		return {
-			invalidate() {
-				memo = undefined;
-				for (const component of components) component.invalidate();
-			},
-			render(width: number): string[] {
-				const config = getMessagesRenderConfig();
-				const kitty = getCapabilities().images === "kitty";
-				const key = `${width}|${expanded}|${config.previewMaxWidth}|${config.showImagePreviews}|${kitty}`;
-				if (memo && memo.key === key) return memo.lines;
-				const maxWidth = expanded
-					? IMAGE_PREVIEW_EXPANDED_MAX_WIDTH_CELLS
-					: Math.min(config.previewMaxWidth, IMAGE_PREVIEW_MAX_WIDTH_CELLS);
-				let lines: string[];
-				if (width <= 0) lines = [];
-				else if (images.length === 1 || !kitty) lines = renderStacked(width, maxWidth, labels, components);
-				else lines = renderGrid(width, maxWidth, labels, components, dimensions);
-				memo = { key, lines };
-				return lines;
-			},
-		};
-	} catch {
-		return undefined;
-	}
-}
-
-/** One labeled image per block, a blank line between (also the fallback path). */
-function renderStacked(width: number, maxWidth: number, labels: string[], components: Image[]): string[] {
-	const lines: string[] = [];
-	for (const [index, component] of components.entries()) {
-		if (index > 0) lines.push("");
-		lines.push(labels[index] ?? "");
-		lines.push(...component.render(Math.min(width, Math.max(1, maxWidth + 2))));
-	}
-	return lines;
-}
-
-/** Strip trailing spaces without scanning the whole line: kitty rows always
- *  end with the `ESC \` terminator (never trailing spaces), so the fast path
- *  is one endsWith check; only space-padded rows pay for the strip. */
-function stripTrailingSpaces(line: string): string {
-	if (!line.endsWith(" ")) return line;
-	let end = line.length;
-	while (end > 0 && line.charCodeAt(end - 1) === 0x20) end--;
-	return line.slice(0, end);
-}
-
-/**
- * Side-by-side grid (kitty graphics only — sequences are zero-width so
- * per-row line zipping composes columns). Columns shrink to fit the width;
- * compact slots follow actual image widths; strongly height-mismatched groups
- * degrade to stacked. When fewer than two usable columns fit, this also
- * degrades to stacked.
- */
-function renderGrid(
-	width: number,
-	maxWidth: number,
-	labels: string[],
-	components: Image[],
-	dimensions: readonly (ImageDimensions | undefined)[],
-): string[] {
-	const usable = Math.max(1, width - 2);
-	const maxColumns = Math.floor((usable + GRID_GAP) / (GRID_MIN_COLUMN + GRID_GAP));
-	const columns = Math.max(1, Math.min(components.length, maxColumns, 3));
-	if (columns < 2) return renderStacked(width, maxWidth, labels, components);
-	const columnWidth = Math.min(maxWidth, Math.floor((usable - (columns - 1) * GRID_GAP) / columns));
-	if (columnWidth < GRID_MIN_COLUMN) return renderStacked(width, maxWidth, labels, components);
-
-	const lines: string[] = [];
-	const cellDimensions = getCellDimensions();
-	for (let start = 0; start < components.length; start += columns) {
-		const group = components.slice(start, start + columns);
-		const groupLabels = labels.slice(start, start + columns);
-		const groupDimensions = dimensions.slice(start, start + columns);
-		if (start > 0) lines.push("");
-		const rendered = group.map((component) => component.render(columnWidth));
-		const sizes = groupDimensions.map((imageDimensions) => imageCellSize(imageDimensions, columnWidth, cellDimensions));
-
-		// Avoid keeping a short neighbor's column alive for a much taller image.
-		// Similar screenshots remain side-by-side; strongly mismatched images stack.
-		const rowCounts = rendered.map((column) => column.length).filter((count) => count > 0);
-		const minRows = Math.min(...rowCounts);
-		const maxRows = Math.max(...rowCounts);
-		if (rowCounts.length > 1 && minRows > 0 && maxRows >= minRows * GRID_MAX_HEIGHT_RATIO) {
-			return renderStacked(width, maxWidth, labels, components);
-		}
-
-		// Use actual image widths for the slots instead of the shared max width.
-		// This removes unused horizontal space around narrow portrait images.
-		const slotWidths = groupLabels.map((label, index) =>
-			Math.max(sizes[index]?.columns ?? 1, visibleWidth(stripFormatting(label))),
-		);
-		const labelRow = groupLabels
-			.map((label, index) => {
-				const pad = Math.max(0, (slotWidths[index] ?? 0) - visibleWidth(stripFormatting(label)));
-				return label + " ".repeat(pad);
-			})
-			.join(" ".repeat(GRID_GAP))
-			.trimEnd();
-		lines.push(labelRow);
-
-		// Kitty sequences are zero-width, so each image starts with a CHA jump.
-		// The offset is based on cumulative compact slot widths, not columnWidth.
-		const rows = Math.max(...rendered.map((column) => column.length));
-		for (let row = 0; row < rows; row++) {
-			let line = "";
-			let startCol = 0;
-			for (let column = 0; column < rendered.length; column++) {
-				if (column > 0) line += `\x1b[${startCol + 1}G`;
-				line += rendered[column]?.[row] ?? "";
-				startCol += (slotWidths[column] ?? 0) + GRID_GAP;
-			}
-			lines.push(stripTrailingSpaces(line));
-		}
-	}
-	return lines;
-}
-
-/** Match pi-tui Image.render's Kitty cell-size calculation for slot sizing. */
-function imageCellSize(
-	dimensions: ImageDimensions | undefined,
-	requestedWidth: number,
-	cellDimensions: CellDimensions,
-): { columns: number; rows: number } {
-	const imageDimensions = dimensions ?? FALLBACK_IMAGE_DIMENSIONS;
-	const maxWidth = Math.max(1, Math.min(requestedWidth - 2, 60));
-	const maxHeight = Math.max(1, Math.ceil((maxWidth * cellDimensions.widthPx) / cellDimensions.heightPx));
-	const imageWidth = Math.max(1, imageDimensions.widthPx);
-	const imageHeight = Math.max(1, imageDimensions.heightPx);
-	const widthScale = (maxWidth * cellDimensions.widthPx) / imageWidth;
-	const heightScale = (maxHeight * cellDimensions.heightPx) / imageHeight;
-	const scale = Math.min(widthScale, heightScale);
+	const themed = { fg: (token: string, text: string) => (theme as { fg: FgColor }).fg(token, text) };
 	return {
-		columns: Math.max(1, Math.min(maxWidth, Math.ceil((imageWidth * scale) / cellDimensions.widthPx))),
-		rows: Math.max(1, Math.min(maxHeight, Math.ceil((imageHeight * scale) / cellDimensions.heightPx))),
+		invalidate() {},
+		render(width) {
+			const config = getMessagesRenderConfig();
+			if (!config.showImagePreviews || width <= 0) return [];
+			const cap = expanded
+				? IMAGE_PREVIEW_EXPANDED_MAX_WIDTH_CELLS
+				: Math.min(config.previewMaxWidth, IMAGE_PREVIEW_MAX_WIDTH_CELLS);
+			const lines: string[] = [];
+			for (const [index, image] of images.entries()) {
+				const prepared = preparation?.render(image, Math.min(width, Math.max(1, cap + 2)), themed);
+				const dims = prepared?.originalDimensions ?? previewDimensions(image);
+				if (index > 0) lines.push("");
+				lines.push(
+					truncateToWidth(themed.fg("dim", `#${index + 1}${dims ? ` · ${dims.widthPx}×${dims.heightPx}` : ""}`), width),
+				);
+				lines.push(
+					...(prepared?.lines ?? previewMetadata(image, themed, dims).map((line) => truncateToWidth(line, width))),
+				);
+			}
+			return lines;
+		},
 	};
 }
 
-/** Label text may carry ANSI color; measure only the visible part.
- *  Reuses the shared ANSI-stripping utility (no local control-char regex). */
-import { stripAnsi as stripFormatting } from "../../shared/ansi.js";
-
-/** Register the entry renderer (extension load; before any entry can exist). */
-export function registerImagePreviewSurface(pi: ImagePreviewHostPort): void {
-	pi.registerEntryRenderer(IMAGE_PREVIEW_ENTRY_TYPE, renderImagePreviewEntry);
+/** Register before persisted entries render; the manager can bind later. */
+export function registerImagePreviewSurface(pi: ImagePreviewHostPort, preparation?: ImagePreviewPreparation): void {
+	pi.registerEntryRenderer(IMAGE_PREVIEW_ENTRY_TYPE, (entry, options, theme) =>
+		renderImagePreviewEntry(entry, options, theme, preparation),
+	);
 }

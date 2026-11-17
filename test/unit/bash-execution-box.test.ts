@@ -5,6 +5,10 @@ import {
 	setBashExecutionTheme,
 } from "../../extension-src/pi-style/features/tools/bash-execution.js";
 import {
+	getToolsRenderConfig,
+	setToolsRenderConfig,
+} from "../../extension-src/pi-style/features/tools/boxed/session-config.js";
+import {
 	disposePiCompatibilityProbe,
 	probePiCompatibility,
 } from "../../extension-src/pi-style/pi/compatibility-probe.js";
@@ -46,7 +50,7 @@ describe("boxed bash execution display", () => {
 		const component = build();
 		const lines = component.render(50).map(plain);
 		expect(lines[0]).toBe("");
-		expect(lines[1]?.startsWith("╭─ ➔ Bash ◌ ")).toBe(true);
+		expect(lines[1]?.startsWith("╭─ ● Bash ◌ ")).toBe(true);
 		expect(lines[1]?.endsWith("╮")).toBe(true);
 		expect(lines[2]).toBe(`│${" ".repeat(48)}│`);
 		expect(lines[3]).toContain("│  $ echo hi");
@@ -65,14 +69,31 @@ describe("boxed bash execution display", () => {
 		component.appendOutput("zz");
 		const streamed = component.render(50).map(plain).join("\n");
 		expect(streamed).toContain("│  zz");
-		expect(streamed).toContain("╭─ ➔ Bash ◌");
+		expect(streamed).toContain("╭─ ● Bash ◌");
 
 		component.setComplete(0, false);
 		const done = component.render(50).map(plain);
-		expect(done.join("\n")).toContain("➔ Bash ✓");
+		expect(done.join("\n")).toContain("● Bash ✓");
 		expect(done[done.length - 1]?.startsWith("╰─ Exit 0 ")).toBe(true);
 		expect(done[done.length - 1]?.endsWith("╯")).toBe(true);
-		expect(done.join("\n")).not.toContain("➔ Bash ◌");
+		expect(done.join("\n")).not.toContain("● Bash ◌");
+	});
+
+	it("refreshes settled header glyphs for ASCII and explicit overrides", () => {
+		initTheme("dark", false);
+		report = probePiCompatibility("0.83.0");
+		setBashExecutionTheme(createFakeTheme() as never);
+		const original = { ...getToolsRenderConfig() };
+		const component = build();
+		component.setComplete(0, false);
+		try {
+			for (const marker of ["●", ">", "custom"]) {
+				setToolsRenderConfig({ toolHeaderGlyph: marker });
+				expect(component.render(80).map(plain).join("\n")).toContain(`${marker} Bash ✓`);
+			}
+		} finally {
+			setToolsRenderConfig(original);
+		}
 	});
 
 	it("marks failures and cancellations in the title and footer", () => {
@@ -83,13 +104,13 @@ describe("boxed bash execution display", () => {
 		failed.appendOutput("boom");
 		failed.setComplete(2, false);
 		const failedLines = failed.render(50).map(plain).join("\n");
-		expect(failedLines).toContain("➔ Bash ✗");
+		expect(failedLines).toContain("● Bash ✗");
 		expect(failedLines).toContain("Exit 2");
 
 		const cancelled = build();
 		cancelled.setComplete(undefined, true);
 		const cancelledLines = cancelled.render(50).map(plain).join("\n");
-		expect(cancelledLines).toContain("➔ Bash ✗");
+		expect(cancelledLines).toContain("● Bash ✗");
 		expect(cancelledLines).toContain("Cancelled");
 	});
 
@@ -101,7 +122,7 @@ describe("boxed bash execution display", () => {
 		const lines = component.render(50).map(plain);
 		expect(lines[1]).toBe("─".repeat(50));
 		expect(lines.join("\n")).not.toContain("╭");
-		expect(lines.join("\n")).not.toContain("➔ Bash");
+		expect(lines.join("\n")).not.toContain("● Bash");
 	});
 
 	it("renderBashExecutionBox returns undefined without a theme or a content container", () => {

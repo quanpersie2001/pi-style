@@ -120,6 +120,10 @@ npx vitest bench --run test/performance/presentation-buffer.bench.ts
 
 It compares real modular and bundled native components with buffering enabled/disabled, asserts output parity and deterministic update/render counts, and reports timings without timing-based failures. See [measurements and limitations](benchmarks/pi-1.5.2-streaming.md); reduced rebuild counts alone are not an elapsed-time speedup claim.
 
+Image/tool hotpath regressions cover preserved image encodings through native entry rebuilds, one-anchor-per-line fullscreen placement reuse, zero-copy clipboard views, bounded per-tool fingerprint hashing and indexed batch lookups. See [audit evidence and remaining bottlenecks](benchmarks/render-hotpaths.md). These enforce deterministic work/freshness contracts; terminal paint and initial image decode/transfer remain manual measurements.
+
+Thumbnail-specific checks use `test/unit/image-preview-preparation.test.ts`, `test/performance/image-thumbnail-preparation.test.ts`, and `test/integration/image-preview-{worker,runtime}.test.ts`. They cover bounded queues/artifacts, actual PNG/JPEG/WebP decoding outside the UI thread, abort/deadline teardown, original-byte invariants, metadata fallback, and live repaint/lifecycle hydration. Build copies the source worker next to the dist extension; package verification must check both worker paths. A successful worker test is not a terminal first-paint or RSS measurement.
+
 ## Manual terminal matrix
 
 | Dimension | Cases |

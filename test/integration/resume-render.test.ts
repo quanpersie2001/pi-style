@@ -111,17 +111,17 @@ describe("resumed-session rendering (renderBeforeBind ordering)", () => {
 		expect(hasPrefixMark(assistantLines)).toBe(true);
 		// Read tools render the boxless inline line (even for a lone call);
 		// compaction special blocks stay boxed.
-		expect(stripAnsi(toolLines.join("\n"))).toContain("➔ Read x");
+		expect(stripAnsi(toolLines.join("\n"))).toContain("● Read x");
 		expect(hasBoxedMark(compactionLines)).toBe(true);
 
 		// The boxed output is cached per updateDisplay; a later frame render must
 		// keep the decoration after the retained report was restored/reinstalled.
 		expect(linesOf(renderedDuringGap.tool).join("\n")).toBe(toolLines.join("\n"));
-		expect(stripAnsi(linesOf(renderedDuringGap.tool).join("\n"))).toContain("➔ Read x");
+		expect(stripAnsi(linesOf(renderedDuringGap.tool).join("\n"))).toContain("● Read x");
 
 		// Fresh components rendered after reinstall are decorated too.
 		const afterReinstall = renderRestoredChat();
-		expect(stripAnsi(linesOf(afterReinstall.tool).join("\n"))).toContain("➔ Read x");
+		expect(stripAnsi(linesOf(afterReinstall.tool).join("\n"))).toContain("● Read x");
 		expect(hasBoxedMark(linesOf(afterReinstall.compaction))).toBe(true);
 
 		await host.sessionShutdown();

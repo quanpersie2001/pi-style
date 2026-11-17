@@ -114,17 +114,17 @@ describe("plain output rendering", () => {
 		const findContext = context({ toolCallId: "portable-find", args: { pattern: "**/*", path: "." }, cwd: "/fake" });
 		const find = dispatchCall("find", { pattern: "**/*", path: "." }, theme, findContext);
 		dispatchResult("find", textResult("a.ts\nb.ts"), { expanded: false, isPartial: false }, theme, findContext);
-		expect(plain(find.render(80))[0]).toBe("Find: **/* 2 files · in current directory");
+		expect(plain(find.render(80))[0]).toBe("● Find: **/* 2 files · in current directory");
 
 		const grepContext = context({ toolCallId: "portable-grep", args: { pattern: "foo", path: "src" }, cwd: "/fake" });
 		const grep = dispatchCall("grep", { pattern: "foo", path: "src" }, theme, grepContext);
 		dispatchResult("grep", textResult("a.ts:3: alpha"), { expanded: false, isPartial: false }, theme, grepContext);
-		expect(plain(grep.render(80))[0]).toBe("Grep: foo 1 match · 1 file · in src");
+		expect(plain(grep.render(80))[0]).toBe("● Grep: foo 1 match · 1 file · in src");
 
 		const lsContext = context({ toolCallId: "portable-ls", args: { path: "/fake" }, cwd: "/fake" });
 		const ls = dispatchCall("ls", { path: "/fake" }, theme, lsContext);
 		dispatchResult("ls", textResult("a.ts\nb.ts"), { expanded: false, isPartial: false }, theme, lsContext);
-		expect(plain(ls.render(80))[0]).toBe("List: 2 files · in /fake");
+		expect(plain(ls.render(80))[0]).toBe("● List: 2 files · in /fake");
 	});
 });
 
@@ -180,7 +180,7 @@ describe("ls/find output-tree panels", () => {
 			ctx1,
 		);
 		const lines = plain(call.render(80));
-		expect(lines[0]).toBe("List: 8 files · in /fake/src");
+		expect(lines[0]).toBe("● List: 8 files · in /fake/src");
 		expect(lines[1]).toBe("  ├─ a.ts");
 		expect(lines.some((line) => line.startsWith("  └─ … "))).toBe(true);
 	});
@@ -190,7 +190,7 @@ describe("ls/find output-tree panels", () => {
 		const call = dispatchCall("find", { pattern: "**/*.ts", path: "." }, theme, ctx1);
 		dispatchResult("find", textResult("a.ts\nb.ts"), { expanded: false, isPartial: false }, theme, ctx1);
 		const lines = plain(call.render(80));
-		expect(lines[0]).toBe("Find: **/*.ts 2 files · in current directory");
+		expect(lines[0]).toBe("● Find: **/*.ts 2 files · in current directory");
 		expect(lines[1]).toBe("  ├─ a.ts");
 	});
 
@@ -198,7 +198,7 @@ describe("ls/find output-tree panels", () => {
 		const ctx1 = context({ toolCallId: "e1", args: { path: "/fake/empty" }, cwd: "/fake" });
 		const call = dispatchCall("ls", { path: "/fake/empty" }, theme, ctx1);
 		dispatchResult("ls", textResult("(empty directory)"), { expanded: false, isPartial: false }, theme, ctx1);
-		expect(plain(call.render(80))).toEqual(["List: 0 files · in /fake/empty"]);
+		expect(plain(call.render(80))).toEqual(["● List: 0 files · in /fake/empty"]);
 	});
 
 	it("renders batched find calls as nested per-member subtrees", () => {
@@ -221,7 +221,7 @@ describe("ls/find output-tree panels", () => {
 		const call = dispatchCall("read", { path: "a.ts" }, theme, ctx1);
 		dispatchResult("read", textResult("file contents here"), { expanded: false, isPartial: false }, theme, ctx1);
 		const joined = plain(call.render(80)).join("\n");
-		expect(joined).toContain("➔ Read a.ts");
+		expect(joined).toContain("● Read a.ts");
 		expect(joined).not.toContain("(1)");
 		expect(joined).not.toContain("└─");
 		expect(joined).not.toContain("files");
@@ -240,7 +240,7 @@ describe("grep output-tree panel", () => {
 			ctx1,
 		);
 		const lines = plain(call.render(80));
-		expect(lines).toEqual(["Grep: foo 2 matches · 2 files · in src", "  ├─ a.ts", "  └─ b.ts"]);
+		expect(lines).toEqual(["● Grep: foo 2 matches · 2 files · in src", "  ├─ a.ts", "  └─ b.ts"]);
 	});
 
 	it("collapses the files-only view to a 'more files' row", () => {
@@ -254,7 +254,7 @@ describe("grep output-tree panel", () => {
 			ctx1,
 		);
 		const lines = plain(call.render(80));
-		expect(lines[0]).toBe("Grep: foo 9 matches · 9 files · in src");
+		expect(lines[0]).toBe("● Grep: foo 9 matches · 9 files · in src");
 		expect(lines.at(-1)).toBe("  └─ … 3 more files");
 		expect(lines.join("\n")).not.toContain("hit");
 	});
@@ -299,14 +299,14 @@ describe("grep output-tree panel", () => {
 	it("renders a pending grep as a header-only line", () => {
 		const ctx1 = context({ toolCallId: "g2", args: { pattern: "foo", path: "src" }, cwd: "/fake" });
 		const call = dispatchCall("grep", { pattern: "foo", path: "src" }, theme, ctx1);
-		expect(plain(call.render(80))).toEqual(["Grep: foo · in src"]);
+		expect(plain(call.render(80))).toEqual(["● Grep: foo · in src"]);
 	});
 
 	it("renders zero matches", () => {
 		const ctx1 = context({ toolCallId: "g3", args: { pattern: "zzz", path: "." }, cwd: "/fake" });
 		const call = dispatchCall("grep", { pattern: "zzz", path: "." }, theme, ctx1);
 		dispatchResult("grep", textResult("No matches found"), { expanded: false, isPartial: false }, theme, ctx1);
-		expect(plain(call.render(80))).toEqual(["Grep: zzz 0 matches · 0 files · in current directory"]);
+		expect(plain(call.render(80))).toEqual(["● Grep: zzz 0 matches · 0 files · in current directory"]);
 	});
 
 	it("keeps historical grep panels rendering after a registry reset (session resume)", () => {
@@ -322,7 +322,7 @@ describe("grep output-tree panel", () => {
 		// A session boundary (shutdown/start, /resume) clears the registry.
 		resetGrepRegistry();
 		const lines = plain(call.render(80));
-		expect(lines[0]).toBe("Grep: foo 2 matches · 2 files · in src");
+		expect(lines[0]).toBe("● Grep: foo 2 matches · 2 files · in src");
 		expect(lines.join("\n")).toContain("a.ts");
 	});
 });
@@ -382,7 +382,7 @@ describe("bash command classification and tree routing", () => {
 			ctx1,
 		);
 		const lines = plain(call.render(80));
-		expect(lines[0]).toBe("List: 7 files · in src/");
+		expect(lines[0]).toBe("● List: 7 files · in src/");
 		expect(lines.join("\n")).toContain("├─ a.ts");
 	});
 
@@ -397,7 +397,7 @@ describe("bash command classification and tree routing", () => {
 			ctx1,
 		);
 		const lines = plain(call.render(80));
-		expect(lines[0]).toBe("Grep: foo 2 matches · 2 files · in docs");
+		expect(lines[0]).toBe("● Grep: foo 2 matches · 2 files · in docs");
 	});
 
 	it("renders the result component empty (the tree lives in the call panel)", () => {
@@ -420,7 +420,7 @@ describe("bash command classification and tree routing", () => {
 			ctx1,
 		);
 		const lines = plain(call.render(80));
-		expect(lines[0]).toBe("List: 2 files");
+		expect(lines[0]).toBe("● List: 2 files");
 		expect(lines.join("\n")).toContain("src/"); // dir gets a trailing slash
 		expect(lines.join("\n")).toContain("a.ts");
 		expect(result.render(80)).toEqual([]); // tree lives in the call panel
@@ -441,7 +441,7 @@ describe("bash command classification and tree routing", () => {
 			ctx1,
 		);
 		const lines = plain(call.render(90));
-		expect(lines[0]).toBe("Grep: name 2 matches · 1 file · in package.json");
+		expect(lines[0]).toBe("● Grep: name 2 matches · 1 file · in package.json");
 		expect(lines.join("\n")).toContain("package.json");
 	});
 
@@ -449,7 +449,7 @@ describe("bash command classification and tree routing", () => {
 		const ctx1 = context({ toolCallId: "b-nomatch", args: { command: 'rg "zzz" themes', timeout: 30 }, cwd: "/fake" });
 		const call = dispatchCall("bash", { command: 'rg "zzz" themes', timeout: 30 }, theme, ctx1);
 		const result = dispatchResult("bash", textResult(""), { expanded: false, isPartial: false }, theme, ctx1);
-		expect(plain(call.render(90))[0]).toBe("Grep: zzz 0 matches · 0 files · in themes");
+		expect(plain(call.render(90))[0]).toBe("● Grep: zzz 0 matches · 0 files · in themes");
 		expect(result.render(90)).toEqual([]); // tree lives in the call panel
 	});
 
@@ -463,7 +463,7 @@ describe("bash command classification and tree routing", () => {
 	it("renders a pending classified call as a header line", () => {
 		const ctx1 = context({ toolCallId: "b5", args: { command: "ls src/", timeout: 30 }, cwd: "/fake" });
 		const call = dispatchCall("bash", { command: "ls src/", timeout: 30 }, theme, ctx1);
-		expect(plain(call.render(80))).toEqual(["List · in src/"]);
+		expect(plain(call.render(80))).toEqual(["● List · in src/"]);
 	});
 
 	it("keeps historical bash tree panels rendering after a registry reset", () => {
@@ -471,7 +471,7 @@ describe("bash command classification and tree routing", () => {
 		const call = dispatchCall("bash", { command: "ls src/", timeout: 30 }, theme, ctx1);
 		dispatchResult("bash", textResult("a.ts\nb.ts"), { expanded: false, isPartial: false }, theme, ctx1);
 		resetBashTreeRegistry(); // session boundary
-		expect(plain(call.render(80))[0]).toBe("List: 2 files · in src/");
+		expect(plain(call.render(80))[0]).toBe("● List: 2 files · in src/");
 	});
 
 	it("keeps every classified result width-safe", () => {

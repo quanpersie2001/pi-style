@@ -43,7 +43,13 @@
 
 import type { Component } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
-import { type BoxTheme, dimLine, formatToolTitlePrefix, themeCacheKey } from "../../../shared/box.js";
+import {
+	type BoxTheme,
+	dimLine,
+	formatToolTitlePrefix,
+	getToolHeaderGlyph,
+	themeCacheKey,
+} from "../../../shared/box.js";
 import { safeTruncateToWidth, safeVisibleWidth } from "../../../shared/render-budget.js";
 import { OUTPUT_TREE_HEAD_LIMIT, pluralForm, renderOutputTree, TREE_CHILD_INDENT, TREE_INDENT } from "./output-tree.js";
 import { compactToolPath } from "./path.js";
@@ -148,7 +154,7 @@ export const EMPTY_BATCH_COMPONENT: Component = Object.freeze({
 });
 
 let activeBatch: BatchState | undefined;
-const batchByCallId = new Map<string, BatchState>();
+const batchByCallId = new Map<string, { batch: BatchState; member: BatchMember }>();
 /** Chunk-merge candidates (ADR 0010): the most recent pure, contiguous read
  *  chunk batch per display path. Survives batch closes and assistant message
  *  boundaries (a continuation chunk in a later message still merges); cleared
@@ -230,6 +236,15 @@ function createBatch(
 	detail: string,
 	opts: { pattern?: string; pathLabel?: string; chunk?: ReadChunkInfo } = {},
 ): BatchState {
+	const member: BatchMember = {
+		toolCallId: leaderId,
+		detail,
+		status: "pending",
+		isError: false,
+		...(opts.pattern ? { pattern: opts.pattern } : {}),
+		...(opts.pathLabel ? { pathLabel: opts.pathLabel } : {}),
+		...(opts.chunk ? { chunk: opts.chunk } : {}),
+	};
 	const batch: BatchState = {
 		meta,
 		leaderId,
@@ -237,20 +252,10 @@ function createBatch(
 		closed: false,
 		revision: 0,
 		open: false,
-		members: [
-			{
-				toolCallId: leaderId,
-				detail,
-				status: "pending",
-				isError: false,
-				...(opts.pattern ? { pattern: opts.pattern } : {}),
-				...(opts.pathLabel ? { pathLabel: opts.pathLabel } : {}),
-				...(opts.chunk ? { chunk: opts.chunk } : {}),
-			},
-		],
+		members: [member],
 	};
 	activeBatch = batch;
-	batchByCallId.set(leaderId, batch);
+	batchByCallId.set(leaderId, { batch, member });
 	syncChunkCandidacy(batch);
 	return batch;
 }
@@ -273,16 +278,13 @@ export function registerBatchCall(
 ): { batch: BatchState; isLeader: boolean } {
 	const existing = batchByCallId.get(context.toolCallId);
 	if (existing) {
-		const member = existing.members.find((entry) => entry.toolCallId === context.toolCallId);
-		if (member) {
-			const changed =
-				member.detail !== detail || member.pattern !== opts.pattern || member.pathLabel !== opts.pathLabel;
-			member.detail = detail;
-			if (opts.pattern !== undefined) member.pattern = opts.pattern;
-			if (opts.pathLabel !== undefined) member.pathLabel = opts.pathLabel;
-			if (changed) bumpBatchRevision(existing);
-		}
-		return { batch: existing, isLeader: existing.leaderId === context.toolCallId };
+		const { batch, member } = existing;
+		const changed = member.detail !== detail || member.pattern !== opts.pattern || member.pathLabel !== opts.pathLabel;
+		member.detail = detail;
+		if (opts.pattern !== undefined) member.pattern = opts.pattern;
+		if (opts.pathLabel !== undefined) member.pathLabel = opts.pathLabel;
+		if (changed) bumpBatchRevision(batch);
+		return { batch, isLeader: batch.leaderId === context.toolCallId };
 	}
 	// Chunk-merge (ADR 0010): a continuation chunk joins its file's candidate
 	// batch even when that batch was closed (message boundary, non-read tool in
@@ -300,7 +302,7 @@ export function registerBatchCall(
 				chunk: opts.chunk,
 			};
 			candidate.members.push(member);
-			batchByCallId.set(context.toolCallId, candidate);
+			batchByCallId.set(context.toolCallId, { batch: candidate, member });
 			// Re-opening: the batch was possibly fully settled; a pending member
 			// must restart completion tracking (elapsed recomputes at final settle).
 			delete candidate.completedAt;
@@ -324,7 +326,7 @@ export function registerBatchCall(
 		...(opts.chunk ? { chunk: opts.chunk } : {}),
 	};
 	current.members.push(member);
-	batchByCallId.set(context.toolCallId, current);
+	batchByCallId.set(context.toolCallId, { batch: current, member });
 	bumpBatchRevision(current);
 	syncChunkCandidacy(current);
 	return { batch: current, isLeader: false };
@@ -363,40 +365,38 @@ export function registerBatchResult(
 	data: BatchResultData,
 	context: BoxedToolContext,
 ): { batch: BatchState | undefined; isLeader: boolean } {
-	const batch = batchByCallId.get(context.toolCallId);
-	if (!batch || batch.meta.toolName !== meta.toolName) return { batch: undefined, isLeader: false };
-	const member = batch.members.find((entry) => entry.toolCallId === context.toolCallId);
-	if (member) {
-		const nextStatus = data.isPartial ? "running" : "done";
-		const nextIsError = !data.isPartial && data.isError;
-		// Chunk end refinement (ADR 0010): the actual output line count pins the
-		// member chunk's end (byte-capped / offset-only reads), keeping later
-		// contiguity checks and the merged range display exact.
-		const refinedEnd =
-			member.chunk && data.readOutputLines !== undefined ? member.chunk.start + data.readOutputLines - 1 : undefined;
-		const changed =
-			member.status !== nextStatus ||
-			member.isError !== nextIsError ||
-			member.errorText !== (nextIsError ? data.errorText : undefined) ||
-			member.noticeText !== data.noticeText ||
-			member.resultText !== data.resultText ||
-			member.receiptText !== data.receiptText ||
-			(data.entries !== undefined && member.outputEntries !== data.entries) ||
-			(refinedEnd !== undefined && member.chunk?.end !== refinedEnd);
-		member.status = nextStatus;
-		member.isError = nextIsError;
-		if (member.isError && data.errorText !== undefined) member.errorText = data.errorText;
-		else delete member.errorText;
-		if (data.noticeText !== undefined) member.noticeText = data.noticeText;
-		else delete member.noticeText;
-		if (data.resultText !== undefined) member.resultText = data.resultText;
-		else delete member.resultText;
-		if (data.receiptText !== undefined) member.receiptText = data.receiptText;
-		else delete member.receiptText;
-		if (data.entries !== undefined) member.outputEntries = data.entries;
-		if (refinedEnd !== undefined && member.chunk) member.chunk = { ...member.chunk, end: refinedEnd };
-		if (changed) bumpBatchRevision(batch);
-	}
+	const registered = batchByCallId.get(context.toolCallId);
+	if (!registered || registered.batch.meta.toolName !== meta.toolName) return { batch: undefined, isLeader: false };
+	const { batch, member } = registered;
+	const nextStatus = data.isPartial ? "running" : "done";
+	const nextIsError = !data.isPartial && data.isError;
+	// Chunk end refinement (ADR 0010): the actual output line count pins the
+	// member chunk's end (byte-capped / offset-only reads), keeping later
+	// contiguity checks and the merged range display exact.
+	const refinedEnd =
+		member.chunk && data.readOutputLines !== undefined ? member.chunk.start + data.readOutputLines - 1 : undefined;
+	const changed =
+		member.status !== nextStatus ||
+		member.isError !== nextIsError ||
+		member.errorText !== (nextIsError ? data.errorText : undefined) ||
+		member.noticeText !== data.noticeText ||
+		member.resultText !== data.resultText ||
+		member.receiptText !== data.receiptText ||
+		(data.entries !== undefined && member.outputEntries !== data.entries) ||
+		(refinedEnd !== undefined && member.chunk?.end !== refinedEnd);
+	member.status = nextStatus;
+	member.isError = nextIsError;
+	if (member.isError && data.errorText !== undefined) member.errorText = data.errorText;
+	else delete member.errorText;
+	if (data.noticeText !== undefined) member.noticeText = data.noticeText;
+	else delete member.noticeText;
+	if (data.resultText !== undefined) member.resultText = data.resultText;
+	else delete member.resultText;
+	if (data.receiptText !== undefined) member.receiptText = data.receiptText;
+	else delete member.receiptText;
+	if (data.entries !== undefined) member.outputEntries = data.entries;
+	if (refinedEnd !== undefined && member.chunk) member.chunk = { ...member.chunk, end: refinedEnd };
+	if (changed) bumpBatchRevision(batch);
 	if (batch.completedAt === undefined && batch.members.every((entry) => entry.status === "done")) {
 		batch.completedAt = performance.now();
 		bumpBatchRevision(batch);
@@ -408,9 +408,7 @@ export function registerBatchResult(
  *  (done, non-error, entries registered). Result renderers use this to skip
  *  re-parsing an unchanged final output on warm re-render passes. */
 export function hasFinalBatchOutput(toolCallId: string): boolean {
-	const batch = batchByCallId.get(toolCallId);
-	if (!batch) return false;
-	const member = batch.members.find((entry) => entry.toolCallId === toolCallId);
+	const member = batchByCallId.get(toolCallId)?.member;
 	return member !== undefined && member.outputEntries !== undefined && member.status === "done" && !member.isError;
 }
 
@@ -542,7 +540,7 @@ function formatLoneOutputHeader(theme: BoxTheme, meta: BatchToolMeta, member: Ba
 	const filesPart = theme.fg("accent", `${count} ${count === 1 ? "file" : "files"}`);
 	const patternPart = meta.toolName === "find" && member.pattern ? `${theme.fg("text", member.pattern)} ` : "";
 	const pathPart = member.pathLabel ? theme.fg("dim", ` · in ${compactToolPath(member.pathLabel)}`) : "";
-	return `${bold(theme, `${label}:`)} ${patternPart}${filesPart}${pathPart}`;
+	return `${bold(theme, `${getToolHeaderGlyph()} ${label}:`)} ${patternPart}${filesPart}${pathPart}`;
 }
 
 /** Nested file subtree for one member inside a batched (2+) output panel. */

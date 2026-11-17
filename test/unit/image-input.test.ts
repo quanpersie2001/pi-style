@@ -8,7 +8,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { ImageContent } from "@earendil-works/pi-ai";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	createClipboardImagePasteSurface,
 	extractClipboardImageTokens,
@@ -283,6 +283,25 @@ describe("zero-copy fills (I2: Uint8Array views over larger buffers)", () => {
 		expect(resolved?.images).toEqual([
 			{ type: "image", data: Buffer.from([2, 3, 4, 5, 6, 7]).toString("base64"), mimeType: "image/png" },
 		]);
+	});
+
+	it("raw artifact submit encodes a zero-copy view of exactly the readable byte range", async () => {
+		const backing = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+		const view = new Uint8Array(backing.buffer, 2, 6);
+		const expected = Buffer.from([2, 3, 4, 5, 6, 7]).toString("base64");
+		const from = vi.spyOn(Buffer, "from");
+		try {
+			const result = await transformClipboardImages(path(), {
+				tmpRoot: TMP,
+				statSize: async () => view.byteLength,
+				readFile: async () => view,
+			});
+			expect(result?.images[0]?.data).toBe(expected);
+			expect(from).toHaveBeenCalledWith(backing.buffer, view.byteOffset, view.byteLength);
+			expect(from).not.toHaveBeenCalledWith(view);
+		} finally {
+			from.mockRestore();
+		}
 	});
 
 	it("fillPendingImageFromPath encodes exactly the view range (non-zero byteOffset)", async () => {

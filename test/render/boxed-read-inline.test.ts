@@ -1,5 +1,5 @@
 // Contract: a lone `read` call renders as a single inline line
-// (`➔ Read <path>`), never as the header + tree panel. Batched reads keep the
+// (`● Read <path>`), never as the header + tree panel. Batched reads keep the
 // header + tree. Errors keep their inline error text.
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -66,14 +66,14 @@ describe("boxed read inline rendering", () => {
 		const lines = render("c1", "src/a.ts");
 		expect(lines).toHaveLength(1);
 		const text = stripAnsi(lines[0]);
-		expect(text).toBe("➔ Read src/a.ts");
+		expect(text).toBe("● Read src/a.ts");
 		expect(text).not.toContain("◌");
 	});
 
 	it("keeps the path range detail inline", () => {
 		render("c1", "src/a.ts:5-20");
 		registerBatchResult(READ_META, { isPartial: false, isError: false, errorText: undefined }, context("c1"));
-		expect(stripAnsi(render("c1", "src/a.ts:5-20")[0])).toBe("➔ Read src/a.ts:5-20");
+		expect(stripAnsi(render("c1", "src/a.ts:5-20")[0])).toBe("● Read src/a.ts:5-20");
 	});
 
 	it("keeps the error glyph and error text visible inline", () => {

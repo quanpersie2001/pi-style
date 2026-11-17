@@ -20,7 +20,7 @@ import {
 	clearDiffHeaderStats,
 	diffHeaderStatsSuffix,
 	displayPath,
-	getRenderCacheKey,
+	getStateRenderCacheKey,
 	memoizedStateComponent,
 	noteBoxedCallState,
 	noteBoxedResultPhase,
@@ -187,7 +187,16 @@ function renderQuickEditResult(
 	return memoizedStateComponent(
 		context.state,
 		"__piStyleQuickEditDiffResult",
-		getRenderCacheKey("quick-edit-diff-result", theme, config.toolLabel, Boolean(expanded), diff, argPath, footer),
+		getStateRenderCacheKey(
+			"quick-edit-diff-result",
+			theme,
+			context.state,
+			config.toolLabel,
+			Boolean(expanded),
+			diff,
+			argPath,
+			footer,
+		),
 		() => {
 			// Expensive construction (buildSplitRows + AdaptiveDiffComponent) runs
 			// only on cache misses, never per render pass. Everything below is a

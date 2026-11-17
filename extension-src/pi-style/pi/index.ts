@@ -4,7 +4,6 @@ import { resolvePendingImageMarkers, transformClipboardImages } from "../feature
 import {
 	flushImagePreviewEntry,
 	type ImagePreviewEntryData,
-	registerImagePreviewSurface,
 	stageImagePreviewData,
 } from "../features/messages/image-preview.js";
 import { registerTeammateMessageRenderers } from "../features/messages/teammates.js";
@@ -101,11 +100,6 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	pi.registerFlag("color", { type: "string", description: "Initial editor border color (#RGB or #RRGGBB)" });
 	const coordinator = createPiStyleSessionCoordinator(pi, compatibilityTestHooks);
 	registerPiStyleCommand(pi, coordinator.app);
-	// User-prompt image previews (ADR 0008): the entry renderer must be
-	// registered before the first entry of this type can exist — the host drops
-	// entries whose customType has no renderer — and once at extension load is
-	// enough (persisted entries from previous sessions render on resume).
-	registerImagePreviewSurface(pi);
 	registerTeammateMessageRenderers(pi);
 	registerTeammateToolRenderers(pi);
 	// User-prompt image previews (ADR 0008): the prompt's `images` are only
@@ -118,6 +112,13 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	// flush replaces the staged slot (last write wins).
 	let stagedImagePreview: ImagePreviewEntryData | undefined;
 	let previewFlushTimer: ReturnType<typeof setTimeout> | undefined;
+	let previewGeneration = 0;
+	const clearPendingImagePreview = () => {
+		previewGeneration++;
+		stagedImagePreview = undefined;
+		if (previewFlushTimer !== undefined) clearTimeout(previewFlushTimer);
+		previewFlushTimer = undefined;
+	};
 	pi.on("before_agent_start", (event: BeforeAgentStartEventShape) => {
 		// 1.2+ custom runs (`sendMessage` triggerTurn) carry no prompt images and
 		// may fire while a user prompt's preview is waiting to flush — leave the
@@ -129,6 +130,7 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		stagedImagePreview = stageImagePreviewData(event.images ?? []);
 	});
 	pi.on("session_start", async (event, ctx) => {
+		clearPendingImagePreview();
 		resetUsageFromSessionCache(ctx.sessionManager);
 		// Pi only activates read/bash/edit/write by default; grep/find/ls are
 		// registered but inactive (kept out of the model's tool list to keep the
@@ -220,7 +222,10 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 			// message to the chat. Defer one turn so the entry is appended below the
 			// visible user message, but do not wait for assistant content to arrive.
 			const pending = stagedImagePreview;
+			const generation = previewGeneration;
 			previewFlushTimer = setTimeout(() => {
+				// A cancelled callback must not clear a replacement session's timer.
+				if (generation !== previewGeneration) return;
 				previewFlushTimer = undefined;
 				if (stagedImagePreview !== pending) return;
 				flushImagePreviewEntry(pi, pending);
@@ -286,7 +291,11 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	pi.on("agent_settled", (_event, ctx) =>
 		coordinator.app.update({ ...usagePatch(ctx) }, "coalesced", { refreshContextUsage: true }),
 	);
-	pi.on("session_tree", (_event, ctx) => {
+	pi.on("session_tree", (event, ctx) => {
+		if (event.newLeafId !== event.oldLeafId) {
+			clearPendingImagePreview();
+			coordinator.resetImagePreviews?.();
+		}
 		resetUsageFromSessionCache(ctx.sessionManager);
 		// Rebuild both agent-run presentation registries from the selected branch.
 		// Turn registry first: it publishes the tool stats the thought labels read.
@@ -326,6 +335,7 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		coordinator.app.update({ ...usagePatch(ctx) }, "delayed-retry", { refreshContextUsage: true });
 	});
 	pi.on("session_shutdown", (_event, ctx) => {
+		clearPendingImagePreview();
 		resetUsageFromSessionCache(ctx.sessionManager);
 		resetTeammateRuns();
 		coordinator.shutdown();

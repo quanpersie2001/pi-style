@@ -246,7 +246,7 @@ describe("recorded identity registry vs real pi artifacts", () => {
 					bash.appendOutput("out\n");
 					bash.setComplete(0, false, undefined, undefined);
 					const bashLines = stripAnsi(bash.render(80).join("\n"));
-					expect(bashLines).toContain("➔ Bash");
+					expect(bashLines).toContain("● Bash");
 					expect(bashLines).toContain("$ echo hi");
 					expect(bashLines).toContain("Exit 0");
 					expect(disposePiCompatibilityProbe(report).complete).toBe(true);

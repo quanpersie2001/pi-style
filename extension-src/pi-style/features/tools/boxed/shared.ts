@@ -230,6 +230,7 @@ type StateComponentCacheEntry = {
  *  collapse to `length:hash` so the joined key length stays bounded regardless
  *  of raw output size. */
 const CACHE_KEY_LONG_PART_THRESHOLD = 64;
+const MAX_STATE_FINGERPRINTS = 4;
 
 /** 32-bit FNV-1a hash of a string as 8 lowercase hex digits. Local mirror of the
  *  compatibility probe's fingerprint hashing (the pi/ layer stays unreachable
@@ -245,14 +246,43 @@ function fnv1aHex(text: string): string {
 
 /** Fold one join part: strings longer than CACHE_KEY_LONG_PART_THRESHOLD
  *  collapse to `length:hash`; numbers/booleans pass through unchanged. */
-function boundedCacheKeyPart(part: string | number | boolean): string | number | boolean {
+function boundedCacheKeyPart(
+	part: string | number | boolean,
+	state: Record<string, unknown> | undefined,
+): string | number | boolean {
 	if (typeof part !== "string" || part.length <= CACHE_KEY_LONG_PART_THRESHOLD) return part;
-	return `${part.length}:${fnv1aHex(part)}`;
+	// Compare the text, not result identity: native callers may mutate a result.
+	// Bound retained text to four entries per tool, including long commands/paths.
+	let fingerprints = state?.__piStyleFingerprints as Map<string, string> | undefined;
+	const cached = fingerprints?.get(part);
+	if (cached !== undefined) return cached;
+	const fingerprint = `${part.length}:${fnv1aHex(part)}`;
+	if (state) {
+		if (!fingerprints) {
+			fingerprints = new Map();
+			state.__piStyleFingerprints = fingerprints;
+		}
+		if (fingerprints.size >= MAX_STATE_FINGERPRINTS) {
+			const oldest = fingerprints.keys().next().value;
+			if (oldest !== undefined) fingerprints.delete(oldest);
+		}
+		fingerprints.set(part, fingerprint);
+	}
+	return fingerprint;
 }
 
 export function getRenderCacheKey(prefix: string, theme: BoxTheme, ...parts: Array<string | number | boolean>): string {
+	return getStateRenderCacheKey(prefix, theme, undefined, ...parts);
+}
+
+export function getStateRenderCacheKey(
+	prefix: string,
+	theme: BoxTheme,
+	state: Record<string, unknown> | undefined,
+	...parts: Array<string | number | boolean>
+): string {
 	const pieces: Array<string | number | boolean> = [prefix, themeCacheKey(theme), getToolsRenderCacheSignature()];
-	for (const part of parts) pieces.push(boundedCacheKeyPart(part));
+	for (const part of parts) pieces.push(boundedCacheKeyPart(part, state));
 	return pieces.join("|");
 }
 

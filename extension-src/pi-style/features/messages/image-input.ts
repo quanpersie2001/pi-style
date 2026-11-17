@@ -191,7 +191,7 @@ async function readAttachable(
 		if (size === undefined || size <= 0 || size > MAX_ATTACHABLE_BYTES) return undefined;
 		const bytes = await readFileImpl(path);
 		if (bytes.length === 0 || bytes.length > MAX_ATTACHABLE_BYTES) return undefined;
-		return { data: Buffer.from(bytes).toString("base64"), mimeType };
+		return { data: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64"), mimeType };
 	} catch {
 		return undefined;
 	}

@@ -446,19 +446,30 @@ function formatBoxedStatusIcon(theme: BoxTheme, isError?: boolean): string {
 	return theme.fg(isError ? "error" : "success", icon);
 }
 
+let toolHeaderGlyph = "●";
+
+/** Configured by the existing per-session tool render configuration. */
+export function setToolHeaderGlyph(glyph: string): void {
+	toolHeaderGlyph = glyph;
+}
+
+export function getToolHeaderGlyph(): string {
+	return toolHeaderGlyph;
+}
+
 /**
- * Colored `➔ Name` prefix for tool titles (identity color). The status glyph
+ * Colored `● Name` prefix for tool titles (identity color). The status glyph
  * (✓/◌/✗) is appended separately by formatBoxedToolTitle.
  */
 export function formatToolTitlePrefix(theme: BoxTheme, name: string): string {
-	return colorFromExtra(theme, "bashPromptColor", "bashMode", `➔ ${name}`);
+	return colorFromExtra(theme, "bashPromptColor", "bashMode", `${toolHeaderGlyph} ${name}`);
 }
 
 export type BoxedTitleStatus = "running" | "pending";
 
 /**
- * Boxed tool title: `➔ Name ✓` when settled, `➔ Name ◌` while running, plain
- * `➔ Name` while pending, and a fully error-colored `➔ Name ✗` on failure.
+ * Boxed tool title: `● Name ✓` when settled, `● Name ◌` while running, plain
+ * `● Name` while pending, and a fully error-colored `● Name ✗` on failure.
  * The ✓/◌ glyphs are never shown before the tool settles, so a card that is
  * still executing never reads as finished.
  */
@@ -472,7 +483,7 @@ export function formatBoxedToolTitle(
 	// tool reads instantly; on success the tool keeps its identity color and only
 	// the ✓ carries the success color.
 	const coloredTitle = isError
-		? theme.fg("error", `➔ ${name} ✗`)
+		? theme.fg("error", `${toolHeaderGlyph} ${name} ✗`)
 		: status === "running"
 			? `${formatToolTitlePrefix(theme, name)} ${theme.fg("text", "◌")}`
 			: status === "pending"

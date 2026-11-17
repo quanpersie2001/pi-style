@@ -48,14 +48,14 @@ Images attached to the user's prompt render as **inline previews** directly belo
 
 - One entry (`pi-style-image-preview`) per agent run carrying images — staged at `before_agent_start` (the event carries the prompt's `images`) and flushed at the first `message_start(assistant)` so the entry lands **below the user message** both live (the host inserts it before the streaming component) and in the session file (user → preview → assistant; resume renders identically).
 - The entry renderer builds one pi-tui `Image` per attached image, each with a `#N · WxH` label row tying it to its `[Image #N]` marker, themed `fallbackColor` via `toolOutput`.
-- Multiple images render **side-by-side** on kitty-capable terminals (up to 3 columns, min 14 cells each, 2-cell gap; kitty graphics sequences are zero-width so per-row line zipping composes columns) and stacked when the terminal is too narrow or the protocol is not kitty.
-- Collapsed previews cap at `messages.previewMaxWidth` cells per image (default **30**, bounds 8–60); Pi's global tool expansion (Ctrl+O) lifts the cap to 60.
+- Multiple images **stack**, with one image anchor per line. Pi’s fullscreen upload cache and cropping metadata recognize only the first image on a line; stacking avoids repeatedly transmitting later images from a combined grid row. PNG payload caches survive host rebuilds when protocol, cell size and requested width are unchanged.
+- Collapsed previews cap at `messages.previewMaxWidth` cells per image (default **30**, bounds 8–60); Pi's global tool expansion (Ctrl+O) lifts the cell cap to 60 using the same **maximum 960px backing thumbnail**, not the original image. All images validate and prepare asynchronously in a bounded worker queue, with a metadata placeholder until ready. Preview resampling may lose detail; original attachments and persisted entries are unchanged. Even small PNGs must validate off-thread before any native image payload is emitted. Unsupported, animated, over-limit or failed preparation stays metadata-only.
 - Terminals without image support degrade to a single ANSI-safe fallback line per image (mime + dimensions) — never raw base64, never unprintable sequences. Malformed entry data renders zero lines.
 
 #### Multiplexer caveat (herdr)
 
 Terminal multiplexers sit between pi and the real terminal and may drop the kitty graphics protocol even when the outer terminal supports it. herdr gates pane graphics behind an experimental flag: without `experimental.kitty_graphics = true` in `~/.config/herdr/config.toml` (plus `herdr server reload-config` or a restart), every image — previews and Pi's own tool-result images — is silently dropped while capability detection still reports "kitty" (it sees the outer terminal's `TERM_PROGRAM`). tmux is handled upstream (pi-tui disables images there); other multiplexers have the same failure shape: if previews show as nothing in a graphical terminal, check the multiplexer's graphics passthrough first.
-- `messages.showImagePreviews: false` (default `true`) stops appending new entries **and** makes the renderer return nothing, so persisted entries also collapse to zero lines without a reload.
+- `messages.showImagePreviews: false` (default `true`) stops appending new entries **and** makes the renderer return nothing, so persisted preview content is hidden without a reload. Valid entries retain only Pi's native one-line spacer, allowing later ON hydration rather than being dropped from the transcript.
 - No clipboard reading, no input transform, no shortcut, no new Pi-core patch identity — public extension APIs only. Installing an input extension that also previews (e.g. image-paste's custom messages) yields a double render; disable one side via `messages.showImagePreviews: false`.
 
 ### Clipboard image input
@@ -124,10 +124,12 @@ Its background is a neutral card surface, not a success/error state: the fill is
 
 ## Tool call header
 
+Decorative tool headers share `●` (`>` in ASCII mode), including grep/find/ls, classified shell searches and unknown/glob tool fallbacks. `theme.glyphs.toolHeader` overrides this marker; error, progress and disclosure symbols keep their own meaning.
+
 Compact boxed shape (`tools.style: "compact-box"`):
 
 ```text
-╭─ ➔ Read ✓ · Path: src/index.ts ──────────────────────╮
+╭─ ● Read ✓ · Path: src/index.ts ──────────────────────╮
 │                                                      │
 ╰─ 1.2s · ~10k words ──────────────────────────────────╯
 ```
@@ -135,7 +137,7 @@ Compact boxed shape (`tools.style: "compact-box"`):
 Full boxed shape (bash/edit/quick-edit/fallback), with the title in the top border, a single labeled divider before the result, and the metrics footer embedded in the bottom border. Boxes carry the semantic status fill themselves (`toolPendingBg`/`toolErrorBg`/`toolSuccessBg` — box ⇒ background), while boxless surfaces (quiet-tool rows/tree panels, git/gh semantic cards, turn summaries) stay transparent; the native container fill is always neutralized so a single tool can mix both (git: boxless card + boxed diff frames). The `Response` divider and the metrics footer appear **only when the tool settles** — while a call runs, the same box stays open with a live running status instead of a premature result frame:
 
 ```text
-╭─ ➔ Bash ◌ ─────────────────────────────────────────╮
+╭─ ● Bash ◌ ─────────────────────────────────────────╮
 │                                                    │
 │  $ npm test                                        │
 │  No output received yet                            │
@@ -146,7 +148,7 @@ Full boxed shape (bash/edit/quick-edit/fallback), with the title in the top bord
 Partial output streams into the open card under an `Output` divider (no `Response`), and the first partial result renders nothing so the running card is never duplicated below a second box. Only the terminal result adds the `Response` divider and the status footer:
 
 ```text
-╭─ ➔ Bash ✓ ─────────────────────────────────────────╮
+╭─ ● Bash ✓ ─────────────────────────────────────────╮
 │                                                    │
 │  $ npm test                                        │
 │                                                    │
@@ -157,7 +159,7 @@ Partial output streams into the open card under an `Output` divider (no `Respons
 ╰─ Exit 0 · 1.2s · ~3 words ── Ctrl+O for more ───────╯
 ```
 
-Compact (summary) tools render `➔ <Tool> ✓ · <detail>` with the footer in the bottom border; bash renders a full call box with the command, a `Response` divider, and the expand hint on the bottom border when output is truncated. Edit/quick-edit render the path **and the diff stats** in the header (`➔ Edit ✓ · path · +3 -0`) with the diff body continuing the box directly — no `Diff` divider. Write renders a compact preview box: the path in the top border, the written content as numbered lines (cat -n style) in the body, and the metrics footer in the bottom border with a `Ctrl+O for more` hint when the preview is truncated; expanded reveals the expanded line budget. `tools.style: "marker"` keeps the marker style (`[read] src/index.ts`).
+Compact (summary) tools render `● <Tool> ✓ · <detail>` with the footer in the bottom border; bash renders a full call box with the command, a `Response` divider, and the expand hint on the bottom border when output is truncated. Edit/quick-edit render the path **and the diff stats** in the header (`● Edit ✓ · path · +3 -0`) with the diff body continuing the box directly — no `Diff` divider. Write renders a compact preview box: the path in the top border, the written content as numbered lines (cat -n style) in the body, and the metrics footer in the bottom border with a `Ctrl+O for more` hint when the preview is truncated; expanded reveals the expanded line budget. `tools.style: "marker"` keeps the marker style (`[read] src/index.ts`).
 
 ### Tool state machine
 
@@ -183,11 +185,11 @@ The panel has **no surrounding box and never collapses** — the tree stays open
   └─ ◌ backend/api/.../ports.py
 ```
 
-- **Pending** header `➔ Read (N)`.
+- **Pending** header `● Read (N)`.
 - **Running** header `◌ Read (N) · k/N`; tree shows `✓`/`◌` per member.
 - **Done** header ` Read (N) · 0.08s` (open-tree glyph `●`); tree keeps the first 5 members and a `└─ N more` row.
 - **Per-file color**: files read successfully render in the primary (accent) color; failed members render in the error color with the error text indented beneath, and the header becomes `✗ Read (N) · 1 failed`. Errors stay open.
-- **`read` lone call**: a single read collapses to one inline line — ` Read <path:range> · <elapsed>` (pending `➔ Read <path:range>`, failed `✗ Read <path:range>` with the error beneath). No tree row, no `(1)` count.
+- **`read` lone call**: a single read collapses to one inline line — ` Read <path:range> · <elapsed>` (pending `● Read <path:range>`, failed `✗ Read <path:range>` with the error beneath). No tree row, no `(1)` count.
 
 #### ls / find output trees
 
@@ -276,7 +278,7 @@ Default body is compact when settled and supports native expansion. pi-style nev
 Edit, quick-edit, substitute-edit, and target-edit render their diff **adaptively**: split (side-by-side `old │ new`) only for short corresponding changes on a wide terminal, unified otherwise — additions/removals-only diffs, narrow terminals, and lines that would wrap badly in a half pane always render unified. Long runs of unchanged context collapse into a single `⋯ N unchanged lines hidden` row instead of arbitrary truncation; when the diff still exceeds the row budget a `⋯ N lines omitted · Ctrl+O to show full diff` row is shown, and a `Ctrl+O more` hint sits on the bottom border's right side. There is no `Diff` divider — the change stats (`+3 -0`, colored) live in the box header next to the path, published by the result renderer through the shared renderer state (the same call/result state-sharing contract as the write footer), and the footer carries only the elapsed time (a single edited file is implied, so no `1 file` filler):
 
 ```text
-╭─ ➔ Edit ✓ · CHANGELOG.md · +3 -0 ─────────────╮
+╭─ ● Edit ✓ · CHANGELOG.md · +3 -0 ─────────────╮
 │                                                │
 │     1  # Changelog                             │
 │  +  5  - **Fixed: ...                          │
@@ -300,7 +302,7 @@ Edit, quick-edit, substitute-edit, and target-edit render their diff **adaptivel
 Pi's direct bash execution (the `!`/`!!` input prefix, separate from the agent Bash tool) renders natively with plain full-width bars. pi-style re-frames it into the same rounded box as the boxed tools via a fingerprint-certified additive `render` patch on `BashExecutionComponent` (exact 0.83.0; the patch certifies the class constructor identity and installs the only own `render`, so it is active from the first frame):
 
 ```text
-╭─ ➔ Bash ◌ ───────────────────────────────────────────────╮
+╭─ ● Bash ◌ ───────────────────────────────────────────────╮
 │                                                          │
 │  $ echo "zz"                                             │
 │                                                          │
@@ -309,7 +311,7 @@ Pi's direct bash execution (the `!`/`!!` input prefix, separate from the agent B
 ╰─ ◌ Running · 0.0s ───────────────────────────────────────╯
 ```
 
-- Title `➔ Bash` carries the live state glyph (`◌` running / `✓` done / `✗` failed or cancelled) and the `bashPromptColor` extra / `bashMode` color.
+- Title `● Bash` carries the live state glyph (`◌` running / `✓` done / `✗` failed or cancelled) and the `bashPromptColor` extra / `bashMode` color.
 - The `$ command` header, streamed output, loader, and native status lines keep their native content and colors inside the box; the footer shows `◌ Running · Ns` (elapsed from the first boxed render) or the terminal state (`Exit 0` / `Exit N` / `Cancelled`). The `!!` context-exclusion variant gets the same box (its native dim border distinction is not carried into the box).
 - While no session theme is cached or the component shape is unsupported, the native bars render unchanged (fail-closed). No execution, streaming, expansion, or truncation behavior is changed.
 
@@ -373,8 +375,8 @@ If another extension already owns a message/tool renderer: compose only through 
 - **IMG-001:** images attached to a user prompt render as an inline preview entry directly below the user message; the entry is a CustomEntry (display-only, never sent to the LLM).
 - **IMG-002:** previews persist in the session and render identically live, in scroll-back, and after resume — no in-process event state.
 - **IMG-003:** terminals without image support render one ANSI-safe fallback line per image (mime + dimensions, themed); base64 data never leaks into any rendered line, and malformed entry data renders zero lines.
-- **IMG-004:** `messages.showImagePreviews: false` disables both staging and rendering of previews without a session reload; the default is `true`.
-- **IMG-011:** each preview image carries a `#N · WxH` label row matching its `[Image #N]` marker; multiple images render side-by-side on kitty-capable terminals (≤3 columns, stacked fallback when too narrow or non-kitty), and collapsed previews cap at `messages.previewMaxWidth` cells (default 30, bounds 8–60) with Ctrl+O expansion rendering at 60.
+- **IMG-004:** `messages.showImagePreviews: false` disables staging, image content and background preparation without a reload; persisted valid entries retain only the host spacer so ON can hydrate them. The default is `true`.
+- **IMG-011:** each preview image carries a `#N · WxH` label row matching its `[Image #N]` marker; multiple images stack with one native image anchor per line, and collapsed previews cap at `messages.previewMaxWidth` cells (default 30, bounds 8–60) with Ctrl+O expansion rendering at 60.
 - **IMG-005:** the surface registers no keybinding, intercepts no input, and adds no new Pi-core patch identity; the `before_agent_start` path performs no image decoding.
 - **IMG-006:** the built-in paste keystroke inserts an `[Image #N] ` marker instantly when the clipboard holds an image (sync native probe; async byte fill; no temp artifact); on interactive submit, markers resolve against the pending registry one-shot and stay verbatim in the text; raw clipboard path tokens whose files are readable and ≤ 20 MB are attached as real `ImageContent` and rewritten to `[image]`; the message text never becomes empty.
 - **IMG-007:** clipboard read failures discard the pending entry (marker stays plain text); missing/unreadable/oversized artifact tokens keep their original text verbatim; markers removed from a submitted text discard their images (registry one-shot per submit); text with no matching tokens passes through untransformed (native behavior when `messages.clipboardImages: false`).
@@ -425,7 +427,7 @@ Pi Teams retains ownership of execution and roster state. Pi Style uses its exis
 - turn registry unit tests: grouping, leader selection, counts/elapsed, resume rebuild, session-boundary resets;
 - lifecycle/e2e: `turn_end` → deferred collapse, scroll-back consistency, Ctrl+O expand/restore round-trip;
 - unsupported target shapes; repeated reload and later-owner replacement; native fallback snapshots;
-- image preview entries: renderer structure and width caps, `#N` labels, kitty side-by-side zip (same-row payloads) with stacked degradation, fallback line on non-image terminals (no base64 leakage), malformed-entry zero-line guard, config gate on both stage and render sides, ordering (entry below the user message, live and persisted);
+- image preview entries: renderer structure and width caps, `#N` labels, distinct stacked image anchors and native fullscreen placement reuse, fallback line on non-image terminals (no base64 leakage), malformed-entry zero-line guard, config gate on both stage and render sides, ordering (entry below the user message, live and persisted);
 - clipboard image input: pattern acceptance/rejection (near-miss shapes), transform attachment + `[image]` rewrite, mixed missing/oversize passthrough, never-empty text, config gate, live-tmpdir file fixture.
 
 ## Roadmap coverage

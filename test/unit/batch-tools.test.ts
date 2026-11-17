@@ -107,7 +107,7 @@ describe("batch grouping for quiet tools", () => {
 	it("a lone read renders a single inline line", () => {
 		const r1 = readCall("a.ts", "r1");
 		const pending = plain(r1.component.render(80)).join("\n");
-		expect(pending).toContain("➔ Read ◌ a.ts");
+		expect(pending).toContain("● Read ◌ a.ts");
 		expect(pending).not.toContain("(1)");
 		expect(pending).not.toContain("└─");
 		expect(pending).not.toContain("╭");
@@ -115,7 +115,7 @@ describe("batch grouping for quiet tools", () => {
 		// After the result: done inline line, still boxless.
 		readResult("r1", "a.ts", "hello world");
 		const done = plain(r1.component.render(80)).join("\n");
-		expect(done).toContain("➔ Read a.ts");
+		expect(done).toContain("● Read a.ts");
 		expect(done).not.toContain("└─");
 		expect(done).not.toContain("╭");
 	});
@@ -232,7 +232,7 @@ describe("batch grouping for quiet tools", () => {
 		// A later read starts a fresh single-member batch (own inline line).
 		const r3 = readCall("c.ts", "r3");
 		const lines = plain(r3.component.render(80)).join("\n");
-		expect(lines).toContain("➔ Read ◌ c.ts");
+		expect(lines).toContain("● Read ◌ c.ts");
 		expect(lines).not.toContain("(1)");
 	});
 
@@ -315,12 +315,12 @@ describe("chunk-merge for sequential same-file reads (ADR 0010)", () => {
 		expect(r2.component.render(80)).toEqual([]); // member renders zero lines
 
 		let joined = plain(r1.component.render(80)).join("\n");
-		expect(joined).toContain("➔ Read ◌ chat.ts:525-884 · 1/2");
+		expect(joined).toContain("● Read ◌ chat.ts:525-884 · 1/2");
 		expect(joined).not.toContain("└─");
 
 		chunkResult("r2", "chat.ts", 180);
 		joined = plain(r1.component.render(80)).join("\n");
-		expect(joined).toMatch(/➔ Read chat\.ts:525-884 · 2 chunks( · \d+\.\d{2}s)?/);
+		expect(joined).toMatch(/● Read chat\.ts:525-884 · 2 chunks( · \d+\.\d{2}s)?/);
 		expect(joined).not.toContain("├─");
 		expectLinesFit(r1.component.render(80), 80);
 	});
@@ -364,9 +364,9 @@ describe("chunk-merge for sequential same-file reads (ADR 0010)", () => {
 		closeActiveBatch();
 		const r2 = chunkCall("a.ts", "r2", 200, 50);
 		const r2Lines = plain(r2.component.render(80)).join("\n");
-		expect(r2Lines).toContain("➔ Read ◌ a.ts:200-249");
+		expect(r2Lines).toContain("● Read ◌ a.ts:200-249");
 		const joined = plain(r1.component.render(80)).join("\n");
-		expect(joined).toContain("➔ Read a.ts:1-50");
+		expect(joined).toContain("● Read a.ts:1-50");
 		expect(joined).not.toContain("chunk");
 	});
 
@@ -389,7 +389,7 @@ describe("chunk-merge for sequential same-file reads (ADR 0010)", () => {
 		// A later continuation of a.ts cannot merge into the mixed batch.
 		const r3 = chunkCall("a.ts", "r3", 1, 100);
 		const r3Lines = plain(r3.component.render(80)).join("\n");
-		expect(r3Lines).toContain("➔ Read ◌ a.ts:1-100");
+		expect(r3Lines).toContain("● Read ◌ a.ts:1-100");
 		const joined = plain(r1.component.render(80)).join("\n");
 		expect(joined).toContain("Read (2)");
 		expect(joined).not.toContain("chunk");
@@ -409,7 +409,7 @@ describe("chunk-merge for sequential same-file reads (ADR 0010)", () => {
 			ctx,
 		);
 		const joined = plain(r1.component.render(120)).join("\n");
-		expect(joined).toContain("➔ Read ✗ a.ts:1-200 · 2 chunks · 1 failure");
+		expect(joined).toContain("● Read ✗ a.ts:1-200 · 2 chunks · 1 failure");
 		expect(joined).toContain("Permission denied");
 	});
 
@@ -419,7 +419,7 @@ describe("chunk-merge for sequential same-file reads (ADR 0010)", () => {
 		resetReadChunkCandidates(); // new agent run
 		const r2 = chunkCall("a.ts", "r2", 101, 100);
 		const r2Lines = plain(r2.component.render(80)).join("\n");
-		expect(r2Lines).toContain("➔ Read ◌ a.ts:101-200");
+		expect(r2Lines).toContain("● Read ◌ a.ts:101-200");
 	});
 
 	it("tools.mergeChunkedReads: off disables merging", () => {
@@ -430,7 +430,7 @@ describe("chunk-merge for sequential same-file reads (ADR 0010)", () => {
 			closeActiveBatch();
 			const r2 = chunkCall("a.ts", "r2", 101, 100);
 			const r2Lines = plain(r2.component.render(80)).join("\n");
-			expect(r2Lines).toContain("➔ Read ◌ a.ts:101-200");
+			expect(r2Lines).toContain("● Read ◌ a.ts:101-200");
 			expect(plain(r1.component.render(80)).join("\n")).not.toContain("chunk");
 		} finally {
 			setToolsRenderConfig({ mergeChunkedReads: true });

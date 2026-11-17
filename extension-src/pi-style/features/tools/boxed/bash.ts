@@ -11,6 +11,7 @@ import {
 	formatBoxedWords,
 	formatToolOutputLine,
 	getTextOutput,
+	getToolHeaderGlyph,
 	renderBoxedToolCall,
 	renderBoxedToolResult,
 	replaceTabs,
@@ -64,7 +65,7 @@ import {
 import {
 	type BoxedToolContext,
 	type BoxedToolDefinition,
-	getRenderCacheKey,
+	getStateRenderCacheKey,
 	memoizedStateComponent,
 	noteBoxedCallState,
 	noteExecutionStart,
@@ -734,7 +735,7 @@ export function classifyBashCommand(command: string): BashTreeClass | null {
 function bashTreeHeader(theme: BoxTheme, cls: BashTreeClass, counts?: { files?: number; matches?: number }): string {
 	const label = cls.kind === "find" ? "Find" : cls.kind === "ls" ? "List" : "Grep";
 	const hasDetail = Boolean(cls.pattern) || Boolean(counts);
-	const prefix = hasDetail ? `${label}:` : label;
+	const prefix = `${getToolHeaderGlyph()} ${hasDetail ? `${label}:` : label}`;
 	const patternPart = cls.pattern ? ` ${theme.fg("text", cls.pattern)}` : "";
 	let middle = "";
 	if (counts) {
@@ -1094,9 +1095,10 @@ export const bashTool: BoxedToolDefinition = {
 		return memoizedStateComponent(
 			context.state,
 			"__piStyleBashFinalResult",
-			getRenderCacheKey(
+			getStateRenderCacheKey(
 				"bash-final-result",
 				theme,
+				context.state,
 				Boolean(options.expanded),
 				Boolean(context.isError),
 				String(context?.args?.command ?? ""),
