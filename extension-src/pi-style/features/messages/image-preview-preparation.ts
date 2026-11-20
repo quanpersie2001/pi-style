@@ -211,7 +211,7 @@ export function createImagePreviewPreparation(
 			if (enabled && !disposed && protocol && slot.component && width > 0) {
 				ready.delete(slot);
 				ready.add(slot);
-				lines = slot.component.render(width);
+				lines = [...slot.component.render(width)];
 			} else
 				lines =
 					width > 0

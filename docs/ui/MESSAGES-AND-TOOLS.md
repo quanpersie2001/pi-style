@@ -262,7 +262,7 @@ Git status · main
 Rules:
 
 - **No double-box.** The Git header lives outside the box; only viewer content (diff, log, error) gets a frame.
-- **Branch only when it affects the result** (push/merge/ahead-behind/PR base-head) — the status line owns `⎇ main`.
+- **Branch only when it affects the result** (push/merge/ahead-behind/PR base-head) — the status line owns `git main`.
 - **Nonzero exit** keeps the raw stderr; a semantic error view only when the output still parses, otherwise raw fallback.
 - **Git vs GitHub** is icon + title (`git` / `PR` / `Issue` / `Checks`), not a separate component system.
 - **Action lines** (`d diff`, `c checks`, `Enter details`, `Ctrl+O raw`) are hints only — no keybinding registration.

@@ -201,7 +201,21 @@ describe("recorded identity registry vs real pi artifacts", () => {
 					}
 					const before = targetSpecs.map((spec) => Object.getOwnPropertyDescriptor(spec.target, spec.method));
 					artifact.initTheme("dark", false);
+					const assistant = new artifact.AssistantMessageComponent({ content: [{ type: "text", text: "answer" }] });
+					const nativeAssistantLines = assistant.render(78);
+					const nativeSnapshot = [...nativeAssistantLines];
+					// 1.6 caches native output: decorators must accept shared, readonly lines.
+					if (version === "1.6.0") {
+						expect(assistant.render(78)).toBe(nativeAssistantLines);
+						Object.freeze(nativeAssistantLines);
+					}
 					report = probePiCompatibility(version, { toolSnapshot: { style: "compact-box" } });
+					const assistantLines = assistant.render(80);
+					expect(stripAnsi(assistantLines.join("\n"))).toContain("│  answer");
+					expect(assistant.render(80)).toEqual(assistantLines);
+					expect(nativeAssistantLines).toEqual(nativeSnapshot);
+					assistant.updateContent({ content: [{ type: "text", text: "changed" }] });
+					expect(stripAnsi(assistant.render(80).join("\n"))).toContain("changed");
 					expect(report.unsupported, `${install.label} ${entry}`).toHaveLength(0);
 					expect(report.certification.every((surface) => surface.status === "certified")).toBe(true);
 					const path =
@@ -236,7 +250,7 @@ describe("recorded identity registry vs real pi artifacts", () => {
 					expect(customLines).toContain("mcp_tool");
 					expect(customLines).toContain("renderer:body");
 					expect(seenRendererOptions[0]).toMatchObject({ expanded: false, outputPad: 1 });
-					if (["1.5.0", "1.5.2"].includes(version)) {
+					if (["1.5.0", "1.5.2", "1.6.0"].includes(version)) {
 						expect(seenRendererOptions[0]).toMatchObject({
 							keyText: expect.any(Function),
 							keyHint: expect.any(Function),

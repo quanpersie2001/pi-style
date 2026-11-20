@@ -88,7 +88,7 @@ afterEach(() => {
 
 describe("perf regression — shared width/word primitives", () => {
 	it("visibleWidth stays delegated-fast (H1: pre-fix ~2.0µs, post-fix ~0.02µs)", () => {
-		const styled = "\x1b[38;5;109m⎇ main\x1b[0m ctx:42% · in:120k · $0.042 · 12:34";
+		const styled = "\x1b[38;5;109mgit main\x1b[0m ctx:42% · in:120k · $0.042 · 12:34";
 		const total = bench("visibleWidth styled x20000", 20_000, () => visibleWidth(styled));
 		// Post-fix CI: ~2.5ms. Pre-fix: ~40ms local / ~150ms CI. Bound: 25ms.
 		expect(total).toBeLessThan(25);

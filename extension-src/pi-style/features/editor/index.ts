@@ -485,7 +485,8 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		const frame: NonNullable<StyledEditor["nativeFrame"]> = { width: frameWidth, kind };
 		this.nativeFrame = frame;
 		try {
-			const lines = super.render(nativeWidth);
+			// Native render output may be shared with Pi's render cache.
+			const lines = [...super.render(nativeWidth)];
 			// Older Pi editors may not call the border hook. Retain our idle frame;
 			// their host still owns the standalone working indicator above it.
 			if (lines.length > 0) lines[0] = frame.topBorder ?? this.styleTopBorder(frameWidth, kind);

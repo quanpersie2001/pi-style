@@ -105,7 +105,7 @@ const SEMANTIC_COLORS: Record<SemanticToken, string> = {
 const GLYPHS = {
 	unicode: {
 		pi: "π",
-		git: "⎇",
+		git: "git",
 		path: "⌂",
 		context: "◫",
 		separator: "│",

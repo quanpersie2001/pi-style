@@ -96,7 +96,7 @@ interface GitSnapshot {
 }
 ```
 
-Default compact rendering: `⎇ main +2 *1 ?3` — clean branch uses `gitClean` semantics; any change uses `gitDirty` plus state indicators; staged `+N`, unstaged `*N`, untracked `?N`; options can hide individual counters; not-a-repository hides the segment; provider errors keep a stale value when safe and appear in doctor output. Work happens asynchronously outside render; refreshes are timeout-bounded and deduplicated. Invalidation sources include writes/edits and detected branch/worktree-changing Bash commands.
+Default compact rendering: `git main +2 *1 ?3` — clean branch uses `gitClean` semantics; any change uses `gitDirty` plus state indicators; staged `+N`, unstaged `*N`, untracked `?N`; options can hide individual counters; not-a-repository hides the segment; provider errors keep a stale value when safe and appear in doctor output. Work happens asynchronously outside render; refreshes are timeout-bounded and deduplicated. Invalidation sources include writes/edits and detected branch/worktree-changing Bash commands.
 
 ## Context and compaction
 

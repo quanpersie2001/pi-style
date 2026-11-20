@@ -60,7 +60,7 @@ No double-boxing: the Git header lives outside; only viewer content (diff, log, 
 - **Git first.** Porcelain commands: `status`, `diff`/`diff --stat`, `log`, `show`, `commit`, `add`/`restore`/`reset`, `switch`/`checkout`, `pull`/`push`/`fetch`, `merge`/`rebase`, conflict state. Plumbing (`cat-file`, `rev-parse`, `for-each-ref`) stays raw.
 - **`gh` selectively.** `pr list/view/create/checks`, `issue list/view`, `run list/view/watch` via `gh --json` output. `gh api`, extensions, and free-form JSON stay raw (or a JSON tree viewer later).
 - **No "Git mode".** Commands like `git diff | grep …` fall back raw by the pipe rule; `git -C`, env vars, aliases, and chains are handled by the existing tokenizer or fall back.
-- **GitHub vs Git distinction** is icon + title (`git` vs `PR` vs `Issue` vs `Checks`), not a separate component system. The branch is only shown when it affects the result (push/merge/ahead-behind/PR base-head); the status line already owns `⎇ main`.
+- **GitHub vs Git distinction** is icon + title (`git` vs `PR` vs `Issue` vs `Checks`), not a separate component system. The branch is only shown when it affects the result (push/merge/ahead-behind/PR base-head); the status line already owns `git main`.
 - **Superseded:** current rendering uses plain labels for git/gh/search headers and does not render optional file-type/search icons.
 - **Action lines** render as hints only; no keybinding registration in v1.
 

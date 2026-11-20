@@ -202,7 +202,7 @@ describe("responsive status renderer", () => {
 		);
 		const plain = stripAnsi(result.primary);
 		expect(plain).toMatch(
-			/^pi-style │ ⎇ main \*36 \?9 │ \[█{5}░{5}\] \| 47% used │ \$0\.015 │\s+\(deepseek\) deepseek-v4-flash • high$/,
+			/^pi-style │ git main \*36 \?9 │ \[█{5}░{5}\] \| 47% used │ \$0\.015 │\s+\(deepseek\) deepseek-v4-flash • high$/,
 		);
 		expect(plain).toHaveLength(120);
 	});

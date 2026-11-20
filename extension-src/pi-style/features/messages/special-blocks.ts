@@ -123,7 +123,7 @@ function createMarkdownBody(
 			},
 		},
 	);
-	return (contentWidth: number) => md.render(contentWidth);
+	return (contentWidth: number) => [...md.render(contentWidth)];
 }
 
 /** Compaction instances already default-expanded once. The compaction summary

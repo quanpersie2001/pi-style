@@ -77,7 +77,7 @@ describe("theme and ANSI foundation", () => {
 		const theme = resolveTheme({ fg: () => "active" }, config, { NO_COLOR: "1" });
 		expect(theme.mode).toBe("unicode");
 		expect(theme.color("accent")).toBe("");
-		expect(theme.glyph("git")).toBe("⎇");
+		expect(theme.glyph("git")).toBe("git");
 		expect(detectGlyphMode(normalizeConfig({ preset: "ascii" }))).toBe("ascii");
 	});
 	it("keeps ANSI out of visible width and fits truncation/wrapping", () => {

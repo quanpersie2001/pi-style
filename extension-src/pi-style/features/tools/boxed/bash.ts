@@ -407,7 +407,7 @@ function bashBodyComponent(preview: Component, emptyLines: string[] | undefined)
 	return {
 		invalidate: () => preview.invalidate(),
 		render(width: number): string[] {
-			const lines = preview.render(width);
+			const lines = [...preview.render(width)];
 			return lines.length > 0 ? lines : emptyLines;
 		},
 	};
@@ -934,12 +934,14 @@ function renderSemanticPanel(theme: BoxTheme, toolCallId: string, context: Boxed
 			if (!state) return [];
 			const renderFresh = () => {
 				if (state.fallback) {
-					return renderBoxedBashCall(
-						theme,
-						state.command.split("\n"),
-						context,
-						bashWidthKey(state.command, context?.args?.timeout),
-					).render(width);
+					return [
+						...renderBoxedBashCall(
+							theme,
+							state.command.split("\n"),
+							context,
+							bashWidthKey(state.command, context?.args?.timeout),
+						).render(width),
+					];
 				}
 				if (isBashTreeClass(state.cls)) {
 					const treeState: { cls: BashTreeClass; parsed?: ParsedBashTree } = { cls: state.cls };
