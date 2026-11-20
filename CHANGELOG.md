@@ -1,11 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.18] - 2026-11-20
 
 ### Bug Fixes
 
-- Support Pi 1.6.0 readonly render output and cached native arrays; re-certify modular and bundled runtime identities.
-- Replace the misleading Alt glyph in the Git status segment with the portable `git` label.
+- *(compat)* Support Pi 1.6 rendering and clarify git status label
 
 ## [0.5.17] - 2026-11-17
 
